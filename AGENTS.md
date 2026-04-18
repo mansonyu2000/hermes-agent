@@ -2,6 +2,50 @@
 
 Instructions for AI coding assistants and developers working on the hermes-agent codebase.
 
+## 📚 Documentation Index
+
+### Core Documents
+
+| Document | Path | Description |
+|----------|------|-------------|
+| **Development Guide** | [AGENTS.md](AGENTS.md) | This file — AI assistant & developer guide |
+| **Knowledge Base** | [HERMES_AGENT_KNOWLEDGE_BASE.md](HERMES_AGENT_KNOWLEDGE_BASE.md) | Project knowledge base (Chinese) — **main entry point** |
+| **README** | [README.md](README.md) | Project introduction & quick start |
+
+### Rules & Guides
+
+| Document | Path | Description |
+|----------|------|-------------|
+| **Complete Dev Rules** | [.rules/development-rules.md](.rules/development-rules.md) | 13 chapters of development standards (1800+ lines) |
+| **Memory System Guide** | [.rules/memory-system-guide.md](.rules/memory-system-guide.md) | Hindsight memory system guide (500+ lines) |
+| **Test Templates** | [.rules/test-templates.md](.rules/test-templates.md) | Python + frontend test templates (580+ lines) |
+
+### Qoder Skills & Commands
+
+| Document | Path | Description |
+|----------|------|-------------|
+| **Skills/Commands Index** | [.qoder/README.md](.qoder/README.md) | 8 Skills + 6 Commands usage guide |
+| **Skills Directory** | [.qoder/skills/](.qoder/skills/) | 8 project-level Skills |
+| **Commands Directory** | [.qoder/commands/](.qoder/commands/) | 6 project-level Commands |
+
+### Quick Access
+
+```bash
+# Development rules
+cat .rules/development-rules.md
+
+# Memory system
+cat .rules/memory-system-guide.md
+
+# Test templates
+cat .rules/test-templates.md
+
+# Qoder Skills/Commands
+cat .qoder/README.md
+```
+
+---
+
 ## Development Environment
 
 ```bash

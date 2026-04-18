@@ -1,3 +1,4 @@
-[submodule "tinker-atropos"]
-	path = tinker-atropos
-	url = https://github.com/nousresearch/tinker-atropos
+[submodule "external/openclaw"]
+	path = external/openclaw
+	url = git@gitlab.test.com:mansonyu/openclaw-cn.git
+	branch = hermes

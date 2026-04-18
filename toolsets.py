@@ -60,6 +60,8 @@ _HERMES_CORE_TOOLS = [
     "send_message",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
     "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
+    # Desktop automation (gated on Desktop Agent running via check_fn)
+    "desktop",
 ]
 
 
@@ -198,6 +200,19 @@ TOOLSETS = {
     "homeassistant": {
         "description": "Home Assistant smart home control and monitoring",
         "tools": ["ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service"],
+        "includes": []
+    },
+
+    "desktop": {
+        "description": "Desktop automation tools - control mouse, keyboard, windows, and vision recognition via Desktop Agent",
+        "tools": [
+            "desktop_click", "desktop_double_click", "desktop_mouse_move",
+            "desktop_type", "desktop_keypress",
+            "desktop_screenshot",
+            "desktop_vision_find", "desktop_vision_analyze",
+            "desktop_list_windows", "desktop_activate_window",
+            "desktop_launch", "desktop_human_click", "desktop_reset",
+        ],
         "includes": []
     },
 
