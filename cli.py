@@ -4997,6 +4997,15 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 context_length=ctx_len,
             )
         
+        # WinPeek 收件箱检查
+        try:
+            from hermes_cli.winpeek_inbox import check_inbox, format_inbox_summary
+            inbox_msgs = check_inbox()
+            if inbox_msgs:
+                self._console_print(format_inbox_summary(inbox_msgs))
+        except Exception:
+            pass
+
         # Tool discovery is intentionally deferred on the Termux bare prompt
         # path; availability warnings are shown once tools are initialized.
         if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
@@ -7046,6 +7055,14 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         context_length=ctx_len,
                     )
                 _cprint("  ✨ (◕‿◕)✨ Fresh start! Screen cleared and conversation reset.\n")
+                # WinPeek 收件箱检查 (fresh start)
+                try:
+                    from hermes_cli.winpeek_inbox import check_inbox, format_inbox_summary
+                    inbox_msgs = check_inbox()
+                    if inbox_msgs:
+                        _cprint(format_inbox_summary(inbox_msgs))
+                except Exception:
+                    pass
                 # Show a random tip on new session
                 try:
                     from hermes_cli.tips import get_random_tip
