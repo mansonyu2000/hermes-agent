@@ -10,6 +10,7 @@ Hermes WinPeek MQTT 收件监听器
 """
 
 import json
+import os
 import threading
 from datetime import datetime
 
@@ -25,7 +26,11 @@ _queue_lock = threading.Lock()
 _listener_started = False
 
 
-def start_mqtt_listener(uid: int = 2022, mqtt_host: str = "192.168.3.3", mqtt_port: int = 1883):
+def start_mqtt_listener(uid: int = None, mqtt_host: str = "192.168.3.3", mqtt_port: int = 1883):
+    if uid is None:
+        uid = int(os.environ.get("WINPEEK_UID", 0))
+    if not uid:
+        return
     """后台线程启动 MQTT 订阅, 消息入队 _inbox_queue。"""
     global _listener_started
     if _listener_started or not HAS_PAHO:

@@ -5000,7 +5000,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # WinPeek MQTT 收件监听 (后台线程, 消息入队 → 打印)
         try:
             from hermes_cli.winpeek_mqtt import start_mqtt_listener, drain_inbox, format_inbox_summary
-            start_mqtt_listener(uid=2022)
+            start_mqtt_listener()  # uid from WINPEEK_UID env
             inbox_msgs = drain_inbox()
             if inbox_msgs:
                 self._console_print(format_inbox_summary(inbox_msgs))
