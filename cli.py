@@ -4997,6 +4997,16 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 context_length=ctx_len,
             )
         
+        # WinPeek MQTT 收件监听 (后台线程, 消息入队 → 打印)
+        try:
+            from hermes_cli.winpeek_mqtt import start_mqtt_listener, drain_inbox, format_inbox_summary
+            start_mqtt_listener(uid=2022)
+            inbox_msgs = drain_inbox()
+            if inbox_msgs:
+                self._console_print(format_inbox_summary(inbox_msgs))
+        except Exception:
+            pass
+
         # Tool discovery is intentionally deferred on the Termux bare prompt
         # path; availability warnings are shown once tools are initialized.
         if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
