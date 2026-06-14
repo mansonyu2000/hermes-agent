@@ -4997,15 +4997,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 context_length=ctx_len,
             )
         
-        # WinPeek 收件箱检查
-        try:
-            from hermes_cli.winpeek_inbox import check_inbox, format_inbox_summary
-            inbox_msgs = check_inbox()
-            if inbox_msgs:
-                self._console_print(format_inbox_summary(inbox_msgs))
-        except Exception:
-            pass
-
         # Tool discovery is intentionally deferred on the Termux bare prompt
         # path; availability warnings are shown once tools are initialized.
         if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
@@ -7055,14 +7046,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         context_length=ctx_len,
                     )
                 _cprint("  ✨ (◕‿◕)✨ Fresh start! Screen cleared and conversation reset.\n")
-                # WinPeek 收件箱检查 (fresh start)
-                try:
-                    from hermes_cli.winpeek_inbox import check_inbox, format_inbox_summary
-                    inbox_msgs = check_inbox()
-                    if inbox_msgs:
-                        _cprint(format_inbox_summary(inbox_msgs))
-                except Exception:
-                    pass
                 # Show a random tip on new session
                 try:
                     from hermes_cli.tips import get_random_tip
@@ -12508,6 +12491,17 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                                     self._pending_input.put(_synth)
                             except Exception:
                                 pass
+                        # ── External inject hook: ~/.winpeek/.inject → _pending_input
+                        inject_path = os.path.expanduser("~/.winpeek/inbox/.inject")
+                        if os.path.exists(inject_path):
+                            try:
+                                with open(inject_path, encoding='utf-8') as _f:
+                                    _inj = _f.read().strip()
+                                os.unlink(inject_path)
+                                if _inj:
+                                    self._pending_input.put(_inj)
+                            except Exception:
+                                pass
                         continue
                     
                     if not user_input:
@@ -12598,6 +12592,18 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         self._tool_start_time = 0.0
                         self._pending_tool_info.clear()
                         self._last_scrollback_tool = ""
+
+                        # ── Write last assistant response to outbox for external agents
+                        try:
+                            if self.conversation_history:
+                                last = self.conversation_history[-1]
+                                if last.get("role") == "assistant":
+                                    outbox_dir = os.path.expanduser("~/.winpeek/outbox")
+                                    os.makedirs(outbox_dir, exist_ok=True)
+                                    with open(os.path.join(outbox_dir, "last_response.txt"), 'w', encoding='utf-8') as _of:
+                                        _of.write(last.get("content", ""))
+                        except Exception:
+                            pass
 
                         app.invalidate()  # Refresh status line
 
