@@ -1,26 +1,43 @@
 #!/bin/bash
-# deploy-ubuntu.sh — Hermes Agent Ubuntu 一键部署
-# 用法: git pull 后在仓库根目录运行  bash deploy/deploy-ubuntu.sh
-
+# deploy-ubuntu.sh — Hermes + WinPeek 开发机一键部署
 set -e
-SHARE="/mnt/data/projects/hermes-deploy"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+WORK="$HOME/mydata/mycode/github"
+WINPEEK="$WORK/winpeek-prod"
 
-echo "=== Hermes Agent 部署 ==="
+echo "=== Hermes + WinPeek 开发机部署 ==="
 
 # 1. Python 3.12
 if ! python3.12 --version &>/dev/null; then
-    echo "[1/3] 安装 Python 3.12..."
+    echo "[1/5] Python 3.12..."
     sudo apt update -qq && sudo apt install -y -qq python3.12 python3.12-venv python3-pip
+else echo "[1/5] Python 3.12 OK"; fi
+
+# 2. WinPeek-prod
+echo "[2/5] WinPeek-prod..."
+if [ ! -d "$WINPEEK" ]; then
+    mkdir -p "$WORK"
+    git clone http://gitlab.test.com:8080/mansonyu/PeekabooWin.git "$WINPEEK"
+else
+    cd "$WINPEEK" && git pull origin prod
 fi
 
-# 2. 安装依赖
-echo "[2/3] pip install -e ..."
+# 3. Hermes
+echo "[3/5] pip install hermes..."
 pip install -e "$REPO" -q
 
-# 3. 升级钩子
-echo "[3/3] 注册升级监控(每10分钟)..."
-(crontab -l 2>/dev/null | grep -v hermes-upgrade; echo "*/10 * * * * python3 $REPO/deploy/auto-upgrade.py") | crontab -
+# 4. WinPeek
+echo "[4/5] pip install winpeek-say..."
+pip install -e "$WINPEEK/bin" -q
 
-echo "=== 完成 ==="
-echo "启动: hermes"
+# 5. 定时任务
+echo "[5/5] 注册定时任务..."
+(crontab -l 2>/dev/null | grep -v 'hermes-upgrade\|winpeek-health'; cat <<CRON
+*/10 * * * * python3 $REPO/deploy/auto-upgrade.py
+*/5 * * * * python3 $WINPEEK/bin/health-check.py
+CRON
+) | crontab -
+
+echo "=== 部署完成 ==="
+echo "Hermes: hermes"
+echo "WinPeek: cd $WINPEEK"
