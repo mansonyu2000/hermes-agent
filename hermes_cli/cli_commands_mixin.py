@@ -225,7 +225,8 @@ class CLICommandsMixin:
             print("  Usage: /snapshot [list|create [label]|restore <id>|prune [N]]")
 
     def _handle_stop_command(self):
-        """Handle /stop — kill all running background processes.
+        """Handle /stop — kill all running background processes and
+        background (async) delegations.
 
         Inspired by OpenAI Codex's separation of interrupt (stop current turn)
         from /stop (clean up background processes). See openai/codex#14602.
@@ -235,13 +236,26 @@ class CLICommandsMixin:
         processes = process_registry.list_sessions()
         running = [p for p in processes if p.get("status") == "running"]
 
-        if not running:
+        # Background subagents dispatched via delegate_task(background=true)
+        # live in their own registry, not the process registry.
+        try:
+            from tools.async_delegation import active_count, interrupt_all
+            n_async = active_count()
+        except Exception:
+            n_async = 0
+            interrupt_all = None
+
+        if not running and not n_async:
             print("  No running background processes.")
             return
 
-        print(f"  Stopping {len(running)} background process(es)...")
-        killed = process_registry.kill_all()
-        print(f"  ✅ Stopped {killed} process(es).")
+        if running:
+            print(f"  Stopping {len(running)} background process(es)...")
+            killed = process_registry.kill_all()
+            print(f"  ✅ Stopped {killed} process(es).")
+        if n_async and interrupt_all is not None:
+            stopped = interrupt_all(reason="/stop")
+            print(f"  ✅ Interrupted {stopped} background delegation(s).")
 
     def _handle_agents_command(self):
         """Handle /agents — show background processes and agent status."""
@@ -260,6 +274,22 @@ class CLICommandsMixin:
 
         if finished:
             _cprint(f"  Recently finished: {len(finished)}")
+
+        # Background (async) delegations — delegate_task(background=true)
+        try:
+            from tools.async_delegation import list_async_delegations
+            delegations = list_async_delegations()
+        except Exception:
+            delegations = []
+        running_d = [d for d in delegations if d.get("status") == "running"]
+        if delegations:
+            _cprint(f"  Background delegations: {len(running_d)} running")
+            for d in delegations:
+                goal = (d.get("goal") or "")[:60]
+                _cprint(
+                    f"    {d.get('delegation_id', '?')} · "
+                    f"{d.get('status', '?')} · {goal}"
+                )
 
         agent_running = getattr(self, "_agent_running", False)
         _cprint(f"  Agent: {'running' if agent_running else 'idle'}")
@@ -917,52 +947,6 @@ class CLICommandsMixin:
         _cprint(f"  Original session: {parent_session_id}")
         _cprint(f"  Branch session:   {new_session_id}")
 
-    def _handle_gquota_command(self, cmd_original: str) -> None:
-        """Show Google Gemini Code Assist quota usage for the current OAuth account."""
-        try:
-            from agent.google_oauth import get_valid_access_token, GoogleOAuthError, load_credentials
-            from agent.google_code_assist import retrieve_user_quota, CodeAssistError
-        except ImportError as exc:
-            self._console_print(f"  [red]Gemini modules unavailable: {exc}[/]")
-            return
-
-        try:
-            access_token = get_valid_access_token()
-        except GoogleOAuthError as exc:
-            self._console_print(f"  [yellow]{exc}[/]")
-            self._console_print("  Run [bold]/model[/] and pick 'Google Gemini (OAuth)' to sign in.")
-            return
-
-        creds = load_credentials()
-        project_id = (creds.project_id if creds else "") or ""
-
-        try:
-            buckets = retrieve_user_quota(access_token, project_id=project_id)
-        except CodeAssistError as exc:
-            self._console_print(f"  [red]Quota lookup failed:[/] {exc}")
-            return
-
-        if not buckets:
-            self._console_print("  [dim]No quota buckets reported (account may be on legacy/unmetered tier).[/]")
-            return
-
-        # Sort for stable display, group by model
-        buckets.sort(key=lambda b: (b.model_id, b.token_type))
-        self._console_print()
-        self._console_print(f"  [bold]Gemini Code Assist quota[/]  (project: {project_id or '(auto / free-tier)'})")
-        self._console_print()
-        for b in buckets:
-            pct = max(0.0, min(1.0, b.remaining_fraction))
-            width = 20
-            filled = int(round(pct * width))
-            bar = "▓" * filled + "░" * (width - filled)
-            pct_str = f"{int(pct * 100):3d}%"
-            header = b.model_id
-            if b.token_type:
-                header += f" [{b.token_type}]"
-            self._console_print(f"    {header:40s}  {bar}  {pct_str}")
-        self._console_print()
-
     def _handle_personality_command(self, cmd: str):
         """Handle the /personality command to set predefined personalities."""
         from cli import save_config_value
@@ -1255,6 +1239,57 @@ class CLICommandsMixin:
         print(f"(._.) Unknown cron command: {subcommand}")
         print("  Available: list, add, edit, pause, resume, run, remove")
 
+    def _handle_suggestions_command(self, cmd: str):
+        """Handle /suggestions — review/accept/dismiss suggested automations.
+
+        Delegates to the shared handler so CLI and gateway never drift. CLI
+        origin is the local platform so an accepted job's "origin" delivery
+        resolves to a configured home channel.
+        """
+        import shlex
+
+        try:
+            tokens = shlex.split(cmd)[1:] if cmd else []
+        except ValueError:
+            tokens = (cmd or "").split()[1:]
+        args = " ".join(tokens)
+        try:
+            from hermes_cli.suggestions_cmd import handle_suggestions_command
+            output = handle_suggestions_command(args)
+        except Exception as e:
+            output = f"Suggestions command failed: {e}"
+        self._console_print(output)
+
+    def _handle_blueprint_command(self, cmd: str):
+        """Handle /blueprint — set up an automation from a blueprint template.
+
+        Delegates to the shared handler. A bare ``/blueprint`` lists the
+        catalog; ``/blueprint <name>`` name-matches a blueprint and seeds the
+        agent to ask the user for each value conversationally (the result's
+        ``agent_seed``); ``/blueprint <name> slot=val …`` creates the job
+        directly. When a seed is returned it is stashed as a one-shot pending
+        message the interactive loop runs as the next agent turn.
+        """
+        import shlex
+
+        try:
+            tokens = shlex.split(cmd)[1:] if cmd else []
+        except ValueError:
+            tokens = (cmd or "").split()[1:]
+        args = " ".join(shlex.quote(t) for t in tokens)
+        try:
+            from hermes_cli.blueprint_cmd import handle_blueprint_command
+            result = handle_blueprint_command(args)
+        except Exception as e:
+            self._console_print(f"Cron blueprint command failed: {e}")
+            return
+        self._console_print(result.text)
+        seed = getattr(result, "agent_seed", None)
+        if seed:
+            # One-shot: the interactive loop picks this up right after the
+            # slash command returns and runs it as a normal agent turn.
+            self._pending_agent_seed = seed
+
     def _handle_curator_command(self, cmd: str):
         """Handle /curator slash command.
 
@@ -1301,8 +1336,45 @@ class CLICommandsMixin:
     def _handle_skills_command(self, cmd: str):
         """Handle /skills slash command — delegates to hermes_cli.skills_hub."""
         from cli import ChatConsole
+        # Intercept write-approval review subcommands first (pending/approve/
+        # reject/diff/mode); everything else goes to the skills hub.
+        parts = cmd.strip().split()
+        args = parts[1:] if len(parts) > 1 else []
+        if args and args[0].lower() in {"pending", "approve", "apply", "reject",
+                                        "deny", "drop", "diff", "approval", "mode"}:
+            from hermes_cli.write_approval_commands import handle_pending_subcommand
+            from tools import write_approval as wa
+            out = handle_pending_subcommand(
+                wa.SKILLS, args,
+                set_mode_fn=lambda enabled: self._save_write_approval("skills", enabled),
+            )
+            if out is not None:
+                print(out)
+                return
         from hermes_cli.skills_hub import handle_skills_slash
         handle_skills_slash(cmd, ChatConsole())
+
+    def _handle_memory_command(self, cmd: str):
+        """Handle /memory slash command — pending review + approval-gate toggle."""
+        from hermes_cli.write_approval_commands import handle_pending_subcommand
+        from tools import write_approval as wa
+        parts = cmd.strip().split()
+        args = parts[1:] if len(parts) > 1 else []
+        store = getattr(self.agent, "_memory_store", None) if getattr(self, "agent", None) else None
+        out = handle_pending_subcommand(
+            wa.MEMORY, args,
+            memory_store=store,
+            set_mode_fn=lambda enabled: self._save_write_approval("memory", enabled),
+        )
+        if out is None:
+            out = ("Unknown /memory subcommand. "
+                   "Use: pending, approve <id>, reject <id>, approval <on|off>.")
+        print(out)
+
+    def _save_write_approval(self, subsystem: str, enabled: bool):
+        """Persist <subsystem>.write_approval to config (for /memory|/skills approval)."""
+        from cli import save_config_value
+        save_config_value(f"{subsystem}.write_approval", bool(enabled))
 
     def _handle_background_command(self, cmd: str):
         """Handle /background <prompt> — run a prompt in a separate background session.
