@@ -5480,10 +5480,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 context_length=ctx_len,
             )
         
-        # WinPeek MQTT 收件监听 (后台线程, 消息入队 → 打印)
+        # WinPeek MQTT 收件监听 (后台线程, 消息到达 → 入队 → 打印)
         try:
             from hermes_cli.winpeek_mqtt import start_mqtt_listener, drain_inbox, format_inbox_summary
-            start_mqtt_listener()  # uid from WINPEEK_UID env
+            start_mqtt_listener()  # uid from agent.conf
             inbox_msgs = drain_inbox()
             if inbox_msgs:
                 self._console_print(format_inbox_summary(inbox_msgs))
@@ -14056,17 +14056,16 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                                     self._pending_input.put(_synth)
                             except Exception:
                                 pass
-                        # ── External inject hook: ~/.winpeek/.inject → _pending_input
-                        inject_path = os.path.expanduser("~/.winpeek/inbox/.inject")
-                        if os.path.exists(inject_path):
-                            try:
-                                with open(inject_path, encoding='utf-8') as _f:
-                                    _inj = _f.read().strip()
-                                os.unlink(inject_path)
-                                if _inj:
-                                    self._pending_input.put(_inj)
-                            except Exception:
-                                pass
+                        # ── WinPeek MQTT 收件: paho-mqtt 内置线程 (方案B)
+                        #   MQTT broker push → winpeek_mqtt daemon线程 → _inbox_queue → drain → 打印
+                        #   需要: pip install paho-mqtt + agent.conf (hermes_uid, mqtt_host, mqtt_port)
+                        try:
+                            from hermes_cli.winpeek_mqtt import drain_inbox, format_inbox_summary
+                            inbox_msgs = drain_inbox()
+                            if inbox_msgs:
+                                self._console_print(format_inbox_summary(inbox_msgs))
+                        except Exception:
+                            pass
                         continue
                     
                     if not user_input:
