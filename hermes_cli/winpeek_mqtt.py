@@ -42,6 +42,7 @@ except ImportError:
 _inbox_queue: list[dict] = []
 _queue_lock = threading.Lock()
 _listener_started = False
+_mqtt_client = None  # paho client 引用, 收发复用同一条连接
 
 # ── 默认值 (agent.conf 可覆盖) ─────────────────────────────
 _DEFAULT_HOST = "192.168.3.23"
@@ -139,13 +140,14 @@ def start_mqtt_listener(
             })
 
     def _loop():
+        nonlocal _mqtt_client
         while True:
             try:
-                client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-                client.on_connect = on_connect
-                client.on_message = on_message
-                client.connect(_host, _port, 60)
-                client.loop_forever()
+                _mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+                _mqtt_client.on_connect = on_connect
+                _mqtt_client.on_message = on_message
+                _mqtt_client.connect(_host, _port, 60)
+                _mqtt_client.loop_forever()
             except Exception:
                 import time
                 time.sleep(5)
@@ -153,6 +155,33 @@ def start_mqtt_listener(
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
     _listener_started = True
+
+
+def send_message(to_uid: int, body: str, from_name: str = "Hermes") -> bool:
+    """
+    用已有的 MQTT 连接发送消息。不新建连接, 不收发送费。
+
+    to_uid: 目标 WinPeek uid
+    body: 消息正文
+    from_name: 发送者显示名
+    """
+    global _mqtt_client
+    if _mqtt_client is None:
+        return False
+    try:
+        import json as _json
+        _mqtt_client.publish(
+            f"comms/inbox/{to_uid}",
+            _json.dumps({
+                "from_uid": _read_config()["uid"],
+                "from": from_name,
+                "body": body,
+            }),
+            qos=1,
+        )
+        return True
+    except Exception:
+        return False
 
 
 def drain_inbox() -> list[dict]:
