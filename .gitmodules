@@ -1,0 +1,4 @@
+[submodule "external/openclaw"]
+	path = external/openclaw
+	url = git@gitlab.test.com:mansonyu/openclaw-cn.git
+	branch = hermes
