@@ -18,7 +18,7 @@ Hermes 有两条对外通道：
                     │                          │
                     │  ┌────────────────────┐  │
               ① ───│──│ winpeek_mqtt.py    │  │─── ① MQTT 收发 WinPeek 消息
-              收/发 │  │ (daemon 线程)       │  │    broker: 192.168.3.23:11883
+              收/发 │  │ (daemon 线程)       │  │    broker: 192.168.3.23:1883
                     │  └────────────────────┘  │
                     │                          │
                     │  ┌────────────────────┐  │
@@ -43,7 +43,7 @@ Hermes 有两条对外通道：
 发送方 (say.py / API)                    Hermes 进程内
     │                                        │
     ▼                                        │
-MQTT Broker: 192.168.3.23:11883              │
+MQTT Broker: 192.168.3.23:1883              │
   topic: comms/inbox/{hermes_uid}            │
     │  push (paho 持久连接)                    │
     ▼                                        │
@@ -117,7 +117,7 @@ cat > ~/.hermes/data/agent.conf << 'EOF'
 {
   "hermes_uid": 2022,
   "mqtt_host": "192.168.3.23",
-  "mqtt_port": 11883
+  "mqtt_port": 1883
 }
 EOF
 
@@ -132,7 +132,7 @@ hermes
 |------|------|-----|
 | `hermes_uid` | 你的 WinPeek uid | 2022 (Hermes), 1002 (码哥) |
 | `mqtt_host` | MQTT broker | 192.168.3.23 |
-| `mqtt_port` | MQTT 端口 | 11883 |
+| `mqtt_port` | MQTT 端口 | 1883 |
 
 **查找顺序**（找到第一个就停）：
 1. `~/.winpeek/agent.conf`
@@ -140,7 +140,7 @@ hermes
 3. `~/.claude/data/agent.conf`
 4. `./agent.conf`（项目目录）
 5. `./bin/agent.conf`
-6. 都找不到 → 用默认值 (uid=2022, host=192.168.3.23, port=11883)
+6. 都找不到 → 用默认值 (uid=2022, host=192.168.3.23, port=1883)
 
 ### 2.6 发送消息
 
@@ -175,7 +175,7 @@ cat ~/.hermes/data/agent.conf
 python -c "
 import paho.mqtt.client as mqtt
 c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-c.connect('192.168.3.23', 11883, 10)
+c.connect('192.168.3.23', 1883, 10)
 print('MQTT broker 连通 ✅')
 c.disconnect()
 "
@@ -188,7 +188,7 @@ def on_msg(c, u, m):
     print(f'收到: {p.get(\"from\")}[{p.get(\"from_uid\")}]: {p.get(\"body\",\"\")[:80]}')
 c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 c.on_message = on_msg
-c.connect('192.168.3.23', 11883)
+c.connect('192.168.3.23', 1883)
 c.subscribe('comms/inbox/2022')
 print('监听中... Ctrl+C 退出')
 c.loop_forever()

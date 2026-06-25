@@ -16,7 +16,7 @@ Hermes WinPeek MQTT 收件监听器
 默认值:
   hermes_uid: 2022
   mqtt_host: 192.168.3.23
-  mqtt_port: 11883
+  mqtt_port: 1883
 
 用法 (cli.py):
   from hermes_cli.winpeek_mqtt import start_mqtt_listener, drain_inbox, format_inbox_summary
@@ -46,7 +46,7 @@ _mqtt_client = None  # paho client 引用, 收发复用同一条连接
 
 # ── 默认值 (agent.conf 可覆盖) ─────────────────────────────
 _DEFAULT_HOST = "192.168.3.23"
-_DEFAULT_PORT = 11883
+_DEFAULT_PORT = 1883
 _DEFAULT_UID = 2022
 
 
