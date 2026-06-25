@@ -145,19 +145,16 @@ hermes
 ### 2.6 发送消息
 
 ```bash
-# 方式 1: say.py (在 winpeek-prod 仓库)
-python bin/say.py <目标uid> "消息内容"
-# 例: python bin/say.py 2022 "你好"
+# 方式 1: say 命令 (全局可用, 推荐)
+say <目标uid> "消息内容"
+# 例: say 2022 "你好"
 
-# 方式 2: wsay.sh
-bash bin/wsay.sh <目标uid> "消息内容"
-
-# 方式 3: API
+# 方式 2: API
 curl -X POST http://192.168.3.44:2000/api/chat/post \
   -H "Content-Type: application/json" \
   -d '{"to_uid": 2022, "body": "消息内容", "from_type": "ai"}'
 
-# 方式 4: winpeek_mqtt.send_message() (Python, 复用 Hermes MQTT 连接)
+# 方式 3: winpeek_mqtt.send_message() (Python, 复用 Hermes MQTT 连接)
 from hermes_cli.winpeek_mqtt import send_message
 send_message(to_uid=2022, body="消息内容")
 ```
