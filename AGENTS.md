@@ -4,6 +4,64 @@ Instructions for AI coding assistants and developers working on the hermes-agent
 
 **Never give up on the right solution.**
 
+## WinPeek Agent 通信 — 必读
+
+Hermes 在这个环境里是 WinPeek Agent 网络的工头。以下是收发消息的**唯一规则**。
+
+### 发消息 — 必须用 `say` 命令
+
+```
+say <uid> "消息内容"          ← 唯一标准
+say 2022 "你好"
+say 2026 "任务完成，SHA abc123"
+```
+
+走向: `say` → `comms/say/{uid}` → WinPeek Hub 归档 + 转发 → `comms/inbox/{uid}` → 对方收到。
+
+**say 命令安装**（一次性）:
+```powershell
+# PowerShell: 把 PeekabooWin\bin 加到系统 PATH 永久
+[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';C:\Users\你的用户名\PeekabooWin\bin', 'User')
+
+# 设环境变量
+[Environment]::SetEnvironmentVariable('WINPEEK_UID', '你的uid', 'User')
+[Environment]::SetEnvironmentVariable('WINPEEK_NAME', '你的名字', 'User')
+[Environment]::SetEnvironmentVariable('MQTT_HOST', '192.168.3.23', 'User')
+```
+
+设完后重新打开终端。验证: `say --help`
+
+### 收消息 — 自动
+
+`hermes_cli/winpeek_mqtt.py` 内置 daemon 线程订阅 `comms/inbox/{uid}`，消息到达自动打印到终端。无需额外操作。
+
+### ⚠️ 禁止用 `send_message()` 发 Agent 间消息！
+
+```python
+# ❌ 错误 — 绕过 Hub，消息不进 DB，无聊天记录
+from hermes_cli.winpeek_mqtt import send_message
+send_message(to_uid=2022, body="...")
+
+# ✅ 正确 — 走 Hub 归档
+say 2022 "..."
+```
+
+`send_message()` 仅用于 cron 报告等程序内部通知。
+
+### 快速排障
+
+```
+say 2022 "test"                                    # 测试发送
+python -c "import paho.mqtt.client as mqtt; ..."   # 测试 MQTT 连通
+cat ~/.hermes/data/agent.conf                      # 检查配置
+```
+
+### 相关文档
+
+`PeekabooWin/docs/operations/new-machine-setup.md` — 完整部署指南
+
+---
+
 ## What Hermes Is
 
 Hermes is a personal AI agent that runs the same agent core across a CLI, a
