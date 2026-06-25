@@ -118,6 +118,26 @@ def apply_windows_utf8_bootstrap() -> bool:
             except (OSError, ValueError):
                 pass
 
+    # 3. subprocess Popen pipe readers default to locale encoding on Windows
+    #    (GBK/cp936).  When a child emits UTF-8 bytes, TextIOWrapper.read()
+    #    in _readerthread crashes with UnicodeDecodeError.  Monkey-patch
+    #    Popen so text=True without explicit encoding= defaults to utf-8.
+    #    Only applied on Windows — POSIX already defaults to UTF-8.
+
+    import subprocess as _subprocess
+
+    _original_popen_init = _subprocess.Popen.__init__
+
+    def _utf8_popen_init(self, *args, **kwargs):
+        # Only intervene when text-mode is requested without an explicit
+        # encoding — if someone already set encoding= we leave it alone.
+        if kwargs.get("text") or kwargs.get("universal_newlines"):
+            kwargs.setdefault("encoding", "utf-8")
+            kwargs.setdefault("errors", "replace")
+        return _original_popen_init(self, *args, **kwargs)
+
+    _subprocess.Popen.__init__ = _utf8_popen_init
+
     _bootstrap_applied = True
     return True
 
