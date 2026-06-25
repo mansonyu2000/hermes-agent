@@ -140,7 +140,7 @@ def start_mqtt_listener(
             })
 
     def _loop():
-        nonlocal _mqtt_client
+        global _mqtt_client
         while True:
             try:
                 _mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
