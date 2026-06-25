@@ -14060,11 +14060,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         #   MQTT broker push → winpeek_mqtt daemon线程 → _inbox_queue
                         #   → drain → 打印 + 注入对话 (Agent 会处理)
                         try:
-                            from hermes_cli.winpeek_mqtt import drain_inbox, format_inbox_summary
+                            from hermes_cli.winpeek_mqtt import drain_inbox
                             inbox_msgs = drain_inbox()
                             if inbox_msgs:
-                                self._console_print(format_inbox_summary(inbox_msgs))
-                                # 注入对话 — Agent 会当成用户消息处理
+                                # 注入对话 — Agent 会当成用户消息处理（CLI 会回显）
                                 for msg in inbox_msgs:
                                     self._pending_input.put(
                                         f"{msg['from']}[{msg['from_uid']}] said: {msg['content']}"
