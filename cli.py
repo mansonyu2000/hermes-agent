@@ -14057,13 +14057,18 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                             except Exception:
                                 pass
                         # ── WinPeek MQTT 收件: paho-mqtt 内置线程 (方案B)
-                        #   MQTT broker push → winpeek_mqtt daemon线程 → _inbox_queue → drain → 打印
-                        #   需要: pip install paho-mqtt + agent.conf (hermes_uid, mqtt_host, mqtt_port)
+                        #   MQTT broker push → winpeek_mqtt daemon线程 → _inbox_queue
+                        #   → drain → 打印 + 注入对话 (Agent 会处理)
                         try:
                             from hermes_cli.winpeek_mqtt import drain_inbox, format_inbox_summary
                             inbox_msgs = drain_inbox()
                             if inbox_msgs:
                                 self._console_print(format_inbox_summary(inbox_msgs))
+                                # 注入对话 — Agent 会当成用户消息处理
+                                for msg in inbox_msgs:
+                                    self._pending_input.put(
+                                        f"{msg['from']}[{msg['from_uid']}] said: {msg['content']}"
+                                    )
                         except Exception:
                             pass
                         continue
