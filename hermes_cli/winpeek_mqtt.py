@@ -6,6 +6,21 @@ Hermes WinPeek MQTT 收件监听器
 
 无需独立 bridge 进程，无需文件轮询，无需 .inject 文件。
 
+═══════════════════════════════════════════════════════════════
+⚠️  发送消息必须用 say 命令，禁止用 send_message()：
+═══════════════════════════════════════════════════════════════
+
+  ✅ say 2022 "消息"      → comms/say/{uid} → Hub 归档+转发
+  ❌ send_message(...)     → comms/inbox/{uid} 直推 → 绕过Hub无归档
+
+  send_message() 仅用于 cron 报告等程序内部通知。
+  Agent 间通信必须用 shell 命令 say。
+
+  say 命令安装: PeekabooWin\\bin 加到系统 PATH。
+  详细: PeekabooWin/docs/operations/new-machine-setup.md
+
+═══════════════════════════════════════════════════════════════
+
 配置来源: agent.conf (JSON)，机器独立，不进 git。
   查找顺序:
     1. ~/.winpeek/agent.conf
@@ -159,7 +174,10 @@ def start_mqtt_listener(
 
 def send_message(to_uid: int, body: str, from_name: str = "Hermes") -> bool:
     """
-    用已有的 MQTT 连接发送消息。不新建连接, 不收发送费。
+    ⚠️  内部通道 — 绕过 Hub，消息不进 DB，无聊天记录。
+
+    仅用于 cron 报告、系统通知等程序内部消息。
+    Agent 间通信必须用 shell 命令: say <uid> "消息"
 
     to_uid: 目标 WinPeek uid
     body: 消息正文
