@@ -6,16 +6,32 @@ Instructions for AI coding assistants and developers working on the hermes-agent
 
 ## WinPeek Agent 通信规则
 
-终端出现 `● 名字[uid] said: 内容` → 只需回复 **1 行**：
+### 发送 — 用 sendmsg（自动带身份+上下文）
+
+```python
+from hermes_cli.sendmsg import send
+send(2022, "done, SHA a62eb1b")
+```
+
+`send()` 自动:
+- 读 agent.conf — 知道你叫 P哥[2022]
+- 附 git 上下文 — `[main e1f4a19]` 自动拼到消息尾部
+- 发给本地 daemon → daemon 投递 MQTT
+
+无需 `say` 命令，不需 shell，不需 `send_message()`。
+
+### 回复收到的消息
+
+终端出现 `● 名字[uid] said: 内容` → 只需:
 
 ```
-say <对方uid> "简短回复"
+[re:<uid>]:<一句话摘要>
 ```
 
 **铁律**:
-- 收到消息 → say 回复。不要分析、不要推理、不要验证环境。
-- 发送消息 → `say <uid> "消息"`。**禁止** `send_message()`（绕过 Hub 无归档）。
-- 回复后输出: `[re:<uid>]:<一句话摘要>`
+- 收到消息 → say 回复（shell `say` 仍然可用，全局通用）
+- **禁止** `send_message()` → 绕过 Hub 无归档
+- 从代码发 → 用 `sendmsg.send()` 替代 shell `say`
 
 ---
 
