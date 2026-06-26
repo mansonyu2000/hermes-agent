@@ -5480,6 +5480,13 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 context_length=ctx_len,
             )
         
+        # WinPeek 环境自检 + 自愈 (能修就修, 不阻塞启动)
+        try:
+            from hermes_cli.winpeek_doctor import run_all
+            run_all()
+        except Exception:
+            pass
+
         # WinPeek MQTT 收件监听 (后台线程, 消息到达 → 入队 → 打印)
         try:
             from hermes_cli.winpeek_mqtt import start_mqtt_listener, drain_inbox, format_inbox_summary
