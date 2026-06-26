@@ -1,6 +1,11 @@
-"""sendmsg — Hermes 消息适配器 → 本地 daemon
+"""sendmsg — Hermes 消息适配器
 
-Hermes 内的 Agent 代码调用这个，一条线搞定身份+上下文+格式化。
+⚠️  STATUS: 未完成，禁止使用。依赖 daemon (也未完成)。
+   当前收发请用 say 命令。
+
+设计目标（待以后完善）:
+  模板引擎 → 自动识人 → daemon:1880 → MQTT。
+  Agent 只需 send(2022, "修好了", event="done")。
 
 用法:
   from hermes_cli.sendmsg import send
