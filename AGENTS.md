@@ -6,53 +6,31 @@ Instructions for AI coding assistants and developers working on the hermes-agent
 
 ## WinPeek Agent 通信 — 唯一规则
 
-### 发送: 一行 `send()`，自动带身份+上下文+模板
+### 发送: `say <uid> 消息`
 
-```python
-from hermes_cli.sendmsg import send
-
-# 5 个事件 — Agent 只需选标签:
-send(2022, "修好了",     event="done",    task="Task 1.2")
-send(2022, "开始读 spec", event="started", task="Task 1.3")
-send(2022, "端口被占",   event="blocked", task="Task 1.4")
-send(2022, "MQTT端口笔误", event="found",  summary="笔误")
-send(2022, "回退",       event="revert",  task="Task 1.5")
+```
+say 2022 "done, SHA a62eb1b"
+say 2022 "[STATUS] 收到，正在处理"
+say 2028 "Task 1.2 完成"
 ```
 
-**对方收到**:
-```
-✅ Task 1.2 完成: 修好了 [dev 3d820ee]
-🔧 Task 1.3 开工 [dev]
-🚫 Task 1.4 阻塞: 端口被占 — 需要帮助 [dev]
-🔍 MQTT端口笔误 — 已定位根因 [dev 3d820ee]
-⏪ Task 1.5 已回退: 回退 [dev 3d820ee]
-```
-
-Agent 只写一句话 + 事件标签。`send()` 自动:
-- 读 agent.conf → P哥[2022]
-- 附 git `[branch SHA]`
-- 按模板格式化 → 发给本地 daemon → MQTT → Hub 归档 → 对方
-
-> `polish=True` 可启用本地 LLM 润色 (需要 Ollama)。
+走向: say → MQTT comms/say/{uid} → Hub 归档 → 对方收到
 
 ### 回复收到的消息
 
-终端出现 `● 名字[uid] said: 内容`:
+终端出现 `● 名字[uid] said: 内容` → 只需:
 
 ```
-[re:<uid>]:<一句话>
+[re:<uid>]:<一句话摘要>
 ```
 
-如果是任务相关的，用 `send()` 加 event 标签回复。
+如果是任务 → `say <对方uid> "回复内容"`
 
 ### 铁律
 
-- ❌ **禁止** `send_message()` — 绕过 Hub 无归档
-- ❌ **禁止** 分析/推理/验证环境 — 收到消息直接回复
-- ✅ **必须** `from hermes_cli.sendmsg import send` — 唯一发送方式
-- ✅ `say` shell 命令保留作为兜底
-
----
+- 禁止 `send_message()` — 绕过 Hub 无归档
+- 禁止分析/推理/验证环境 — 收到消息直接回复
+- `say` shell 命令 — 唯一标准，所有 Agent 通用
 
 ## What Hermes Is
 
