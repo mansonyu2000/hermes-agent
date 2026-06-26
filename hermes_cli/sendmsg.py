@@ -18,7 +18,7 @@ Agent 只需说"我完成了" + event 标签, adapter 打包一切。
 import json, os, socket, subprocess, sys, time
 from pathlib import Path
 
-DAEMON = ("127.0.0.1", 11884)
+DAEMON = ("127.0.0.1", 1880)
 
 # ── 内置模板 ────────────────────────────────────────────────
 # 用户可在 ~/.hermes/data/msg-templates.json 覆盖/新增
