@@ -1,0 +1,13 @@
+name: winpeek-rpa
+label: WinPeek RPA
+kind: plugin
+version: 1.0.0
+description: >
+  Desktop automation engine for WeChat, Douyin, and other platforms.
+  Provides UIA-based automation tools via MCP protocol.
+author: WinPeek Team
+requires_env:
+  - name: DB_BACKEND
+    description: "Database backend: sqlite or mysql"
+    prompt: "Database backend"
+    default: "sqlite"

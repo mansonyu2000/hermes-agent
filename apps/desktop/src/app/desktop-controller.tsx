@@ -136,6 +136,7 @@ const MessagingView = lazy(async () => ({ default: (await import('./messaging'))
 const ProfilesView = lazy(async () => ({ default: (await import('./profiles')).ProfilesView }))
 const SettingsView = lazy(async () => ({ default: (await import('./settings')).SettingsView }))
 const SkillsView = lazy(async () => ({ default: (await import('./skills')).SkillsView }))
+const AutomationView = lazy(async () => ({ default: (await import('./winpeek')).AutomationView }))
 
 // Latest cron-job sessions surfaced in the collapsed "Cron jobs" section. The
 // Cron sessions are written by a background scheduler tick (the desktop
@@ -215,6 +216,7 @@ export function DesktopController() {
 
   const {
     agentsOpen,
+    automationOpen,
     chatOpen,
     closeOverlayToPreviousRoute,
     commandCenterInitialSection,
@@ -227,7 +229,8 @@ export function DesktopController() {
     profilesOpen,
     settingsOpen,
     starmapOpen,
-    toggleCommandCenter
+    toggleCommandCenter,
+    wechatOpen
   } = useOverlayRouting()
 
   const terminalSidebarOpen = chatOpen && terminalTakeover
@@ -1127,6 +1130,12 @@ export function DesktopController() {
       {starmapOpen && (
         <Suspense fallback={null}>
           <StarmapView onClose={closeOverlayToPreviousRoute} />
+        </Suspense>
+      )}
+
+      {automationOpen && (
+        <Suspense fallback={null}>
+          <AutomationView onClose={closeOverlayToPreviousRoute} />
         </Suspense>
       )}
     </>

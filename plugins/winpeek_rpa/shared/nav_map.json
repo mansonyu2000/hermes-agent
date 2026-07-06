@@ -1,0 +1,281 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "description": "微信桌面版导航地图 — 声明式页面结构。地图是理论，位置记忆是经验。",
+    "last_updated": "2026-06-16"
+  },
+
+  "pages": {
+    "wechat_main": {
+      "name": "微信",
+      "nav_button": "微信",
+      "nav_button_index": 0,
+      "verify": {
+        "uia": { "automation_id": "session_list" },
+        "fingerprint_text": ["微信", "聊天", "会话"],
+        "coordinate_hint": { "xPct": 0.055, "yPct": 0.12 }
+      },
+      "enter_actions": [
+        { "type": "click_nav", "target": "微信" }
+      ],
+      "exit_actions": [],
+      "description": "主聊天列表页，左侧导航栏第一个。含 session_list 虚拟列表。"
+    },
+
+    "contacts_main": {
+      "name": "通讯录",
+      "nav_button": "通讯录",
+      "nav_button_index": 1,
+      "verify": {
+        "uia": { "automation_id": "primary_table_.contact_list" },
+        "fingerprint_text": ["通讯录", "新的朋友", "群聊", "公众号", "联系人"],
+        "coordinate_hint": { "xPct": 0.3, "yPct": 0.15 }
+      },
+      "enter_actions": [
+        { "type": "click_nav", "target": "通讯录" }
+      ],
+      "exit_actions": [
+        { "type": "click_nav", "target": "微信" }
+      ],
+      "description": "通讯录页，含多个可折叠分组(CellGroupView)。分组名前缀可能带数字后缀(如'群聊180')。"
+    },
+
+    "favorites": {
+      "name": "收藏",
+      "nav_button": "收藏",
+      "nav_button_index": 2,
+      "verify": {
+        "uia": null,
+        "fingerprint_text": ["收藏", "笔记"],
+        "coordinate_hint": null
+      },
+      "enter_actions": [
+        { "type": "click_nav", "target": "收藏" }
+      ],
+      "exit_actions": [],
+      "description": "收藏页。暂无 UIA 验证元素，用 OCR 指纹检测。"
+    },
+
+    "moments": {
+      "name": "朋友圈",
+      "nav_button": "朋友圈",
+      "nav_button_index": 3,
+      "verify": {
+        "uia": null,
+        "fingerprint_text": ["朋友圈", "发现"],
+        "coordinate_hint": null
+      },
+      "enter_actions": [
+        { "type": "click_nav", "target": "朋友圈" }
+      ],
+      "exit_actions": [],
+      "description": "朋友圈页。暂无 UIA 验证元素。"
+    },
+
+    "video_channel": {
+      "name": "视频号",
+      "nav_button": "视频号",
+      "nav_button_index": 4,
+      "verify": {
+        "uia": null,
+        "fingerprint_text": ["视频号", "推荐", "朋友"],
+        "coordinate_hint": null
+      },
+      "enter_actions": [
+        { "type": "click_nav", "target": "视频号" }
+      ],
+      "exit_actions": [],
+      "description": "视频号页。暂无 UIA 验证元素。"
+    },
+
+    "search_main": {
+      "name": "搜一搜",
+      "nav_button": "搜一搜",
+      "nav_button_index": 5,
+      "verify": {
+        "uia": null,
+        "fingerprint_text": ["搜一搜", "搜索"],
+        "coordinate_hint": null
+      },
+      "enter_actions": [
+        { "type": "click_nav", "target": "搜一搜" }
+      ],
+      "exit_actions": [],
+      "description": "搜一搜页。暂无 UIA 验证元素。"
+    },
+
+    "game_center": {
+      "name": "游戏中心",
+      "nav_button": "游戏中心",
+      "nav_button_index": 6,
+      "verify": {
+        "uia": null,
+        "fingerprint_text": ["游戏"],
+        "coordinate_hint": null
+      },
+      "enter_actions": [
+        { "type": "click_nav", "target": "游戏中心" }
+      ],
+      "exit_actions": [],
+      "description": "游戏中心页。暂无 UIA 验证元素。"
+    },
+
+    "miniapp_panel": {
+      "name": "小程序面板",
+      "nav_button": "小程序面板",
+      "nav_button_index": 7,
+      "verify": {
+        "uia": null,
+        "fingerprint_text": ["小程序", "最近使用"],
+        "coordinate_hint": null
+      },
+      "enter_actions": [
+        { "type": "click_nav", "target": "小程序面板" }
+      ],
+      "exit_actions": [],
+      "description": "小程序面板页。暂无 UIA 验证元素。"
+    }
+  },
+
+  "contacts_sub_pages": {
+    "new_friend_page": {
+      "name": "新的朋友",
+      "parent_page": "contacts_main",
+      "verify": {
+        "uia": null,
+        "fingerprint_text": ["新的朋友", "添加手机联系人"],
+        "coordinate_hint": null
+      },
+      "enter_actions": [
+        { "type": "click_group", "name": "新的朋友", "warning": "点击会跳页离开通讯录列表" }
+      ],
+      "exit_actions": [
+        { "type": "click_nav", "target": "通讯录" }
+      ],
+      "skip_in_batch": true,
+      "contact_type": "new_friend",
+      "description": "点击'新的朋友'分组会跳转到添加朋友子页面，离开通讯录。批量采集必须跳过此分组。"
+    },
+
+    "my_enterprise_page": {
+      "name": "我的企业",
+      "parent_page": "contacts_main",
+      "verify": {
+        "uia": null,
+        "fingerprint_text": ["我的企业", "管理员"],
+        "coordinate_hint": null
+      },
+      "enter_actions": [
+        { "type": "click_group", "name": "我的企业", "warning": "点击会跳页离开通讯录列表" }
+      ],
+      "exit_actions": [
+        { "type": "click_nav", "target": "通讯录" }
+      ],
+      "skip_in_batch": true,
+      "contact_type": "enterprise",
+      "description": "点击'我的企业'分组会跳转到企业页面，离开通讯录。批量采集必须跳过。"
+    }
+  },
+
+  "contacts_groups": {
+    "新的朋友": {
+      "contact_type": "new_friend",
+      "skip_in_batch": true,
+      "is_sub_page": true,
+      "sub_page_id": "new_friend_page",
+      "class_name": "CellGroupView",
+      "name_match": "startswith"
+    },
+    "企业微信联系人": {
+      "contact_type": "enterprise_wechat",
+      "skip_in_batch": false,
+      "is_sub_page": false,
+      "class_name": "CellGroupView",
+      "name_match": "startswith"
+    },
+    "我的企业": {
+      "contact_type": "enterprise",
+      "skip_in_batch": true,
+      "is_sub_page": true,
+      "sub_page_id": "my_enterprise_page",
+      "class_name": "CellGroupView",
+      "name_match": "startswith"
+    },
+    "群聊": {
+      "contact_type": "group",
+      "skip_in_batch": false,
+      "is_sub_page": false,
+      "class_name": "CellGroupView",
+      "name_match": "startswith"
+    },
+    "公众号": {
+      "contact_type": "official_account",
+      "skip_in_batch": false,
+      "is_sub_page": false,
+      "class_name": "CellGroupView",
+      "name_match": "startswith"
+    },
+    "服务号": {
+      "contact_type": "service_account",
+      "skip_in_batch": false,
+      "is_sub_page": false,
+      "class_name": "CellGroupView",
+      "name_match": "startswith"
+    },
+    "联系人": {
+      "contact_type": "friend",
+      "skip_in_batch": false,
+      "is_sub_page": false,
+      "class_name": "CellGroupView",
+      "name_match": "startswith"
+    },
+    "企业": {
+      "contact_type": "enterprise",
+      "skip_in_batch": false,
+      "is_sub_page": false,
+      "class_name": "CellGroupView",
+      "name_match": "startswith",
+      "note": "'企业'是'企业微信联系人'和'我的企业'的简称，可能在旧版本中出现"
+    }
+  },
+
+  "detection_tiers": {
+    "description": "get_current_page() 多层检测策略，从快到慢",
+    "tiers": [
+      { "name": "UIA", "method": "check_automation_id", "timeout_ms": 500 },
+      { "name": "coordinate", "method": "check_coordinate_match", "timeout_ms": 300 },
+      { "name": "OCR", "method": "check_ocr_fingerprint", "timeout_ms": 3000 }
+    ]
+  },
+
+  "key_elements": {
+    "nav_tabbar": {
+      "automation_id": "MainView.main_tabbar",
+      "description": "左侧导航栏容器，子元素为各页面按钮"
+    },
+    "session_list": {
+      "automation_id": "session_list",
+      "description": "微信主页的会话列表（虚拟列表），每个子元素 automationId 以 session_item_ 开头"
+    },
+    "contact_list": {
+      "automation_id": "primary_table_.contact_list",
+      "description": "通讯录页的联系人列表（虚拟列表），含 CellGroupView 分组头和联系人条目"
+    },
+    "chat_name_label": {
+      "automation_id": "content_view.top_content_view.title_h_view.left_v_view.left_content_v_view.left_ui_.big_title_line_h_view.current_chat_name_label",
+      "description": "聊天窗口顶部当前联系人名称"
+    },
+    "chat_input": {
+      "automation_id": "chat_input_field",
+      "description": "聊天消息输入框"
+    },
+    "msg_list": {
+      "automation_id": "chat_message_list",
+      "description": "聊天消息列表（虚拟列表）"
+    },
+    "search_list": {
+      "automation_id": "search_list",
+      "description": "Ctrl+F 搜索弹窗中的联系人列表"
+    }
+  }
+}

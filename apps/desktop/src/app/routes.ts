@@ -9,10 +9,13 @@ export const CRON_ROUTE = '/cron'
 export const PROFILES_ROUTE = '/profiles'
 export const AGENTS_ROUTE = '/agents'
 export const STARMAP_ROUTE = '/starmap'
+export const AUTOMATION_ROUTE = '/automation'
+export const WECHAT_ROUTE = '/winpeek-wechat'
 
 export type AppView =
   | 'agents'
   | 'artifacts'
+  | 'automation'
   | 'chat'
   | 'command-center'
   | 'cron'
@@ -21,10 +24,12 @@ export type AppView =
   | 'settings'
   | 'skills'
   | 'starmap'
+  | 'winpeek-wechat'
 
 export type AppRouteId =
   | 'agents'
   | 'artifacts'
+  | 'automation'
   | 'command-center'
   | 'cron'
   | 'messaging'
@@ -33,6 +38,7 @@ export type AppRouteId =
   | 'settings'
   | 'skills'
   | 'starmap'
+  | 'winpeek-wechat'
 
 export interface AppRoute {
   id: AppRouteId
@@ -50,7 +56,9 @@ export const APP_ROUTES = [
   { id: 'cron', path: CRON_ROUTE, view: 'cron' },
   { id: 'profiles', path: PROFILES_ROUTE, view: 'profiles' },
   { id: 'agents', path: AGENTS_ROUTE, view: 'agents' },
-  { id: 'starmap', path: STARMAP_ROUTE, view: 'starmap' }
+  { id: 'starmap', path: STARMAP_ROUTE, view: 'starmap' },
+  { id: 'automation', path: AUTOMATION_ROUTE, view: 'automation' },
+  { id: 'winpeek-wechat', path: WECHAT_ROUTE, view: 'winpeek-wechat' }
 ] as const satisfies readonly AppRoute[]
 
 const APP_VIEW_BY_PATH = new Map<string, AppView>(APP_ROUTES.map(route => [route.path, route.view]))
@@ -61,11 +69,13 @@ const RESERVED_PATHS: ReadonlySet<string> = new Set(APP_ROUTES.map(route => rout
 // bleed over the overlay (they sit at a higher z-index than the overlay card).
 export const OVERLAY_VIEWS: ReadonlySet<AppView> = new Set([
   'agents',
+  'automation',
   'command-center',
   'cron',
   'profiles',
   'settings',
-  'starmap'
+  'starmap',
+  'winpeek-wechat'
 ])
 
 export function isOverlayView(view: AppView): boolean {

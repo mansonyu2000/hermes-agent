@@ -1,0 +1,102 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "description": "微信窗口像素锚点地图 — UIA实测 + 布局规律推导。兜底定位方案。",
+    "last_updated": "2026-06-16",
+    "measured_window": "670x586",
+    "min_window": "426x409"
+  },
+
+  "layout_rules": {
+    "description": "微信窗口三列布局，左1+左2宽度像素固定，右区可变。",
+    "columns": {
+      "col1_nav_icon_bar": {
+        "x_start": 0,
+        "width": 60,
+        "invariant": "像素固定——窗口缩放时左1栏宽度不变"
+      },
+      "col2_secondary_list": {
+        "x_start": 60,
+        "width": 240,
+        "invariant": "像素固定——窗口缩到~25%时自动收缩消失",
+        "collapse_threshold": "窗口宽度约 < 360px 时消失"
+      },
+      "col3_content_area": {
+        "x_start": 300,
+        "invariant": "可变——随窗口宽度拉伸"
+      }
+    }
+  },
+
+  "nav_buttons": {
+    "description": "左侧图标导航栏按钮。所有按钮 center_x=30 (60px栏宽的中心)。高度36px，间距48px。",
+    "bar_x": 0,
+    "bar_width": 60,
+    "button_width": 60,
+    "button_height": 36,
+    "y_spacing": 48,
+    "buttons": [
+      {"name": "微信",     "index": 0, "center_x": 30, "center_y_rel": 114, "invariant_y": true},
+      {"name": "通讯录",   "index": 1, "center_x": 30, "center_y_rel": 162, "invariant_y": true},
+      {"name": "收藏",     "index": 2, "center_x": 30, "center_y_rel": 210, "invariant_y": true},
+      {"name": "朋友圈",   "index": 3, "center_x": 30, "center_y_rel": 258, "invariant_y": true},
+      {"name": "视频号",   "index": 4, "center_x": 30, "center_y_rel": 306, "invariant_y": true},
+      {"name": "搜一搜",   "index": 5, "center_x": 30, "center_y_rel": 354, "invariant_y": true},
+      {"name": "游戏中心", "index": 6, "center_x": 30, "center_y_rel": 402, "invariant_y": true},
+      {"name": "小程序面板","index": 7, "center_x": 30, "center_y_rel": 450, "invariant_y": true},
+      {"name": "手机",     "index": 8, "center_x": 30, "center_y_rel": 504, "invariant_y": true},
+      {"name": "更多",     "index": 9, "center_x": 30, "center_y_rel": 552, "invariant_y": false, "note": "36x36 小按钮"}
+    ],
+    "formula": "按钮 N 的 center_y = 114 + N * 48  (N=0..9)"
+  },
+
+  "contacts_groups": {
+    "description": "通讯录分组标题。全部在 col2 (x=60-300)，center_x=180，高度36px。",
+    "list_x_start": 60,
+    "list_width": 240,
+    "group_height": 36,
+    "group_center_x": 180,
+    "contact_item_height": 54,
+    "groups": [
+      {"name": "新的朋友",         "type": "new_friend",         "skip_in_batch": true,  "center_y_collapsed": 135},
+      {"name": "群聊",             "type": "group",              "skip_in_batch": false, "center_y_collapsed": 171},
+      {"name": "公众号",           "type": "official_account",   "skip_in_batch": false, "center_y_collapsed": 207},
+      {"name": "服务号",           "type": "service_account",    "skip_in_batch": false, "center_y_collapsed": 243},
+      {"name": "企业微信联系人",   "type": "enterprise_wechat",  "skip_in_batch": false, "center_y_collapsed": 279},
+      {"name": "我的企业",         "type": "enterprise",         "skip_in_batch": true,  "center_y_collapsed": 315},
+      {"name": "联系人",           "type": "friend",             "skip_in_batch": false, "center_y_collapsed": 351}
+    ],
+    "formula": "分组 N 的 center_y = 135 + N * 36  (N=0..6, 全部折叠时)",
+    "note": "展开分组后，下方所有内容的 Y 位置向下偏移。不依赖绝对 Y 值——用 UIA 或滚动来定位。"
+  },
+
+  "page_detection": {
+    "description": "页面检测特征——每个页面在像素坐标上的独特标志。",
+    "wechat_main": {
+      "identifiers": [
+        {"check": "uia_element", "aid": "session_list"},
+        {"check": "pixel_region", "x_range": [60, 300], "description": "col2 区域有会话列表内容"},
+        {"check": "nav_highlight", "nav_button": "微信", "description": "导航栏'微信'按钮高亮"}
+      ]
+    },
+    "contacts_main": {
+      "identifiers": [
+        {"check": "uia_element", "aid": "primary_table_.contact_list"},
+        {"check": "pixel_region", "x_range": [60, 300], "description": "col2 区域有通讯录分组标题"},
+        {"check": "nav_highlight", "nav_button": "通讯录", "description": "导航栏'通讯录'按钮高亮"}
+      ]
+    }
+  },
+
+  "reset_navigation": {
+    "description": "迷失方向时的复位策略——回到已知的安全起点。",
+    "safe_home": "微信",
+    "strategy": [
+      "1. 点击导航栏'微信'按钮 (center_x=30, center_y=114)",
+      "2. 等待 session_list 出现",
+      "3. 如果失败，尝试 ESC 关闭弹窗后再点",
+      "4. 如果仍然失败，点窗口左上角 (10,10) 确保焦点在微信",
+      "5. 最后手段：Alt+Tab 切到微信窗口再试"
+    ]
+  }
+}
