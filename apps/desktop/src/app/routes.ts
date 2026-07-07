@@ -10,6 +10,7 @@ export const PROFILES_ROUTE = '/profiles'
 export const AGENTS_ROUTE = '/agents'
 export const STARMAP_ROUTE = '/starmap'
 export const AUTOMATION_ROUTE = '/automation'
+export const MIM_ROUTE = '/mim'
 export const WECHAT_ROUTE = '/winpeek-wechat'
 
 export type AppView =
@@ -20,6 +21,7 @@ export type AppView =
   | 'command-center'
   | 'cron'
   | 'messaging'
+  | 'mim'
   | 'profiles'
   | 'settings'
   | 'skills'
@@ -33,6 +35,7 @@ export type AppRouteId =
   | 'command-center'
   | 'cron'
   | 'messaging'
+  | 'mim'
   | 'new'
   | 'profiles'
   | 'settings'
@@ -58,6 +61,7 @@ export const APP_ROUTES = [
   { id: 'agents', path: AGENTS_ROUTE, view: 'agents' },
   { id: 'starmap', path: STARMAP_ROUTE, view: 'starmap' },
   { id: 'automation', path: AUTOMATION_ROUTE, view: 'automation' },
+  { id: 'mim', path: MIM_ROUTE, view: 'mim' },
   { id: 'winpeek-wechat', path: WECHAT_ROUTE, view: 'winpeek-wechat' }
 ] as const satisfies readonly AppRoute[]
 
@@ -69,13 +73,11 @@ const RESERVED_PATHS: ReadonlySet<string> = new Set(APP_ROUTES.map(route => rout
 // bleed over the overlay (they sit at a higher z-index than the overlay card).
 export const OVERLAY_VIEWS: ReadonlySet<AppView> = new Set([
   'agents',
-  'automation',
   'command-center',
   'cron',
   'profiles',
   'settings',
-  'starmap',
-  'winpeek-wechat'
+  'starmap'
 ])
 
 export function isOverlayView(view: AppView): boolean {

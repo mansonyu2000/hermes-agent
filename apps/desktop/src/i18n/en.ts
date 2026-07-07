@@ -1478,6 +1478,8 @@ export const en: Translations = {
       'new-session': 'New session',
       skills: 'Capabilities',
       messaging: 'Messaging',
+      automation: 'Automation',
+      mim: 'Multi-IM',
       artifacts: 'Artifacts'
     },
     searchAria: 'Search sessions',

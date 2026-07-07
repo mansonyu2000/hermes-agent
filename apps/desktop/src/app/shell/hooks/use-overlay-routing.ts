@@ -5,10 +5,13 @@ import { type CommandCenterSection } from '@/app/command-center'
 import {
   AGENTS_ROUTE,
   appViewForPath,
+  AUTOMATION_ROUTE,
   COMMAND_CENTER_ROUTE,
   isOverlayView,
+  MIM_ROUTE,
   NEW_CHAT_ROUTE,
-  STARMAP_ROUTE
+  STARMAP_ROUTE,
+  WECHAT_ROUTE
 } from '@/app/routes'
 
 const SECTIONS = ['sessions', 'system', 'usage'] as const
@@ -25,6 +28,9 @@ export function useOverlayRouting() {
   const cronOpen = currentView === 'cron'
   const profilesOpen = currentView === 'profiles'
   const chatOpen = currentView === 'chat'
+  const automationOpen = currentView === 'automation'
+  const mimOpen = currentView === 'mim'
+  const wechatOpen = currentView === 'winpeek-wechat'
   const overlayOpen = isOverlayView(currentView)
 
   // Overlay routes (settings/command-center/agents) stash the underlying path
@@ -62,21 +68,30 @@ export function useOverlayRouting() {
 
   const openAgents = useCallback(() => navigate(AGENTS_ROUTE), [navigate])
   const openStarmap = useCallback(() => navigate(STARMAP_ROUTE), [navigate])
+  const openAutomation = useCallback(() => navigate(AUTOMATION_ROUTE), [navigate])
+  const openMim = useCallback(() => navigate(MIM_ROUTE), [navigate])
+  const openWechat = useCallback(() => navigate(WECHAT_ROUTE), [navigate])
 
   return {
     agentsOpen,
+    automationOpen,
     chatOpen,
     closeOverlayToPreviousRoute,
     commandCenterInitialSection,
     commandCenterOpen,
     cronOpen,
     currentView,
+    mimOpen,
     openAgents,
+    openAutomation,
     openCommandCenterSection,
+    openMim,
     openStarmap,
+    openWechat,
     profilesOpen,
     settingsOpen,
     starmapOpen,
-    toggleCommandCenter
+    toggleCommandCenter,
+    wechatOpen
   }
 }

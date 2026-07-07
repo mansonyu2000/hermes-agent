@@ -1,0 +1,12 @@
+{
+  "next_uid": 1,
+  "identities": {
+    "tech2": {
+      "uid": 0,
+      "nickname": "tech2",
+      "role": "Developer",
+      "host": "YU2",
+      "registered": "2026-07-07"
+    }
+  }
+}

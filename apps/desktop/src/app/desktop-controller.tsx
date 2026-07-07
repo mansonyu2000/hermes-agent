@@ -103,7 +103,7 @@ import { $terminalTakeover } from './right-sidebar/store'
 import { TerminalPaneChrome } from './right-sidebar/terminal/chrome'
 import { PersistentTerminal } from './right-sidebar/terminal/persistent'
 import { closeActiveTerminal } from './right-sidebar/terminal/terminals'
-import { CRON_ROUTE, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
+import { CRON_ROUTE, MIM_ROUTE, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
 import { SessionPickerOverlay } from './session-picker-overlay'
 import { SessionSwitcher } from './session-switcher'
 import { useContextSuggestions } from './session/hooks/use-context-suggestions'
@@ -137,6 +137,8 @@ const ProfilesView = lazy(async () => ({ default: (await import('./profiles')).P
 const SettingsView = lazy(async () => ({ default: (await import('./settings')).SettingsView }))
 const SkillsView = lazy(async () => ({ default: (await import('./skills')).SkillsView }))
 const AutomationView = lazy(async () => ({ default: (await import('./winpeek')).AutomationView }))
+const MimView = lazy(async () => ({ default: (await import('./winpeek')).MimView }))
+const WechatPanel = lazy(async () => ({ default: (await import('./winpeek')).WechatPanel }))
 
 // Latest cron-job sessions surfaced in the collapsed "Cron jobs" section. The
 // Cron sessions are written by a background scheduler tick (the desktop
@@ -223,9 +225,13 @@ export function DesktopController() {
     commandCenterOpen,
     cronOpen,
     currentView,
+    mimOpen,
     openAgents,
+    openAutomation,
     openCommandCenterSection,
+    openMim,
     openStarmap,
+    openWechat,
     profilesOpen,
     settingsOpen,
     starmapOpen,
@@ -1001,6 +1007,7 @@ export function DesktopController() {
 
   const { leftStatusbarItems, statusbarItems } = useStatusbarItems({
     agentsOpen,
+    automationOpen,
     chatOpen,
     commandCenterOpen,
     extraLeftItems: statusbarItemGroups.flat.left,
@@ -1008,11 +1015,14 @@ export function DesktopController() {
     gatewayState,
     inferenceStatus,
     openAgents,
-    freshDraftReady,
+    openAutomation,
     openCommandCenterSection,
+    openWechat,
+    freshDraftReady,
     requestGateway,
     statusSnapshot,
-    toggleCommandCenter
+    toggleCommandCenter,
+    wechatOpen
   })
 
   const sidebar = (
@@ -1133,9 +1143,9 @@ export function DesktopController() {
         </Suspense>
       )}
 
-      {automationOpen && (
+      {wechatOpen && (
         <Suspense fallback={null}>
-          <AutomationView onClose={closeOverlayToPreviousRoute} />
+          <WechatPanel />
         </Suspense>
       )}
     </>
@@ -1345,6 +1355,22 @@ export function DesktopController() {
               </Suspense>
             }
             path="artifacts"
+          />
+          <Route
+            element={
+              <Suspense fallback={null}>
+                <AutomationView onClose={closeOverlayToPreviousRoute} />
+              </Suspense>
+            }
+            path="automation"
+          />
+          <Route
+            element={
+              <Suspense fallback={null}>
+                <MimView onClose={closeOverlayToPreviousRoute} />
+              </Suspense>
+            }
+            path="mim"
           />
           <Route element={null} path="cron" />
           <Route element={null} path="profiles" />

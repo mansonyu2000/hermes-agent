@@ -66,9 +66,11 @@ import { isUserTheme, resolveTheme } from '@/themes/user-themes'
 import {
   AGENTS_ROUTE,
   ARTIFACTS_ROUTE,
+  AUTOMATION_ROUTE,
   COMMAND_CENTER_ROUTE,
   CRON_ROUTE,
   MESSAGING_ROUTE,
+  MIM_ROUTE,
   NEW_CHAT_ROUTE,
   PROFILES_ROUTE,
   sessionRoute,
@@ -461,6 +463,20 @@ export function CommandPalette() {
             keywords: ['star map', 'memory', 'memories', 'skills', 'graph', 'learning', 'constellation'],
             label: t.starmap.title,
             run: go(STARMAP_ROUTE)
+          },
+          {
+            icon: Monitor,
+            id: 'nav-automation',
+            keywords: ['automation', 'winpeek', 'rpa'],
+            label: 'Automation',
+            run: go(AUTOMATION_ROUTE)
+          },
+          {
+            icon: MessageCircle,
+            id: 'nav-mim',
+            keywords: ['mim', 'message', 'mqtt', 'multi-instance'],
+            label: 'MIM',
+            run: go(MIM_ROUTE)
           }
         ]
       },

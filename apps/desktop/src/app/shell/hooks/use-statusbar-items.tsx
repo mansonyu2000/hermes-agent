@@ -40,6 +40,7 @@ import type { StatusbarItem, StatusbarSelectModifiers } from '../statusbar-contr
 
 interface StatusbarItemsOptions {
   agentsOpen: boolean
+  automationOpen: boolean
   chatOpen: boolean
   commandCenterOpen: boolean
   extraLeftItems: readonly StatusbarItem[]
@@ -47,15 +48,19 @@ interface StatusbarItemsOptions {
   gatewayState: string
   inferenceStatus: RuntimeReadinessResult | null
   openAgents: () => void
+  openAutomation: () => void
   openCommandCenterSection: (section: CommandCenterSection) => void
+  openWechat: () => void
   freshDraftReady: boolean
   requestGateway: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>
   statusSnapshot: StatusResponse | null
   toggleCommandCenter: () => void
+  wechatOpen: boolean
 }
 
 export function useStatusbarItems({
   agentsOpen,
+  automationOpen,
   chatOpen,
   commandCenterOpen,
   extraLeftItems,
@@ -63,11 +68,14 @@ export function useStatusbarItems({
   gatewayState,
   inferenceStatus,
   openAgents,
+  openAutomation,
   openCommandCenterSection,
+  openWechat,
   freshDraftReady,
   requestGateway,
   statusSnapshot,
-  toggleCommandCenter
+  toggleCommandCenter,
+  wechatOpen
 }: StatusbarItemsOptions) {
   const { t } = useI18n()
   const copy = t.shell.statusbar
@@ -325,6 +333,24 @@ export function useStatusbarItems({
         variant: 'action'
       },
       {
+        className: cn(automationOpen && 'bg-accent/55 text-foreground'),
+        icon: <Codicon name="debug-console" size="0.75rem" />,
+        id: 'automation',
+        label: '自动化',
+        onSelect: openAutomation,
+        title: automationOpen ? '关闭自动化' : '打开自动化',
+        variant: 'action'
+      },
+      {
+        className: cn(wechatOpen && 'bg-accent/55 text-foreground'),
+        icon: <Codicon name="comment-discussion" size="0.75rem" />,
+        id: 'wechat',
+        label: '微信',
+        onSelect: openWechat,
+        title: wechatOpen ? '关闭微信' : '打开微信',
+        variant: 'action'
+      },
+      {
         icon: <Clock className="size-3" />,
         id: 'cron',
         label: copy.cron,
@@ -335,6 +361,7 @@ export function useStatusbarItems({
     ],
     [
       agentsOpen,
+      automationOpen,
       commandCenterOpen,
       copy,
       gatewayMenuContent,
@@ -344,9 +371,12 @@ export function useStatusbarItems({
       inferenceReady,
       inferenceStatus?.reason,
       openAgents,
+      openAutomation,
+      openWechat,
       subagentsFailed,
       subagentsRunning,
-      toggleCommandCenter
+      toggleCommandCenter,
+      wechatOpen
     ]
   )
 
