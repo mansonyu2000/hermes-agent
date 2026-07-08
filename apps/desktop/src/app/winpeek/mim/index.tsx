@@ -3,10 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
-import { useI18n } from '@/i18n'
-import { openExternalLink } from '@/lib/external-link'
 import { cn } from '@/lib/utils'
-import { $gatewayState, $connection } from '@/store/session'
+import { $connection, $gatewayState } from '@/store/session'
 
 import { DetailColumn, ListColumn, MasterDetail } from '../../master-detail'
 
@@ -47,9 +45,34 @@ const DEFAULT_CONTACTS: Contact[] = [
 
 /* ── Component ────────────────────────────────── */
 
+function useMimIdentity() {
+  const [identity, setIdentity] = useState<{ uid: number; name: string; role: string; host: string } | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const resp = await fetch('http://127.0.0.1:9119/api/identity')
+        if (resp.ok) {
+          const data = await resp.json()
+          setIdentity(data)
+        }
+      } catch {
+        // fallback to defaults
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [])
+
+  return { identity: identity ?? { uid: 2027, name: '架叔', role: 'Architect', host: 'YU2' }, loading }
+}
+
 export function MimView({ onClose }: { onClose: () => void }) {
   const gatewayState = useStore($gatewayState)
   const conn = useStore($connection)
+  const { identity } = useMimIdentity()
 
   const [contacts] = useState<Contact[]>(DEFAULT_CONTACTS)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
@@ -88,14 +111,14 @@ export function MimView({ onClose }: { onClose: () => void }) {
 
     setMessages(prev => [...prev, {
       id: `msg-${Date.now()}`,
-      fromUid: 2022,
-      fromName: '我',
+      fromUid: identity.uid,
+      fromName: identity.name,
       content: text,
       time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
       isSelf: true,
     }])
     setInputText('')
-  }, [inputText, activeContact])
+  }, [inputText, activeContact, identity])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -118,7 +141,17 @@ export function MimView({ onClose }: { onClose: () => void }) {
       <ListColumn className="border-r border-(--ui-stroke-tertiary)">
         <div className="flex h-full flex-col">
           <header className="flex items-center justify-between border-b border-(--ui-stroke-tertiary) px-3 py-2.5">
-            <h2 className="text-sm font-semibold text-foreground">WinPeek 消息</h2>
+            <div className="flex items-center gap-2">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-(--ui-accent)/15 text-[0.6rem] font-semibold text-(--ui-accent)">
+                {identity.name.charAt(0)}
+              </div>
+              <div>
+                <h2 className="text-xs font-semibold text-foreground">{identity.name}</h2>
+                <p className="text-[0.55rem] text-(--ui-text-tertiary)">
+                  {identity.role} · #{identity.uid} · {identity.host}
+                </p>
+              </div>
+            </div>
             <span className="text-[0.65rem] text-(--ui-text-tertiary)">
               {gatewayState === 'open' ? '🟢 在线' : '⏳ 离线'}
             </span>
