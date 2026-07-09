@@ -813,9 +813,18 @@ const sidebars: SidebarsConfig = {
         description: 'WinPeek — Windows desktop automation and multi-agent orchestration.',
       },
       items: [
+        'winpeek/QUICKSTART',
         'winpeek/ARCHITECTURE',
         'winpeek/HUB-API',
         'winpeek/SCHEMAS',
+        {
+          type: 'category',
+          label: 'Features',
+          collapsed: true,
+          items: [
+            'winpeek/features/OVERVIEW',
+          ],
+        },
       ],
     },
   ],

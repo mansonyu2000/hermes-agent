@@ -1,6 +1,6 @@
 # Hermes Agent — 项目知识库地图
 
-> **分支**: `feat/winpeek` | **基座**: `main` (Hermes upstream v0.18.0)  
+| **分支**: `winpeek-H23-DOC` | **基座**: `feat/winpeek` + `origin/DEV`  \n> **文档体系**: 5层分离（AGENTS.md / docs/ / website / README / skills）
 > **我们的代码**: 🆕 46 文件 | **Hermes 原有**: ~2000+ 文件  
 
 ---
@@ -184,3 +184,44 @@ apps/desktop/ routes + controller 2 处修改 路由注册
 | `apps/desktop/src/styles.css` | CSS Token 系统 | 1830 |
 | 🆕 `apps/desktop/src/app/routes.ts` | 路由注册 (我们改过) | 110 |
 | 🆕 `apps/desktop/src/app/desktop-controller.tsx` | 主控制器 (我们改过) | 1378 |
+
+---
+
+## 六、🗂️ 文档体系（5层）
+
+| 层 | 路径 | 读者 | 说明 |
+|----|------|------|------|
+| 1️⃣ AI 工作台 | `AGENTS.md` / `CLAUDE.md` | AI Agent | 开发守则 + 操作铁律 |
+| 2️⃣ 内部设计 | `docs/design/` / `docs/requirements/` | 开发者 | 设计稿 + PRD |
+| 3️⃣ 用户站 | `website/docs/winpeek/` | 最终用户 | Docusaurus 文档站 |
+| 4️⃣ 模块入口 | `*/README.md` | 开发者 | 代码目录说明 |
+| 5️⃣ 技能知识 | `skills/` | AI Agent | 操作步骤 |
+
+**设计文档结构：**
+```
+docs/
+├── design/
+│   ├── wechat-crm-design.md              ← 页面功能设计（3700行）
+│   ├── wechat-automation-menu-and-action-loop.md ← 自动化逻辑
+│   └── background/                       ← 理念背景
+│       ├── SUMMARY.md
+│       ├── master-friend-system-architecture.md
+│       ├── actionable-insights-engine.md
+│       ├── philosophy-of-portrait.md
+│       └── legacy-and-transmission.md
+├── requirements/
+│   └── wechat-prd.md                     ← 产品需求规格
+├── plan/
+│   └── desktop/wechat/prd.md             ← 实施计划
+└── decisions/                            ← ADR（待填）
+```
+
+**website 文档站：**
+```
+website/docs/winpeek/
+├── QUICKSTART.md                         ← 5分钟上手
+├── ARCHITECTURE.md                       ← 架构总览
+├── HUB-API.md                            ← API 参考
+├── SCHEMAS.md                            ← 数据模型
+└── features/OVERVIEW.md                  ← 产品全景
+```
