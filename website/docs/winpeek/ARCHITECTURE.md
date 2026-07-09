@@ -10,31 +10,38 @@ WinPeek 是构建在 Hermes Agent 之上的 Windows 桌面自动化与多 Agent 
 
 ## Module Overview
 
+```mermaid
+graph TB
+    Core[Hermes Agent Core<br/>run_agent.py / cli.py / model_tools.py]
+    
+    subgraph Desktop [Desktop Frontend]
+        WinPeekViews[winpeek/ views]
+    end
+    
+    subgraph Gateway [Gateway Platform]
+        Hub[winpeek_hub/]
+        MQTT[MQTT Broker<br/>1883]
+        DB[(MySQL / SQLite)]
+    end
+    
+    subgraph RPA [WinPeek RPA Plugin]
+        MCP[MCP Server<br/>stdio RPC]
+        WeChat[WeChat]
+        Douyin["Douyin (预留)"]
+        MCP --- WeChat
+        MCP --- Douyin
+    end
+    
+    Core --> Desktop
+    Core --> Gateway
+    Core --> RPA
+    Hub --> MQTT
+    Hub --> DB
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Hermes Agent Core                     │
-│  (run_agent.py / cli.py / model_tools.py)               │
-└────────────────────┬────────────────────────────────────┘
-                     │
-     ┌───────────────┼───────────────────┐
-     ▼               ▼                   ▼
-┌──────────┐  ┌──────────┐  ┌──────────────────────┐
-│ Desktop  │  │ Gateway  │  │ WinPeek RPA Plugin    │
-│ Frontend │  │ Platform │  │ (plugins/winpeek_rpa/)│
-│ (React)  │  │ Adapters │  │                      │
-│          │  │          │  │ MCP Server ── WeChat  │
-│ winpeek/ │  │ winpeek_ │  │ stdio RPC    Douyin   │
-│  views   │  │  hub/    │  │              ...      │
-└──────────┘  └────┬─────┘  └──────────────────────┘
-                   │
-          ┌────────┴────────┐
-          ▼                  ▼
-   ┌────────────┐   ┌──────────────┐
-   │  MQTT      │   │  MySQL /     │
-   │  Broker    │   │  SQLite      │
-   │  1883      │   │  (archive)   │
-   └────────────┘   └──────────────┘
-```
+
+:::tip
+WinPeek 所有模块均零侵入集成 —— 不修改 `run_agent.py`、`cli.py`、`gateway/run.py` 等核心文件。
+:::
 
 ## Module Breakdown
 
@@ -83,28 +90,29 @@ plugins/winpeek_rpa/
 
 从 `api.py` 提取的设计模式：
 
-```
-🧠 LLM (决策层)
-    │  决定：点哪个会话、翻几页、什么时候停
-    ▼
-👁️ WeChatEyes (感知层)
-    │  纯读不写：get_sessions(), get_messages(), is_right_place()
-    ▼
-🤖 WeChatHands (执行层)
-    │  全写不读：click_session(), scrollbar_sink(), send_message()
-    ▼
-💾 WeChatEngine (采集引擎)
-    调度 eyes+hands+db，执行采集策略
+```mermaid
+graph LR
+    LLM["🧠 LLM (决策层)<br/>点哪个会话、翻几页、什么时候停"]
+    Eyes["👁️ WeChatEyes (感知层)<br/>纯读不写<br/>get_sessions() / get_messages()"]
+    Hands["🤖 WeChatHands (执行层)<br/>全写不读<br/>click_session() / send_message()"]
+    Engine["💾 WeChatEngine (采集引擎)<br/>调度 eyes+hands+db"]
+    
+    LLM --> Eyes
+    Eyes --> Hands
+    Hands --> Engine
 ```
 
 关键设计原则：
 - **Eyes 纯读，Hands 全写** — 每层只做一件事，输入→输出，无副作用
 - **Engine 调度** — 组合 eyes+hands+db 完成复杂工作流
-- **降级路径** — 微信 UIA 直连失败 → 降级 cua-driver 模板
+
+:::warning 降级路径
+微信 UIA 直连（毫秒级）→ 失败 → cua-driver 模板（秒级）→ 失败 → 提示用户手动操作。工具调用方需要处理 `fallback` 字段。
+:::
 
 ### 3. MIM 协议 (`gateway/winpeek_hub/mqtt_adapter.py`)
 
-Multi-agent Inter-agent Messaging — 基于 MQTT 的多 Hermes 实例通信协议。
+Multi-agent Inter-agent Messaging — 基于 MQTT 的多 Hermes 实例通信协议。详见 [Hub API → MQTT Topic](./HUB-API.md#mqtt-topic-协议)。
 
 **Topic 规范：**
 ```
@@ -120,20 +128,6 @@ comms/ack/{uid}     → 消息回执（可选）
 | `MIM_NAME` | `user_{UID}` | 显示名 |
 | `MIM_BROKER` | `192.168.3.23` | MQTT Broker 地址 |
 | `MIM_PORT` | `1883` | MQTT 端口 |
-
-**通信流程：**
-```
-Agent A 想给 Agent B 发消息
-    │ say <B的uid> "内容"
-    ▼
-Hermes → MQTT publish comms/say/{B的uid}
-    │
-    ▼
-MQTT Broker → deliver to Agent B's comms/inbox/{B.uid}
-    │
-    ▼
-Agent B 收到 → 处理 → 回复
-```
 
 ### 4. Frontend (`apps/desktop/src/app/winpeek/`)
 
@@ -152,21 +146,27 @@ apps/desktop/src/app/winpeek/
 
 ### RPA 执行路径
 
-```
-用户输入"给张三发你好"
-    │
-    ▼
-AIAgent 对话循环
-    │ 匹配 tools/winpeek_tools.py 注册的 winpeek_wechat_send
-    ▼
-handle_function_call("winpeek_wechat_send")
-    │
-    ├── 方式1：直接调 wechat_uia.py (毫秒级)
-    │   WeChatUIA.search_and_open("张三")
-    │   WeChatUIA.send_message("你好")
-    │
-    └── 方式2：降级 cua-driver 模板 (秒级)
-        mcp_server → execute_template("wechat_send_message")
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Agent as AIAgent
+    participant Tool as winpeek_tools
+    participant UIA as wechat_uia.py
+    participant MCP as MCP Template
+    
+    User->>Agent: "给张三发你好"
+    Agent->>Tool: winpeek_wechat_send
+    alt 直连模式
+        Tool->>UIA: search_and_open("张三")
+        UIA-->>Tool: ok
+        Tool->>UIA: send_message("你好")
+        UIA-->>Tool: ok
+    else 降级模式
+        Tool->>MCP: execute_template("wechat_send_message")
+        MCP-->>Tool: pending
+    end
+    Tool-->>Agent: {"ok": true}
+    Agent-->>User: "发送成功"
 ```
 
 ### Hub 消息路由
@@ -204,3 +204,7 @@ Gateway 收到 → Hub.on_message_received()
 | `MIM_BROKER` | `192.168.3.23` | MQTT | MQTT Broker |
 | `MIM_PORT` | `1883` | MQTT | MQTT 端口 |
 | `DB_BACKEND` | `sqlite` | RPA | 数据库后端: sqlite\|mysql |
+
+---
+
+参见 [Hub API 文档](./HUB-API.md) · [数据模型定义](./SCHEMAS.md)

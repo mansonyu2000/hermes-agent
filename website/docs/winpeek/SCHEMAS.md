@@ -8,7 +8,11 @@ description: "WinPeek 核心数据模型定义"
 
 ## Identity
 
-存储在 `~/.hermes/winpeek/identities.jsonl`。
+存储在 `~/.hermes/winpeek/identities.jsonl`。每条记录一行，`\n` 分隔。
+
+:::note
+UID 从 2001 开始自动递增，最大支持到 2099（共 99 个身份）。身份数据本地持久化，无需数据库。
+:::
 
 ```python
 {
@@ -76,7 +80,7 @@ JSONL 归档格式相同：
 
 ## MQTT Message
 
-话题 payload JSON。
+话题 payload JSON。详见 [Hub API → MQTT Topic](./HUB-API.md#mqtt-topic-协议)。
 
 ```json
 {
@@ -184,3 +188,7 @@ UIA 控件采集到的会话结构。
 | `MIM_BROKER` | `192.168.3.23` | MQTT Broker 地址 |
 | `MIM_PORT` | `1883` | MQTT 端口 |
 | `DB_BACKEND` | `sqlite` | RPA 数据库后端 |
+
+---
+
+参见 [架构总览](./ARCHITECTURE.md) · [Hub API](./HUB-API.md)

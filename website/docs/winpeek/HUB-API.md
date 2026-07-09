@@ -10,6 +10,10 @@ WinPeek Hub 不暴露独立 HTTP 端口，它的 API 通过 **MQTT Topic** 和 *
 
 ## MQTT Topic 协议
 
+:::tip
+Hermes CLI 中最常用的 MIM 命令是 `say`。发送消息给对方无需手动构造 MQTT payload。
+:::
+
 ### 发送消息
 
 ```
@@ -178,6 +182,10 @@ list_all()
 
 给微信好友发送消息。
 
+:::warning
+如果 wechat_uia.py 直连失败（微信未运行或窗口未激活），工具返回 `{"ok": false, "fallback": "..."}`。调用方应降级到 computer_use 或 MCP 模板。
+:::
+
 ```python
 winpeek_wechat_send(contact_name="张三", message="你好")
 # → {"ok": True, "contact": "张三", "sent": "你好"}
@@ -227,3 +235,7 @@ python -m plugins.winpeek_rpa.mcp_server
 | `wechat_send_message` | 微信发消息 | `contact_name`, `message` |
 | `learn_new_skill` | 启动自学习流程 | `app`, `task_description` |
 | `get_uia_map` | 获取 UIA 控件映射 | `app`（默认 wechat） |
+
+---
+
+参见 [架构总览](./ARCHITECTURE.md) · [数据模型定义](./SCHEMAS.md)
