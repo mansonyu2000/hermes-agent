@@ -4,6 +4,23 @@ Instructions for AI coding assistants and developers working on the hermes-agent
 
 **Never give up on the right solution.**
 
+## 📚 项目文档索引
+
+| 文档 | 用途 | 何时读 |
+|------|------|--------|
+| `DEVELOPMENT.md` | **开发操作手册**——代码放哪、怎么连、如何验证 | 动手前必读 |
+| `KNOWLEDGE-MAP.md` | 代码地图——目录结构、启动链路、数据流 | 找文件时参考 |
+| `AGENTS.md` | 本文——项目铁律 + 通信规范 | 每次会话自动加载 |
+| | | |
+| **📋 WinPeek 需求与设计** | | |
+| `docs/requirements/wechat-prd.md` | **PRD**——9 大模块/40+ 需求/验收标准 | 开发前必读 |
+| `docs/design/wechat-crm-design.md` | 页面功能设计——布局/组件/交互 | 写前端时读 |
+| `docs/design/wechat-automation-menu-and-action-loop.md` | 菜单体系 + 画像驱动行动闭环 | 写后台逻辑时读 |
+| `docs/design/background/SUMMARY.md` | 哲学概要——7 维度 + 每日 5 条行动建议 | 理解产品愿景 |
+| `docs/design/background/master-friend-system-architecture.md` | 画像架构——8 维评分/双存储/事件驱动 | 写画像代码时读 |
+| `docs/plan/` | 实施计划 | 分任务时参考 |
+| `docs/decisions/` | ADR 架构决策记录 | 理解历史决策 |
+
 ## WinPeek Agent 通信 — 唯一规则
 
 ### 发送: `say <uid> 消息`
@@ -31,6 +48,26 @@ say 2028 "Task 1.2 完成"
 - 禁止 `send_message()` — 绕过 Hub 无归档
 - 禁止分析/推理/验证环境 — 收到消息直接回复
 - `say` shell 命令 — 唯一标准，所有 Agent 通用
+
+## WinPeek 开发规则
+
+### 动手前
+
+1. **读 PRD** — `docs/requirements/wechat-prd.md` 有完整的验收标准
+2. **查知识图谱** — 用 `codebase-memory` 的 `search_graph` / `trace_path` 了解现有代码结构
+3. **创建 Multica issue** — 把任务写到 Multica（workspace: winpeek, agent: tech2CC-YU2），不要默默写代码
+
+### 写代码时
+
+4. **先写后端工具** — 新功能先注册 Hermes 工具（`tools/winpeek_tools.py`），前端再调
+5. **WeChatDB 是唯一数据源** — 所有微信数据走 `WeChatDB` 的 CRUD，不要绕过
+6. **匹配现有风格** — 前端用 nanostores + shadcn/ui，后端用 Python 具名参数
+
+### 完成后
+
+7. **运行验证** — 不靠嘴说"好了"，跑实际命令查看输出
+8. **comment 回 Multica** — 完成的 issue 贴结果、失败的贴原因
+9. **更新 KNOWLEDGE-MAP.md** — 新增/删除文件时同步更新代码地图
 
 ## What Hermes Is
 
@@ -1382,3 +1419,16 @@ not the specific names.
 
 Reviewers should reject new change-detector tests; authors should convert
 them into invariants before re-requesting review.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

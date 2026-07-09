@@ -1,7 +1,29 @@
 # Hermes Agent — 项目知识库地图
 
-> **分支**: `feat/winpeek` | **基座**: `main` (Hermes upstream v0.18.0)  
-> **我们的代码**: 🆕 46 文件 | **Hermes 原有**: ~2000+ 文件  
+> **分支**: `DEV` | **基座**: `main` (Hermes upstream)
+> **我们的代码**: WinPeek 微信自动化系统
+
+## 📄 文档体系总览
+
+```
+第1层  AGENTS.md / CLAUDE.md / KNOWLEDGE-MAP.md   ← AI 自动加载
+第2层  docs/requirements/  +  docs/design/  +  docs/decisions/   ← 设计与规划
+第3层  website/docs/winpeek/   ← 用户 / 开发者文档站
+第4层  各模块 README.md   ← 代码入口
+第5层  skills/    ← AI 操作知识
+```
+
+| 文档 | 说明 |
+|------|------|
+| `docs/requirements/wechat-prd.md` | 产品需求规格（9模块/40+需求/验收标准） |
+| `docs/design/wechat-crm-design.md` | 页面功能设计（3700行） |
+| `docs/design/wechat-automation-menu-and-action-loop.md` | 菜单体系 + 画像驱动行动闭环 |
+| `docs/design/background/SUMMARY.md` | 哲学概要 |
+| `docs/design/background/master-friend-system-architecture.md` | 画像架构 |
+| `docs/design/background/actionable-insights-engine.md` | 洞察引擎 |
+| `docs/plan/desktop/wechat/` | 实施计划 |
+| `website/docs/winpeek/QUICKSTART.md` | 5分钟上手 |
+| `website/docs/winpeek/features/OVERVIEW.md` | 产品全景 |
 
 ---
 
