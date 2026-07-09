@@ -795,6 +795,20 @@ const sidebars: SidebarsConfig = {
         'reference/faq',
       ],
     },
+    {
+      type: 'category',
+      label: 'WinPeek',
+      collapsed: false,
+      link: {
+        type: 'generated-index',
+        description: 'WinPeek — Windows desktop automation and multi-agent orchestration.',
+      },
+      items: [
+        'winpeek/ARCHITECTURE',
+        'winpeek/HUB-API',
+        'winpeek/SCHEMAS',
+      ],
+    },
   ],
 };
 
