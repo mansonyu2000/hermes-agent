@@ -95,7 +95,7 @@ import {
   setCurrentCwd
 } from '@/store/session'
 
-import { type AppView, ARTIFACTS_ROUTE, AUTOMATION_ROUTE, MESSAGING_ROUTE, MIM_ROUTE, SKILLS_ROUTE } from '../../routes'
+import { type AppView, ARTIFACTS_ROUTE, ASSETS_ROUTE, AUTOMATION_ROUTE, MESSAGING_ROUTE, MIM_ROUTE, SKILLS_ROUTE } from '../../routes'
 import type { SidebarNavItem } from '../../types'
 
 import { countLabel } from './chrome'
@@ -146,7 +146,8 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
   { id: 'messaging', label: '', icon: props => <Codicon name="comment" {...props} />, route: MESSAGING_ROUTE },
   { id: 'artifacts', label: '', icon: props => <Codicon name="files" {...props} />, route: ARTIFACTS_ROUTE },
   { id: 'automation', label: '', icon: props => <Codicon name="tools" {...props} />, route: AUTOMATION_ROUTE },
-  { id: 'mim', label: '', icon: props => <Codicon name="comment-discussion" {...props} />, route: MIM_ROUTE }
+  { id: 'mim', label: '', icon: props => <Codicon name="comment-discussion" {...props} />, route: MIM_ROUTE },
+  { id: 'assets', label: '', icon: props => <Codicon name="package" {...props} />, route: ASSETS_ROUTE }
 ]
 
 // Two modes via the `compact` height variant (styles.css):

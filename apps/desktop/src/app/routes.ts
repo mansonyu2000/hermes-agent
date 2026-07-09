@@ -11,11 +11,13 @@ export const AGENTS_ROUTE = '/agents'
 export const STARMAP_ROUTE = '/starmap'
 export const AUTOMATION_ROUTE = '/automation'
 export const MIM_ROUTE = '/mim'
+export const ASSETS_ROUTE = '/assets'
 export const WECHAT_ROUTE = '/winpeek-wechat'
 
 export type AppView =
   | 'agents'
   | 'artifacts'
+  | 'assets'
   | 'automation'
   | 'chat'
   | 'command-center'
@@ -36,6 +38,7 @@ export type AppRouteId =
   | 'cron'
   | 'messaging'
   | 'mim'
+  | 'assets'
   | 'new'
   | 'profiles'
   | 'settings'
@@ -62,6 +65,7 @@ export const APP_ROUTES = [
   { id: 'starmap', path: STARMAP_ROUTE, view: 'starmap' },
   { id: 'automation', path: AUTOMATION_ROUTE, view: 'automation' },
   { id: 'mim', path: MIM_ROUTE, view: 'mim' },
+  { id: 'assets', path: ASSETS_ROUTE, view: 'assets' },
   { id: 'winpeek-wechat', path: WECHAT_ROUTE, view: 'winpeek-wechat' }
 ] as const satisfies readonly AppRoute[]
 

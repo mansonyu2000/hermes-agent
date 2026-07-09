@@ -36,7 +36,6 @@ def try_load_hub():
         from gateway.winpeek_hub import tenant, routing, archive, identity
         _HUB_LOADED = True
         logger.info("WinPeek Hub loaded: tenant + routing + archive + identity")
-        _register_routes()
         return True
     except ImportError as e:
         logger.warning(f"WinPeek Hub import failed: {e}")
@@ -44,48 +43,6 @@ def try_load_hub():
     except Exception as e:
         logger.warning(f"WinPeek Hub init failed: {e}")
         return False
-
-
-def _register_routes():
-    """Register WinPeek identity routes with the Gateway."""
-    try:
-        from fastapi import APIRouter
-        from fastapi.responses import JSONResponse
-        from gateway.winpeek_hub import identity
-
-        router = APIRouter(prefix="/api", tags=["winpeek"])
-
-        @router.post("/identities/register")
-        async def api_register(request: dict):
-            nickname = (request.get("nickname") or "").strip()
-            role = request.get("role", "Developer")
-            if not nickname:
-                return JSONResponse({"error": "nickname required"}, 400)
-            result = identity.register(nickname, role)
-            if result is None:
-                return JSONResponse({"error": "nickname taken"}, 409)
-            return JSONResponse(result)
-
-        @router.post("/identities/login")
-        async def api_login(request: dict):
-            nickname = (request.get("nickname") or "").strip()
-            if not nickname:
-                return JSONResponse({"error": "nickname required"}, 400)
-            result = identity.login(nickname)
-            if result is None:
-                return JSONResponse({"error": "not found"}, 404)
-            return JSONResponse(result)
-
-        @router.get("/identities")
-        async def api_list_identities():
-            return JSONResponse(identity.list_all())
-
-        # Mount router on the gateway app
-        from hermes_cli.web_server import app as _app
-        _app.include_router(router)
-        logger.info("WinPeek identity routes registered: /api/identities/*")
-    except Exception as e:
-        logger.warning(f"Failed to register identity routes: {e}")
 
 
 def on_message_received(platform: str, from_uid: str, from_name: str,

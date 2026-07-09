@@ -138,6 +138,7 @@ const SettingsView = lazy(async () => ({ default: (await import('./settings')).S
 const SkillsView = lazy(async () => ({ default: (await import('./skills')).SkillsView }))
 const AutomationView = lazy(async () => ({ default: (await import('./winpeek')).AutomationView }))
 const MimView = lazy(async () => ({ default: (await import('./winpeek')).MimView }))
+const AssetsView = lazy(async () => ({ default: (await import('./winpeek')).AssetsView }))
 const WechatPanel = lazy(async () => ({ default: (await import('./winpeek')).WechatPanel }))
 
 // Latest cron-job sessions surfaced in the collapsed "Cron jobs" section. The
@@ -1371,6 +1372,14 @@ export function DesktopController() {
               </Suspense>
             }
             path="mim"
+          />
+          <Route
+            element={
+              <Suspense fallback={null}>
+                <AssetsView onClose={closeOverlayToPreviousRoute} />
+              </Suspense>
+            }
+            path="assets"
           />
           <Route element={null} path="cron" />
           <Route element={null} path="profiles" />
