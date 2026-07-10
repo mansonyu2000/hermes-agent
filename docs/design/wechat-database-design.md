@@ -205,7 +205,9 @@ friend_score_log ──────→                        friend_opportunity
 
 `actionable_insight` 是最下游的表——它聚合前 7 张表的产出。只要上游缺一张，对应的洞察类型就空，但其他类型正常。
 
-**全部延期到 V2.0 的原因**：这 4 张表的输入是 AI 分析管线的输出。管线需要真实聊天数据来验证准确率。V1.0 先把数据采集、展示、手动编辑做完；V2.0 接入 AI 管线，切换为自动。
+**评分与洞察层分版本**：
+- V1.0: `friend_score_log`（手动填分，Tab2 雷达图直接读当前值）
+- V2.0: `friend_event` + `friend_opportunity` + `actionable_insight` + `action_template` + `automation_rule`（AI 管线接入，`friend_score_log` 改为 AI 自动追加）
 
 ---
 
@@ -276,17 +278,18 @@ action_template   ──→ automation_rule ──→ actionable_insight
 | 表 | 原因 |
 |----|------|
 | wechat_friend (已有) | - |
-| wechat_friend 扩展 12 字段 | 好友列表+详情+筛选的直接依赖 |
+| wechat_friend 扩展 15 字段 | 好友列表+详情+筛选+销售的直接依赖 |
 | wechat_group (已有) | - |
 | wechat_chat (已有) | - |
 | wechat_relation_tree | 种子数据一次写入 |
 | wechat_friend_relation | 用户手动分类 |
 | wechat_friend_event | 用户手动添加事件 |
+| friend_score_log | **修正: V1.0 手动填分, V2.0 AI 自动** — Tab2 雷达图的数据源 |
 | friend_sales_log | 用户手动记录拜访 |
 | message_template | 用户手动创建模板 |
 | sys_enum_definition | 种子数据一次写入 |
 
-**V1.0 产出**：好友列表可以按级别/分类筛选，点击好友看到 5 个 Tab（档案/分类+事件/聊天记录/拜访/备注），所有数据手动维护。
+**V1.0 产出**：好友列表可以按级别/分类筛选，点击好友看到 5 个 Tab（档案/画像+雷达图/聊天记录/拜访/备注），画像数据手动维护。
 
 ---
 
@@ -295,24 +298,58 @@ action_template   ──→ automation_rule ──→ actionable_insight
 | 表 | 原因 |
 |----|------|
 | wechat_friend_finance | 依赖 AI OCR + 金额提取管线 |
-| friend_event | 依赖 AI 聊天分析管线 |
-| friend_score_log | 依赖 friend_event |
-| friend_opportunity | 依赖 friend_event |
-| actionable_insight | 依赖上面 4 表全部 |
-| action_template | 配合 actionable_insight |
-| automation_rule | 配合 actionable_insight |
+| friend_event | 依赖 AI 聊天分析管线 — 每条消息→结构化事件+8维delta |
+| friend_opportunity | 依赖 friend_event 的机会标记 |
+| actionable_insight | 依赖上面 3 表 + friend_score_log(趋势) + wechat_friend_event(生日) |
+| action_template | 配合 actionable_insight — 种子数据 V1.0 可预埋 |
+| automation_rule | 配合 actionable_insight — 无洞察则无规则可用 |
 
-**延期原因不是"表太多"，是"上游管线还没跑"**。AI 分析管线需要 V1.0 积累的真实数据来验证准确率。如果 V1.0 期间 1962 个好友的聊天记录被大量采集，V2.0 的 AI 分析就有了充足的燃料。
+**V2.0 改 friend_score_log 的写入方式**：V1.0 是手动填，V2.0 改为 friend_event.delta + decay 自动追加。
 
 ---
 
-## 四、总结
+## 四、逐功能对照（PRD vs 数据库）
+
+| PRD 功能 | 需要表 | V1.0 覆盖 | 备注 |
+|----------|--------|-----------|------|
+| C1 仪表盘-统计卡片 | wechat_friend/group 聚合 | ✅ | 已有表直接查 |
+| C1 仪表盘-行动清单 | actionable_insight | ❌ V2.0 | 无洞察引擎时空列表 |
+| C1 仪表盘-温度预警 | friend_score_log | ✅ | 手动填的分数也能算趋势 |
+| C2 数据统计-消息趋势 | wechat_chat | ✅ | 已有 |
+| C2 数据统计-客户分级 | wechat_friend.customer_level | ✅ | V1.0 扩展字段 |
+| C2 数据统计-销售漏斗 | wechat_friend.sales_stage | ✅ | V1.0 扩展字段 |
+| C2 数据统计-Top20热度 | wechat_friend.heat_score | ✅ | 系统计算+手动可调 |
+| D1 好友列表-级别颜色 | wechat_friend_relation | ✅ | V1.0 |
+| D1 好友列表-筛选排序 | wechat_friend扩展(6字段) | ✅ | V1.0 |
+| D2 Tab1-基本档案 | wechat_friend(含扩展) | ✅ | 12个扩展字段全覆盖 |
+| D3 Tab2-画像雷达图 | friend_score_log | ✅ | **修正: V1.0手动填分, V2.0 AI自动** |
+| D3 Tab2-13树分类 | wechat_relation_tree + wechat_friend_relation | ✅ | V1.0 |
+| D3 Tab2-AI速写 | wechat_friend.portrait_summary | ✅ | V1.0手动写, V2.0 AI生成 |
+| D3 Tab2-关键事件 | wechat_friend_event | ✅ | V1.0手动添加 |
+| D3 Tab2-经济往来 | wechat_friend_finance | ❌ V2.0 | 依赖AI OCR |
+| D4 Tab3-聊天记录 | wechat_chat | ✅ | 已有 |
+| D5 Tab4-客户分级 | wechat_friend(customer_level等4字段) | ✅ | V1.0 |
+| D5 Tab4-拜访记录 | friend_sales_log | ✅ | V1.0手动录入 |
+| D5 Tab4-销售目标 | wechat_friend(estimated_amount等) | ✅ | V1.0扩展字段 |
+| D6 Tab5-备注 | wechat_friend.remark | ✅ | V1.0扩展字段 |
+| E 群管理 | wechat_group + wechat_group_member | ✅ | 已有 |
+| F 群发消息 | message_template | ✅ | V1.0 |
+| G 消息模板 | message_template | ✅ | 同表复用 |
+| H 洞察引擎-规则 | friend_event + friend_opportunity | ❌ V2.0 | 核心AI管线 |
+| H 洞察引擎-派遣 | actionable_insight + action_template | ❌ V2.0 | 依赖上游4表 |
+| H 自动化规则 | automation_rule | ❌ V2.0 | 依赖actionable_insight |
+| I 个人助理 | personal_* 17表 | ❌ 未纳入 | 独立模块,本文不覆盖 |
+
+---
+
+## 五、总结
 
 | | V1.0 | V2.0 |
 |------|------|------|
-| 扩展字段 | 12 | - |
-| 新表 | 6 + 已扩展 | 7 |
-| 依赖 | 全部手动输入 | 全部 AI 分析管线 |
-| 交付物 | 完整的 5 Tab CRM + 手动画像 | 自动评分 + 洞察 + 行动闭环 |
+| 扩展字段 | 15（已修正） | - |
+| 新表 | 7（新增 wechat_friend_finance 延期, friend_score_log 提前） | 6 |
+| 依赖 | 手动维护 + friend_score_log手动填分 | AI管线自动写入 |
+| 交付物 | 5 Tab + 画像雷达图(手动) + 数据统计 | 自动评分 + 洞察 + 行动闭环 |
+| PRD功能覆盖率 | 21/27 ✅ | 27/27 ✅ |
 
-**设计已完整。实现延后是因为 AI 管线需要真实数据，不是表太多。**
+**唯一缺口**：`D3 经济往来`（V2.0, 依赖 AI OCR）、`C1 行动清单`（V2.0, 依赖洞察引擎）、`H 洞察引擎`全模块（V2.0, 核心 AI 管线）。这三项的延期原因相同——输入来源是 AI 分析产出，不是表结构问题。
