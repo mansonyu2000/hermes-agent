@@ -1,68 +1,73 @@
+---
+sidebar_position: 5
+title: "产品全景"
+description: "WinPeek 各功能模块总览"
+---
+
 # WinPeek 产品全景
 
-把几千个微信好友的聊天记录，变成每天早上 5 条可行动的建议——该联系谁、该推进什么、什么逾期了、关系在升温还是降温。
+WinPeek 是构建在 Hermes Agent 之上的微信关系智能与自动化平台。核心能力：**从聊天中提取对人有用的决策信息，变成可行动的建议。**
 
-## 核心差异化
+## 产品愿景
 
-传统 CRM 是人手动录入 → 人手动分析 → 人手动行动。
+把微信好友的几千条聊天记录，变成每天早上 5 条可行动的建议——该联系谁、该推进什么、什么逾期了、关系在降温还是在升温。
 
-WinPeek 是 AI 自动采集 → AI 自动画像 → AI 自动洞察 → AI 建议行动 → 人确认后自动执行。
+详见 [完整 PRD](../../../docs/requirements/wechat-prd.md)。
 
-## 七大维度
+## 目标用户
 
-### 1. 关系温度 — "谁在靠近，谁在走远"
-
-量化聊天频率、话题深度、称呼变化、互动双向性。8 个子维度（亲密度/信任度/尊重度/好感度/商业价值/成长价值/经济信用/互惠度）持续评分，追踪趋势。
-
-### 2. 机会漏斗 — "聊天里藏着的机会"
-
-AI 识别聊天中的信号词——"我们在找供应商"、"你帮我看看"、"我认识一个人可以"——进入发现→评估→跟进→成交的漏斗管理。
-
-### 3. 经济往来 — "谁欠我，我欠谁"
-
-自动从聊天中提取金额+事由+约定时间，追踪借还款状态，计算净头寸。
-
-### 4. 承诺信用 — "你说的'下次'，兑现了吗"
-
-追踪承诺类词语（"下次请你"、"改天帮你"）→ 标记为待兑现 → 设定合理期限。
-
-### 5. 拒绝边界 — "你说'不'的时候，在保护什么"
-
-记录每次拒绝的对象、类型、方式，作为自我认知的边界地图。
-
-### 6. 价值一致性 — "言行一致率"
-
-每月用儒家五常（仁义礼智信）做价值观审计，只呈现差距，不评判对错。
-
-### 7. 健康与消费底线 — "身体和钱包"
-
-追踪运动频率、BMI、烟酒摄入、月消费分品类统计、预算偏差。
-
-## 三阶段闭环
-
-```
-数据采集 (已有) → 画像构建 (设计完成) → 行动闭环 (设计完成)
-```
+| 角色 | 场景 | 好友规模 |
+|------|------|----------|
+| 销售/商务 | 客户关系管理、商机识别、群发营销 | 1000–5000 |
+| 创业者/管理者 | 人脉维护、承诺追踪、经济往来 | 500–3000 |
+| 个人用户 | 关系温度监控、关键事件提醒 | 200–2000 |
 
 ## 功能模块
 
-| 模块 | 说明 | 状态 |
+### 已完成（Phase 0）
+
+| 模块 | 说明 | 文档 |
 |------|------|------|
-| 好友管理 | 列表+5Tab详情（档案/画像/聊天/销售/备注） | 设计完成 |
-| 画像系统 | 8维评分+13树分类+AI速写+事件+经济往来 | 设计完成 |
-| 聊天记录 | 100%消息还原+搜索+统计+AI标记 | 设计完成 |
-| 销售管理 | 客户分级+拜访记录+目标+文档 | 设计完成 |
-| 群发消息 | 选择→AI话术→模板→发送控制 | 设计完成 |
-| 洞察引擎 | 20条规则→行动建议→Hermes派遣→反馈闭环 | 设计完成 |
-| 数据统计 | 趋势图+排行榜+销售漏斗+热力图 | 设计完成 |
-| 个人助理 | 日记/待办/消费/学习/健康/爱好/信仰 | 设计完成 |
+| WinPeek RPA | 微信 UIA 自动化引擎（发消息/采集） | [Architecture](./ARCHITECTURE.md) |
+| WinPeek Hub | 多 Agent MQTT 通信 + 消息归档 | [Hub API](./HUB-API.md) |
+| MIM 协议 | 多 Hermes 实例互聊 | [Hub API → MQTT](./HUB-API.md#mqtt-topic-协议) |
+| 桌面前端 | WinPeek 导航/视图（MIM/WeChat/Automation/Assets） | 代码：`apps/desktop/src/app/winpeek/` |
 
-## 相关文档
+### 规划中（Phase 1+）
 
-- [画像体系架构](PORTRAIT-SYSTEM.md)
-- [微信自动化操作手册](WEIXIN-AUTOMATION.md)
-- [行动闭环详解](ACTION-LOOP.md)
+| 模块 | 优先级 | 设计文档 |
+|------|--------|----------|
+| 画像体系（8维评分） | P0 | [background/SUMMARY.md](../../../docs/design/background/SUMMARY.md) |
+| CRM 系统（MasterDetail 布局） | P0 | [wechat-crm-design.md](../../../docs/design/wechat-crm-design.md) |
+| 数据同步（自动采集） | P1 | [wechat-automation-menu.md](../../../docs/design/wechat-automation-menu-and-action-loop.md) |
+| 行动闭环（洞察→执行） | P1 | 同上 |
+| 消息模板/群发 | P2 | [CRM 设计](../../../docs/design/wechat-crm-design.md) |
+| 数据统计/仪表盘 | P2 | 同上 |
+| 主人自画像 | P3 | [画像哲学](../../../docs/design/background/philosophy-of-portrait.md) |
+
+## 核心差异化
+
+传统 CRM：
+```
+人手动录入 → 人手动分析 → 人手动行动
+```
+
+WinPeek：
+```
+AI 自动采集 → AI 自动画像 → AI 自动洞察 → AI 建议行动 → 人确认/自动执行
+```
+
+## 技术栈
+
+| 层 | 技术 |
+|------|------|
+| Agent 框架 | Hermes Agent（Python） |
+| 桌面自动化 | UIA (uiautomation) + pyautogui |
+| Agent 通信 | MQTT (paho-mqtt) |
+| 数据存储 | SQLite / MySQL |
+| 前端 | React + Electron（Hermes Desktop） |
+| AI 语义搜索 | agentmemory + bge-m3 (Ollama) |
 
 ---
 
-> 参见完整设计：[docs/design/SUMMARY.md](../../../docs/design/background/SUMMARY.md)
+参见：[架构详解](./ARCHITECTURE.md) · [快速上手](./QUICKSTART.md) · [完整 PRD](../../../docs/requirements/wechat-prd.md)
