@@ -19,7 +19,7 @@ Qoder-yu2  → 代码质量 + 前端测试
 |-------|------|---------|------|
 | **CC-yu2** | 微信自动化 CRM | `apps/desktop/.../winpeek/wechat/` + `plugins/winpeek_rpa/` + `tools/winpeek_tools.py` | PRD、DB 设计、后端工具、前端 UI、API 文档 |
 | **Hermes-htubs24** | MIM 多平台即时通讯 | `apps/desktop/.../winpeek/mim/` + `gateway/winpeek_hub/` | 需求、后端 API、前端聊天 UI、MQTT 集成文档 |
-| **Qoder-yu2** | 代码质量 + 前端测试 | 全局 lint/typecheck + 两个功能的前端组件测试 | CI 流水线、MR 质量报告、测试用例 |
+| **Qoder-yu2** | 代码质量 + 全前端测试 | CI 流水线、typecheck、lint、CSS 检查、Vitest 组件测试、Playwright E2E | MR 门禁报告、测试套件 |
 
 ---
 
@@ -131,54 +131,79 @@ main (上游 Hermes)
 
 ---
 
-### 功能 C：代码质量 + 前端测试 — Qoder-yu2
+### 功能 C：代码质量 + 全前端测试 — Qoder-yu2
 
-**范围**：
+**Qoder 能力**：
 
-| 项 | 工具 | 目标 |
-|----|------|------|
-| TypeScript 类型检查 | `pnpm typecheck` | 0 error |
-| ESLint | `pnpm lint` | 0 warning |
-| 硬编码值检测 | grep + 规则 | 0 硬编码颜色/魔法数字 |
-| CSS token 一致性 | 人工 + 正则 | 只用 `var(--ui-*)` |
-| 组件命名规范 | 人工 | 符合项目惯例 |
-| 前端组件测试 | Vitest + React Testing Library | 关键组件有测试 |
+| 能力 | 说明 |
+|------|------|
+| IDE (LSP/lint/format) | TypeScript strict、ESLint、未使用变量 |
+| Browser | Playwright E2E、截图对比 |
+| Node.js | Vitest、脚本 |
+
+**测试分层**：
+
+| 层级 | 工具 | 负责 | 说明 |
+|------|------|------|------|
+| 静态检查 | `pnpm typecheck` + `pnpm lint` | Qoder-yu2 | MR 自动触发 |
+| CSS token 检查 | `scripts/check-css-tokens.mjs` | Qoder-yu2 | 扫描硬编码颜色 |
+| 组件单元测试 | Vitest + React Testing Library | Qoder-yu2 | 渲染不崩溃、props 正确 |
+| E2E | Playwright | Qoder-yu2 | 有 browser，可以做 |
+| 肉眼验收 | Hermes Desktop 实际运行 | CC-yu2 | Electron 窗口截图/点击/滚动 |
+| 后端 API 测试 | pytest | 各自 Agent | CC-yu2 测 winpeek_* 工具，Hermes-htubs24 测 Hub API |
 
 **任务**：
 
-| # | 任务 | 说明 |
-|---|------|------|
-| C1 | 建立 MR 检查流水线 | MR 创建 → typecheck + lint → 评论贴结果 |
-| C2 | 编写 CSS token 检查脚本 | 扫描 `apps/desktop/src/app/winpeek/` 下硬编码颜色 |
-| C3 | 编写组件测试框架 | Vitest 配置 + 测试模板 |
-| C4 | CC-yu2 MR 审查 | 每次 CC 的 MR 自动跑 C1 + C2 |
-| C5 | Hermes-htubs24 MR 审查 | 每次 Hermes 的 MR 自动跑 C1 + C2 |
-| C6 | 前端组件测试：微信好友列表 | ContactRow, FriendListItem |
-| C7 | 前端组件测试：MIM 聊天窗口 | ChatBubble, ContactList |
-| C8 | 前端组件测试：画像雷达图 | PortraitRadar (SVG 渲染校验) |
-| C9 | 前端组件测试：聊天时间线 | ChatTimeline (消息分组/搜索) |
+| # | 任务 | 工具 | 依赖 |
+|---|------|------|------|
+| C1 | 搭建 Vitest 测试框架 | Vitest + RTL | - |
+| C2 | CSS token 检查脚本 | grep + 正则 | - |
+| C3 | `.gitlab-ci.yml` CI 流水线 | GitLab CI | C1, C2 (需要先有命令可跑) |
+| C4 | CC-yu2 MR 门禁 | 每次 MR → typecheck + lint + CSS + Vitest → 评论报告 | C3 |
+| C5 | Hermes-htubs24 MR 门禁 | 同上 | C3 |
+| C6 | 组件测试：微信好友列表 | ContactRow, FriendListItem | 功能 A 前端代码合入 DEV 后 |
+| C7 | 组件测试：好友详情 5 Tab | ProfileTab, PortraitTab, ChatTimeline | 同上 |
+| C8 | 组件测试：画像雷达图 SVG | PortraitRadar (渲染+分数校验) | 同上 |
+| C9 | E2E：好友列表 → 点击 → 右侧详情切换 | Playwright | 功能 A 前端代码合入 DEV 后 |
+| C10 | 组件测试：MIM 聊天窗口 | ChatBubble, ContactList | 功能 B 前端代码合入 DEV 后 |
+| C11 | E2E：MIM 联系人列表 → 聊天 → 发送消息 | Playwright | 功能 B 前端代码合入 DEV 后 |
+
+**执行顺序**：C1 → C2 → C3（零依赖，先行）。C4/C5 第一次 MR 来时即生效。C6-C11 等功能代码合入 DEV 后分批补。
 
 ---
 
 ## 四、依赖关系
 
 ```
-                    Qoder-yu2 (C1 建立检查流水线)  ← 最先
-                         │
-          ┌──────────────┴──────────────┐
-          │                             │
-     CC-yu2                         Hermes-htubs24
-     A1-A2 (建表)                   B1 (MIM 需求)
-     A3-A9 (后端工具)               B2-B5 (后端 API)
-     A10-A19 (前端 UI)              B6-B10 (前端 UI)
-     A20 (API 文档)                 B11 (API 文档)
-          │                             │
-          └──────────────┬──────────────┘
-                         │
-                    Qoder-yu2 (C4-C9 测试)
+  ┌─────────────── Qoder-yu2 ──────────────┐
+  │  C1 测试框架 → C2 CSS检查 → C3 CI      │  ← 先行, 零依赖
+  └──────────────────┬─────────────────────┘
+                     │ CI 就绪后, 以下并行:
+                     │
+  ┌──────────────────┼─────────────────────┐
+  │                  │                     │
+  ▼                  ▼                     │
+CC-yu2           Hermes-htubs24           │
+A1-A2 (建表)     B1 (MIM需求)             │
+A3-A9 (后端)     B2-B5 (后端API)          │
+A10-A19 (前端)   B6-B10 (前端)            │
+A20 (文档)       B11 (文档)               │
+  │                  │                     │
+  └────────┬─────────┘                     │
+           │ 代码合入 DEV 后                │
+           ▼                               ▼
+  ┌────────────── Qoder-yu2 ──────────────┐
+  │  C6-C8 组件测试 (微信CRM)              │
+  │  C9     E2E (微信CRM)                  │
+  │  C10    组件测试 (MIM)                 │
+  │  C11    E2E (MIM)                      │
+  └───────────────────────────────────────┘
+
+每轮 MR: Qoder-yu2 自动运行 C4/C5 门禁 → 评论报告
+肉眼验收: CC-yu2 在 yu2 机器启动 Hermes Desktop 验证
 ```
 
-**两个功能完全独立，零依赖。** 微信 CRM 和 MIM 聊天没有共享代码，可以同时开发。
+**两个功能完全独立，零依赖。** 微信 CRM 和 MIM 聊天没有共享代码，可以同时开发。Qoder 的 C1-C3 也不依赖任何人。
 
 ---
 
@@ -186,14 +211,29 @@ main (上游 Hermes)
 
 | 周 | CC-yu2 | Hermes-htubs24 | Qoder-yu2 |
 |----|--------|---------------|-----------|
-| W1 | A1-A2 建表 + A3-A9 后端工具 | B1 需求 + B2-B5 后端 API | C1 检查流水线 + C2 CSS 检查 |
-| W2 | A10-A12 前端框架 + Tab1 | B6-B8 前端对接 | C3 测试框架 + C4/C5 首次 MR 审查 |
-| W3 | A13-A15 Tab2/Tab3/Tab4 | B9-B10 在线状态 + 已读回执 | C6-C7 组件测试 |
-| W4 | A16-A19 Tab5/仪表盘/群发/管理 | B11 文档 | C8-C9 组件测试 |
+| W1 | A1-A2 建表 + A3-A9 后端工具 | B1 需求 + B2-B5 后端 API | C1 测试框架 + C2 CSS 检查 + C3 CI 流水线 |
+| W2 | A10-A12 前端框架 + Tab1 | B6-B8 前端对接 | C4/C5 MR 门禁生效（首次 MR 自动跑） |
+| W3 | A13-A15 Tab2/Tab3/Tab4 | B9-B10 在线状态 + 已读回执 | C6-C8 微信组件测试 |
+| W4 | A16-A19 Tab5/仪表盘/群发/管理 | B11 文档 | C9 微信 E2E + C10-C11 MIM 测试 |
 
 ---
 
-## 六、MR 工作流
+## 六、测试责任矩阵
+
+| 测试类型 | CC-yu2 | Hermes-htubs24 | Qoder-yu2 |
+|---------|--------|---------------|-----------|
+| TypeScript typecheck | - | - | ✅ `pnpm typecheck` |
+| ESLint | - | - | ✅ `pnpm lint` |
+| CSS token 检查 | - | - | ✅ `check-css-tokens.mjs` |
+| Vitest 组件测试 | - | - | ✅ 全部前端组件 |
+| Playwright E2E | - | - | ✅ 有 browser |
+| 后端 pytest (winpeek_* 工具) | ✅ | - | - |
+| 后端 pytest (Hub API) | - | ✅ | - |
+| 肉眼验收 (Electron 实际运行) | ✅ | ❌ Ubuntu 无桌面 | - |
+
+**结论**：前端测试全部由 Qoder-yu2 承担（类型/组件/E2E/截图）。CC-yu2 负责微信后端工具测试 + 肉眼验收。Hermes-htubs24 负责 Hub API 测试，不参与前端测试。
+
+## 七、MR 工作流
 
 ```
 1. Agent git pull DEV → git checkout -b feature/xxx → 开发 → commit → git push
@@ -205,7 +245,7 @@ main (上游 Hermes)
 
 ---
 
-## 七、当前阻塞项
+## 八、当前阻塞项
 
 | # | 阻塞 | 负责人 | 状态 |
 |---|------|--------|------|
