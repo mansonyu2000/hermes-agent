@@ -20,6 +20,7 @@ Qoder-yu2  → 代码质量 + 前端测试
 | **CC-yu2** | 微信自动化 CRM | `apps/desktop/.../winpeek/wechat/` + `plugins/winpeek_rpa/` + `tools/winpeek_tools.py` | PRD、DB 设计、后端工具、前端 UI、API 文档 |
 | **Hermes-htubs24** | MIM 多平台即时通讯 | `apps/desktop/.../winpeek/mim/` + `gateway/winpeek_hub/` | 需求、后端 API、前端聊天 UI、MQTT 集成文档 |
 | **Qoder-yu2** | 代码质量 + 全前端测试 | CI 流水线、typecheck、lint、CSS 检查、Vitest 组件测试、Playwright E2E | MR 门禁报告、测试套件 |
+| **待分配** | 电脑资产管理 | `apps/desktop/.../winpeek/assets/` + `plugins/winpeek_rpa/shared/software_scanner.py` | PRD、后端工具、前端 UI |
 
 ---
 
@@ -131,6 +132,39 @@ main (上游 Hermes)
 
 ---
 
+### 功能 D：电脑资产管理 — 待分配
+
+**代码范围**：
+
+| 层 | 文件 | 当前状态 | 目标 |
+|----|------|---------|------|
+| 前端 | `apps/desktop/src/app/winpeek/assets/index.tsx` | 150行, 5 Tab, 11 mock软件 + 2假磁盘 | 5 Tab 全真实数据 |
+| 后端 | `plugins/winpeek_rpa/shared/software_scanner.py` | 381行, 注册表+StartMenu | 注册为 Hermes 工具 |
+| 工具 | `tools/winpeek_tools.py` | 4 微信工具 | +5 资产工具 |
+| 设计 | `docs/requirements/assets-prd.md` | ✅ | 随实现更新 |
+
+**版本计划**：
+
+| 版本 | 内容 | 交付物 |
+|------|------|--------|
+| **V1.0** | 软件扫描+展示 + 磁盘信息 + CPU/内存 | 可用资产面板 (真实数据) |
+| **V2.0** | 文件管理 + 进程管理 + GPU/网络 + 大文件扫描 | 完整运维面板 |
+
+**V1.0 详细任务**：
+
+| # | 任务 | 类型 | 依赖 |
+|---|------|------|------|
+| D1 | 注册 Hermes 工具：winpeek_scan_software | 后端 | - |
+| D2 | 注册 Hermes 工具：winpeek_get_disk_info | 后端 | - |
+| D3 | 注册 Hermes 工具：winpeek_get_hardware_info | 后端 | - |
+| D4 | 前端：软件列表 Tab 对接真实扫描数据 (替换 mock) | 前端 | D1 |
+| D5 | 前端：磁盘管理 Tab (真实 psutil 数据) | 前端 | D2 |
+| D6 | 前端：硬件信息 Tab (CPU/内存) | 前端 | D3 |
+| D7 | 前端："重新扫描"按钮对接后端 | 前端 | D1 |
+| D8 | 前端：文件管理/进程管理 Tab 占位 | 前端 | - |
+
+---
+
 ### 功能 C：代码质量 + 全前端测试 — Qoder-yu2
 
 **Qoder 能力**：
@@ -180,23 +214,24 @@ main (上游 Hermes)
   └──────────────────┬─────────────────────┘
                      │ CI 就绪后, 以下并行:
                      │
-  ┌──────────────────┼─────────────────────┐
-  │                  │                     │
-  ▼                  ▼                     │
-CC-yu2           Hermes-htubs24           │
-A1-A2 (建表)     B1 (MIM需求)             │
-A3-A9 (后端)     B2-B5 (后端API)          │
-A10-A19 (前端)   B6-B10 (前端)            │
-A20 (文档)       B11 (文档)               │
-  │                  │                     │
-  └────────┬─────────┘                     │
-           │ 代码合入 DEV 后                │
-           ▼                               ▼
+  ┌──────────────────┼──────────────────────────────┐
+  │                  │                              │
+  ▼                  ▼                              ▼
+CC-yu2           Hermes-htubs24                 待分配(Assets)
+A1-A2 (建表)     B1 (MIM需求)                  D1-D3 (后端工具)
+A3-A9 (后端)     B2-B5 (后端API)               D4-D6 (前端对接)
+A10-A19 (前端)   B6-B10 (前端)                 D7-D8 (扫描按钮+占位)
+A20 (文档)       B11 (文档)
+  │                  │                              │
+  └────────┬─────────┴──────────────────────────────┘
+           │ 代码合入 DEV 后
+           ▼
   ┌────────────── Qoder-yu2 ──────────────┐
   │  C6-C8 组件测试 (微信CRM)              │
   │  C9     E2E (微信CRM)                  │
   │  C10    组件测试 (MIM)                 │
   │  C11    E2E (MIM)                      │
+  │  C12    组件测试 (Assets) ← 新增       │
   └───────────────────────────────────────┘
 
 每轮 MR: Qoder-yu2 自动运行 C4/C5 门禁 → 评论报告
@@ -209,12 +244,12 @@ A20 (文档)       B11 (文档)               │
 
 ## 五、时间线
 
-| 周 | CC-yu2 | Hermes-htubs24 | Qoder-yu2 |
-|----|--------|---------------|-----------|
-| W1 | A1-A2 建表 + A3-A9 后端工具 | B1 需求 + B2-B5 后端 API | C1 测试框架 + C2 CSS 检查 + C3 CI 流水线 |
-| W2 | A10-A12 前端框架 + Tab1 | B6-B8 前端对接 | C4/C5 MR 门禁生效（首次 MR 自动跑） |
-| W3 | A13-A15 Tab2/Tab3/Tab4 | B9-B10 在线状态 + 已读回执 | C6-C8 微信组件测试 |
-| W4 | A16-A19 Tab5/仪表盘/群发/管理 | B11 文档 | C9 微信 E2E + C10-C11 MIM 测试 |
+| 周 | CC-yu2 | Hermes-htubs24 | Qoder-yu2 | 待分配 (Assets) |
+|----|--------|---------------|-----------|-----------------|
+| W1 | A1-A2 建表 + A3-A9 后端工具 | B1 需求 + B2-B5 后端 API | C1 测试框架 + C2 CSS 检查 + C3 CI 流水线 | D1-D3 后端工具 |
+| W2 | A10-A12 前端框架 + Tab1 | B6-B8 前端对接 | C4/C5 MR 门禁 | D4-D6 前端对接 |
+| W3 | A13-A15 Tab2/Tab3/Tab4 | B9-B10 在线状态 + 已读回执 | C6-C8 微信组件测试 | D7-D8 扫描按钮+Tab占位 |
+| W4 | A16-A19 Tab5/仪表盘/群发/管理 | B11 文档 | C9 微信 E2E + C10-C11 MIM 测试 | — |
 
 ---
 
