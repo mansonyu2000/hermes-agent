@@ -52,9 +52,11 @@ function saveIdentity(id: WinPeekIdentity) {
 
 /* ── Login / Register Form ───────────────────── */
 
-function LoginPanel({ onLogin, onRegister }: {
+function LoginPanel({ existingUsers, onLogin, onRegister, onRefreshUsers }: {
+  existingUsers: {uid: number; nickname: string; role: string}[]
   onLogin: (name: string) => void
   onRegister: (name: string, role: string) => void
+  onRefreshUsers: () => void
 }) {
   const [nick, setNick] = useState('')
   const [showRegister, setShowRegister] = useState(false)
@@ -81,6 +83,27 @@ function LoginPanel({ onLogin, onRegister }: {
           <p className="text-xs text-(--ui-text-tertiary)">登录或注册以使用消息功能</p>
         </div>
         {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
+        {/* Existing users — quick select */}
+        {existingUsers.length > 0 && !showRegister && (
+          <div>
+            <div className="mb-1.5 text-[0.65rem] font-medium text-(--ui-text-secondary)">已有用户</div>
+            <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-(--ui-stroke-tertiary) p-1">
+              {existingUsers.map(u => (
+                <button
+                  key={u.uid}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-(--ui-control-hover-background)"
+                  onClick={() => { setNick(u.nickname); onLogin(u.nickname) }}
+                >
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-(--ui-accent)/15 text-[0.55rem] font-semibold text-(--ui-accent)">
+                    {u.nickname.charAt(0)}
+                  </span>
+                  <span className="font-medium text-foreground">{u.nickname}</span>
+                  <span className="ml-auto text-[0.6rem] text-(--ui-text-tertiary)">{u.role}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <Input
           onChange={e => setNick(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !showRegister && handleLogin()}
@@ -165,12 +188,25 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const [showProfile, setShowProfile] = useState(false)
 
   const [contacts, setContacts] = useState<Contact[]>([])
+  const [existingUsers, setExistingUsers] = useState<{uid: number; nickname: string; role: string}[]>([])
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const identRef = useRef<WinPeekIdentity | null>(identity)
   identRef.current = identity
+
+  const refreshUsers = useCallback(() => {
+    gatewayRequest('winpeek_mim_contacts', {}).then(raw => {
+      const data = JSON.parse(raw)
+      if (data.contacts) {
+        setExistingUsers(data.contacts.filter((c: any) => c.uid > 0))
+      }
+    }).catch(() => {})
+  }, [gatewayRequest])
+
+  // ── Load existing users for login page ──
+  useEffect(() => { refreshUsers() }, [refreshUsers])
 
   const activeContact = useMemo(
     () => contacts.find(c => c.id === activeContactId) ?? null,
@@ -185,13 +221,14 @@ export function MimView({ onClose }: { onClose: () => void }) {
         const id: WinPeekIdentity = { uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role, host: 'local' }
         saveIdentity(id)
         setIdentity(id)
+        refreshUsers()
       }
     } catch {
       // fallback to localStorage
       const saved = loadSavedIdentity()
       if (saved) setIdentity(saved)
     }
-  }, [gatewayRequest])
+  }, [gatewayRequest, refreshUsers])
 
   const handleRegister = useCallback(async (name: string, role: string) => {
     try {
@@ -201,12 +238,13 @@ export function MimView({ onClose }: { onClose: () => void }) {
         const id: WinPeekIdentity = { uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role, host: 'local' }
         saveIdentity(id)
         setIdentity(id)
+        refreshUsers()
       }
     } catch {
       const saved = loadSavedIdentity()
       if (saved) setIdentity(saved)
     }
-  }, [gatewayRequest])
+  }, [gatewayRequest, refreshUsers])
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('mim-identity')
@@ -289,7 +327,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
   if (!identity) {
     return (
       <MasterDetail>
-        <LoginPanel onLogin={handleLogin} onRegister={handleRegister} />
+        <LoginPanel existingUsers={existingUsers} onLogin={handleLogin} onRefreshUsers={refreshUsers} onRegister={handleRegister} />
       </MasterDetail>
     )
   }

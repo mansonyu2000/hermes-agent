@@ -37,6 +37,24 @@ def _db():
 
 _pending: list[dict] = []
 
+# ── Active session (per-frontend-login, supports user switching) ──
+
+_active_uid: int = 0
+_active_name: str = ""
+
+def set_active_session(uid: int, name: str = ""):
+    """Set the currently active identity. Called by winpeek_mim_login on success.
+    All subsequent send/poll operations use this identity."""
+    global _active_uid, _active_name
+    _active_uid = uid
+    _active_name = name
+
+def active_uid() -> int:
+    return _active_uid
+
+def active_name() -> str:
+    return _active_name
+
 def enqueue(msg: dict):
     """Called by mqtt_adapter._on_message when MQTT message arrives."""
     _pending.append(msg)

@@ -91,8 +91,8 @@ def set_message_handler(handler):
 
 def _on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
-        client.subscribe(f"comms/inbox/{UID}", qos=1)
-        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}")
+        client.subscribe("comms/inbox/#", qos=1)
+        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, inbox=all")
     else:
         logger.warning(f"MIM connect failed: code={reason_code}")
 

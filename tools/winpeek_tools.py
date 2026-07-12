@@ -242,11 +242,13 @@ def _handle_mim_login(args: dict) -> str:
         return json.dumps({"error": "nickname required"})
     try:
         from gateway.winpeek_hub import identity
+        from gateway.winpeek_hub.chat import set_active_session
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded (WINPEEK_HUB_ENABLED=1?)"})
     result = identity.login(nickname) or identity.register(nickname, role)
     if not result:
         return json.dumps({"error": f"name '{nickname}' taken"})
+    set_active_session(result["uid"], result["nickname"])
     return json.dumps({"ok": True, "identity": result})
 
 
@@ -256,20 +258,24 @@ def _handle_mim_send(args: dict) -> str:
     if not to_uid or not body:
         return json.dumps({"error": "to_uid and body required"})
     try:
-        from gateway.winpeek_hub.mqtt_adapter import UID, NAME
-        from gateway.winpeek_hub.chat import send_message
+        from gateway.winpeek_hub.chat import send_message, active_uid, active_name
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    return json.dumps(send_message(UID, NAME, int(to_uid), body))
+    uid = active_uid()
+    if not uid:
+        return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
+    return json.dumps(send_message(uid, active_name() or f"user_{uid}", int(to_uid), body))
 
 
 def _handle_mim_poll(args: dict) -> str:
     try:
-        from gateway.winpeek_hub.mqtt_adapter import UID
-        from gateway.winpeek_hub.chat import poll_messages
+        from gateway.winpeek_hub.chat import poll_messages, active_uid
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    return json.dumps({"messages": poll_messages(UID)})
+    uid = active_uid()
+    if not uid:
+        return json.dumps({"messages": []})
+    return json.dumps({"messages": poll_messages(uid)})
 
 
 def _handle_mim_contacts(args: dict) -> str:
@@ -389,11 +395,10 @@ def _handle_mim_history(args: dict) -> str:
     if not peer_uid:
         return json.dumps({"error": "peer_uid required"})
     try:
-        from gateway.winpeek_hub.mqtt_adapter import UID
-        from gateway.winpeek_hub.chat import get_history
+        from gateway.winpeek_hub.chat import get_history, active_uid
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    return json.dumps({"messages": get_history(UID, peer_uid, limit)})
+    return json.dumps({"messages": get_history(active_uid(), peer_uid, limit)})
 
 registry.register(
     name="winpeek_mim_history",
