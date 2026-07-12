@@ -1,43 +1,40 @@
-# WinPeek 前端视图
+# WinPeek — Desktop Frontend
 
-桌面自动化模块的 React 前端，在 Hermes Desktop Electron 应用中运行。
+WinPeek module views under Hermes Desktop Electron app.
 
-## 目录结构
+## Views
 
-```
-winpeek/
-├── index.tsx          # barrel: 导出所有视图
-├── assets/            # 电脑资产 — 软件/硬件扫描器
-├── automation/        # 桌面自动化 — 平台切换器(微信/抖音/快手...)
-├── wechat/            # 微信面板 — 采集流程UI (WechatPanel)
-├── mim/               # 多平台即时通讯 — MasterDetail 聊天视图
-├── components/        # 共享组件
-├── hooks/             # 共享 hooks
-└── store/             # 共享 nanostores
-```
+| View | Route | Component | Status |
+|------|-------|-----------|--------|
+| **Automation** | `/automation` | `automation/index.tsx` | Platform switcher (6 tabs) + per-platform panel |
+| **MIM Chat** | `/mim` | `mim/index.tsx` | Multi-agent messaging (371 lines) |
+| **Assets** | `/assets` | `assets/index.tsx` | Computer asset dashboard (150 lines) |
+| **WeChat CRM** | panel in Automation | `wechat/index.tsx` | CRM master-detail (354 lines) |
 
-## 路由
+## Automation Platform Switcher
 
-| 路由 | 视图 | 入口 |
-|------|------|------|
-| `/automation` | AutomationView | 侧边栏 + 状态栏 |
-| `/mim` | MimView | 侧边栏 |
-| `/winpeek-wechat` | WechatPanel | 状态栏"微信"按钮 |
+`automation/index.tsx` renders a tab bar (6 platforms) + the active platform's panel. WeChat is currently the only implemented panel. Other platforms are placeholders.
 
-## 当前状态
+Each new platform needs its own panel component — either as a sub-page under `automation/` or as a dedicated component file loaded by platform key.
 
-- **WechatPanel** — 6 步采集管线 UI (全用 setTimeout 模拟, 未接入真实 API)
-- **MimView** — 硬编码 mock 数据, 未对接后端
-- **AutomationView** — 平台选择器骨架, 仅微信有内容
+## Current State
 
-## 待开发
+| View | Real Data | Mock Data |
+|------|-----------|-----------|
+| Automation (WeChat) | 8 contact mock, local send | ✅ partial |
+| MIM | localStorage identity, 8 contact mock | ✅ all mock |
+| Assets | 11 software mock, 2 disk mock | ❌ all mock |
 
-参见 [PRD](/docs/requirements/wechat-prd.md) — Phase 1-6 完整路线图。
+## Pending Work
 
-## 技术栈
+- WeChat: 5 Tab detail, dashboard, bulk messaging, sync (see `plugins/winpeek_rpa/README.md` for full requirements)
+- MIM: Replace mock with real API (see `gateway/winpeek_hub/README.md`)
+- Assets: Connect to `software_scanner.py` (see `website/docs/winpeek/features/assets.md`)
+
+## Tech Stack
 
 - React 19 + TypeScript (strict)
 - Vite 6
-- nanostores (状态管理)
+- nanostores (state)
 - Tailwind CSS + shadcn/ui
-- `useGatewayRequest()` → Hermes IPC 桥接
+- `useGatewayRequest()` → Hermes IPC bridge
