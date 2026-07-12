@@ -4,9 +4,11 @@ hub_bridge.py — WinPeek Hub 零侵入集成桥
 在 gateway/run.py 启动时自动加载（通过环境变量 WINPEEK_HUB_ENABLED=1）。
 不修改任何 Hermes 核心文件。
 
+加载顺序: identity → mqtt_adapter(connect) → chat → archive → routing → tenant
+
 使用方式:
   1. 设置环境变量: WINPEEK_HUB_ENABLED=1
-  2. Hermes Gateway 启动时自动加载 Hub
+  2. Hermes Gateway 启动时自动加载 Hub 模块 + 连接 MQTT Broker
   3. Hub 在 gateway hooks 中注册消息监听
 """
 
@@ -24,7 +26,11 @@ def is_enabled() -> bool:
 
 
 def try_load_hub():
-    """尝试加载 Hub（幂等，只加载一次）"""
+    """尝试加载 Hub（幂等，只加载一次）。
+
+    加载所有 Hub 模块，启动 MQTT 连接。
+    跟随 hermes serve / hermes gateway 自动执行，
+    不需要手动操作。"""
     global _HUB_LOADED
     if _HUB_LOADED:
         return True
@@ -33,27 +39,65 @@ def try_load_hub():
         return False
 
     try:
-        from gateway.winpeek_hub import tenant, routing, archive, identity
-        _HUB_LOADED = True
-        logger.info("WinPeek Hub loaded: tenant + routing + archive + identity")
-        return True
+        from gateway.winpeek_hub import identity, tenant, routing, archive
+        logger.info("WinPeek Hub loaded: identity + tenant + routing + archive")
     except ImportError as e:
         logger.warning(f"WinPeek Hub import failed: {e}")
         return False
+
+    # ── 启动 MQTT 连接 ──
+    try:
+        from gateway.winpeek_hub import mqtt_adapter
+        if mqtt_adapter.is_configured() and mqtt_adapter.is_available():
+            mqtt_adapter.connect()
+            logger.info(
+                f"WinPeek MQTT connected: uid={mqtt_adapter.UID} "
+                f"name={mqtt_adapter.NAME} "
+                f"broker={mqtt_adapter.BROKER}:{mqtt_adapter.PORT}"
+            )
+        else:
+            logger.info(
+                f"WinPeek MQTT skipped: uid={mqtt_adapter.UID} "
+                f"(set MIM_UID and MIM_NAME to enable)"
+            )
     except Exception as e:
-        logger.warning(f"WinPeek Hub init failed: {e}")
-        return False
+        logger.warning(f"WinPeek MQTT connect failed: {e}")
+
+    # ── 初始化 chat 引擎 ──
+    try:
+        from gateway.winpeek_hub import chat
+        chat._db()  # Ensure SQLite mim.db is created
+        logger.info("WinPeek chat engine ready")
+    except Exception as e:
+        logger.warning(f"WinPeek chat engine init failed: {e}")
+
+    # ── 初始化 hub (在线状态) ──
+    try:
+        from gateway.winpeek_hub import hub
+        if mqtt_adapter.is_configured() and os.getenv("MIM_UID", "0") != "0":
+            hub.register_node(
+                mqtt_adapter.UID,
+                mqtt_adapter.NAME,
+                role="Agent",
+                host=os.getenv("HOSTNAME", "local"),
+            )
+            logger.info(f"WinPeek node registered: {mqtt_adapter.UID} ({mqtt_adapter.NAME})")
+    except Exception as e:
+        logger.warning(f"WinPeek node registration failed: {e}")
+
+    _HUB_LOADED = True
+    return True
 
 
 def on_message_received(platform: str, from_uid: str, from_name: str,
                         content: str, msg_type: str = "text"):
     """
     Gateway hook: 当收到一条 IM 消息时调用。
-    
+
     做两件事:
       1. 归档消息
       2. 如果需要跨平台投递，返回目标信息
-    
+
     Returns:
         None 或 {"platform": "...", "platform_uid": "...", "display_name": "..."}
     """
@@ -78,7 +122,6 @@ def on_message_received(platform: str, from_uid: str, from_name: str,
     )
 
     # 3. 跨平台路由（如果消息包含 "@某人" 模式）
-    #    格式: "@李四 你好" → 尝试投递到李四绑定的平台
     import re
     at_match = re.match(r'@(\S+)\s+(.*)', content)
     if at_match:
