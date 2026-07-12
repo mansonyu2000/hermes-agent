@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 
+import { useGatewayRequest } from '../../gateway/hooks/use-gateway-request'
 import { DetailColumn, ListColumn, MasterDetail } from '../../master-detail'
 
 /* ── Types ───────────────────────────────────── */
@@ -36,7 +37,6 @@ interface ChatMessage {
 }
 
 const ROLES = ['Developer', 'Architect', 'Ops', 'QA', 'PM', 'Director', 'Boss'] as const
-const HUB = 'http://127.0.0.1:2000'
 
 /* ── Identity Store (localStorage) ───────────── */
 
@@ -49,19 +49,6 @@ function loadSavedIdentity(): WinPeekIdentity | null {
 function saveIdentity(id: WinPeekIdentity) {
   localStorage.setItem('mim-identity', JSON.stringify(id))
 }
-
-/* ── Contacts ────────────────────────────────── */
-
-const DEFAULT_CONTACTS: Contact[] = [
-  { id: 'pm', name: 'PM', uid: 2022, role: 'PM', lastMessage: '已收到', lastTime: '10:30', unread: 0, online: true },
-  { id: 'arch', name: '架叔', uid: 2027, role: 'Architect', lastMessage: '架构方案已发', lastTime: '昨天', unread: 0, online: true },
-  { id: 'dev1', name: '大海', uid: 2023, role: 'Developer', lastMessage: '代码提交了', lastTime: '09:15', unread: 2, online: true },
-  { id: 'qa', name: '清清', uid: 2026, role: 'QA', lastMessage: '测试通过', lastTime: '前天', unread: 0, online: false },
-  { id: 'ops', name: '运维', uid: 2025, role: 'Ops', lastMessage: '服务已重启', lastTime: '昨天', unread: 0, online: true },
-  { id: 'director', name: '总监', uid: 2028, role: 'Director', lastMessage: '下周评审', lastTime: '周一', unread: 0, online: false },
-  { id: 'boss', name: '老板', uid: 2029, role: 'Boss', lastMessage: '项目进度确认', lastTime: '上周', unread: 3, online: false },
-  { id: 'group1', name: '项目群', uid: 0, role: undefined, lastMessage: '[群] 周会通知', lastTime: '10:00', unread: 5, online: true },
-]
 
 /* ── Login / Register Form ───────────────────── */
 
@@ -77,15 +64,11 @@ function LoginPanel({ onLogin, onRegister }: {
 
   const handleLogin = useCallback(() => {
     if (!nick.trim()) { return }
-    const id: WinPeekIdentity = { uid: 2027, name: nick.trim(), role: 'Developer', host: 'local' }
-    saveIdentity(id)
     onLogin(nick.trim())
   }, [nick, onLogin])
 
   const handleRegister = useCallback(() => {
     if (!nick.trim()) { return }
-    const id: WinPeekIdentity = { uid: 2000 + Math.floor(Math.random() * 100), name: nick.trim(), role, host: 'local' }
-    saveIdentity(id)
     onRegister(nick.trim(), role)
   }, [nick, role, onRegister])
 
@@ -160,7 +143,7 @@ function ProfilePanel({ identity, onLogout }: { identity: WinPeekIdentity; onLog
           <span>MQTT Broker</span><span className="font-mono text-(--ui-text-tertiary)">192.168.3.23:1883</span>
         </div>
         <div className="flex items-center justify-between text-xs text-(--ui-text-secondary)">
-          <span>WinPeek Hub</span><span className="font-mono text-(--ui-text-tertiary)">{HUB}</span>
+          <span>WinPeek Hub</span><span className="font-mono text-(--ui-text-tertiary)">127.0.0.1:9200</span>
         </div>
         <div className="flex items-center justify-between text-xs text-(--ui-text-secondary)">
           <span>消息通知</span>
@@ -177,29 +160,53 @@ function ProfilePanel({ identity, onLogout }: { identity: WinPeekIdentity; onLog
 /* ── Main View ───────────────────────────────── */
 
 export function MimView({ onClose }: { onClose: () => void }) {
+  const gatewayRequest = useGatewayRequest()
   const [identity, setIdentity] = useState<WinPeekIdentity | null>(loadSavedIdentity)
   const [showProfile, setShowProfile] = useState(false)
 
-  const [contacts] = useState<Contact[]>(DEFAULT_CONTACTS)
+  const [contacts, setContacts] = useState<Contact[]>([])
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const identRef = useRef<WinPeekIdentity | null>(identity)
+  identRef.current = identity
 
   const activeContact = useMemo(
     () => contacts.find(c => c.id === activeContactId) ?? null,
     [contacts, activeContactId]
   )
 
-  const handleLogin = useCallback((name: string) => {
-    const id = loadSavedIdentity() ?? { uid: 2027, name, role: 'Developer', host: 'offline' }
-    setIdentity(id)
-  }, [])
+  const handleLogin = useCallback(async (name: string) => {
+    try {
+      const raw = await gatewayRequest('winpeek_mim_login', { nickname: name })
+      const data = JSON.parse(raw)
+      if (data.ok && data.identity) {
+        const id: WinPeekIdentity = { uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role, host: 'local' }
+        saveIdentity(id)
+        setIdentity(id)
+      }
+    } catch {
+      // fallback to localStorage
+      const saved = loadSavedIdentity()
+      if (saved) setIdentity(saved)
+    }
+  }, [gatewayRequest])
 
-  const handleRegister = useCallback((name: string, role: string) => {
-    const id = loadSavedIdentity() ?? { uid: Date.now() % 10000, name, role, host: 'offline' }
-    setIdentity(id)
-  }, [])
+  const handleRegister = useCallback(async (name: string, role: string) => {
+    try {
+      const raw = await gatewayRequest('winpeek_mim_login', { nickname: name, role })
+      const data = JSON.parse(raw)
+      if (data.ok && data.identity) {
+        const id: WinPeekIdentity = { uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role, host: 'local' }
+        saveIdentity(id)
+        setIdentity(id)
+      }
+    } catch {
+      const saved = loadSavedIdentity()
+      if (saved) setIdentity(saved)
+    }
+  }, [gatewayRequest])
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('mim-identity')
@@ -208,28 +215,71 @@ export function MimView({ onClose }: { onClose: () => void }) {
     setMessages([])
   }, [])
 
+  // ── Load contacts via winpeek_mim_contacts ──
   useEffect(() => {
-    if (!activeContact) { setMessages([]); return }
-    setMessages([
-      { id: '1', fromUid: activeContact.uid, fromName: activeContact.name, content: `你好，我是${activeContact.name}`, time: '09:00', isSelf: false },
-      { id: '2', fromUid: identity?.uid ?? 0, fromName: identity?.name ?? '我', content: `收到，${activeContact.lastMessage ?? '请说'}`, time: '09:01', isSelf: true },
-      { id: '3', fromUid: activeContact.uid, fromName: activeContact.name, content: activeContact.lastMessage ?? '...', time: '09:15', isSelf: false },
-    ])
+    if (!identity) return
+    gatewayRequest('winpeek_mim_contacts', {}).then(raw => {
+      const data = JSON.parse(raw)
+      if (data.contacts) {
+        setContacts(data.contacts.map((c: any) => ({
+          id: String(c.uid),
+          name: c.nickname,
+          uid: c.uid,
+          role: c.role,
+          online: true,
+          lastMessage: '',
+          unread: 0,
+        })))
+      }
+    }).catch(() => {})
+  }, [identity, gatewayRequest])
+
+  // ── Load chat history when contact selected ──
+  useEffect(() => {
+    if (!activeContact || !identity) { setMessages([]); return }
+    // For now load from history via chat.py. Without a dedicated MIM get_history tool yet,
+    // start with empty messages — polling will fill in new ones.
+    setMessages([])
   }, [activeContact, identity])
+
+  // ── Poll for new messages every 3s ──
+  useEffect(() => {
+    if (!identity) return
+    const interval = setInterval(() => {
+      gatewayRequest('winpeek_mim_poll', {}).then(raw => {
+        const data = JSON.parse(raw)
+        if (data.messages?.length > 0) {
+          setMessages(prev => [...prev, ...data.messages.map((m: any) => ({
+            id: `m-${Date.now()}-${Math.random()}`,
+            fromUid: m.from_uid,
+            fromName: m.from_name,
+            content: m.content,
+            time: m.time?.slice(11, 16) || '',
+            isSelf: String(m.from_uid) === String(identity.uid),
+          }))])
+        }
+      }).catch(() => {})
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [identity, gatewayRequest])
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const text = inputText.trim()
     if (!text || !activeContact || !identity) return
-    setMessages(prev => [...prev, {
-      id: `msg-${Date.now()}`, fromUid: identity.uid, fromName: identity.name,
-      content: text,
-      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-      isSelf: true,
-    }])
+    try {
+      await gatewayRequest('winpeek_mim_send', { to_uid: activeContact.uid, body: text })
+      // Optimistic: add locally
+      setMessages(prev => [...prev, {
+        id: `msg-${Date.now()}`, fromUid: identity.uid, fromName: identity.name,
+        content: text,
+        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+        isSelf: true,
+      }])
+    } catch { /* message appears in poll next cycle anyway */ }
     setInputText('')
-  }, [inputText, activeContact, identity])
+  }, [inputText, activeContact, identity, gatewayRequest])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
