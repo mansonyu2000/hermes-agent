@@ -694,7 +694,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'guides/build-a-hermes-plugin',
         'guides/winpeek-development',
-        'guides/winpeek-mim-tutorial',
         'guides/run-nemotron-3-ultra-free',
         'guides/run-hermes-with-nous-portal',
         'guides/tips',
