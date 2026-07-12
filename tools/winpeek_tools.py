@@ -260,18 +260,16 @@ def _handle_mim_send(args: dict) -> str:
         from gateway.winpeek_hub.chat import send_message
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    from_uid = args.get("from_uid", UID)
-    from_name = args.get("from_name", NAME)
-    return json.dumps(send_message(int(from_uid), from_name, int(to_uid), body))
+    return json.dumps(send_message(UID, NAME, int(to_uid), body))
 
 
 def _handle_mim_poll(args: dict) -> str:
-    uid = int(args.get("uid", 0))
     try:
+        from gateway.winpeek_hub.mqtt_adapter import UID
         from gateway.winpeek_hub.chat import poll_messages
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    return json.dumps({"messages": poll_messages(uid)})
+    return json.dumps({"messages": poll_messages(UID)})
 
 
 def _handle_mim_contacts(args: dict) -> str:
@@ -308,7 +306,7 @@ registry.register(
     toolset="winpeek_rpa",
     schema={
         "name": "winpeek_mim_send",
-        "description": "Send a message to another agent via MQTT. Recipient receives it on their inbox topic.",
+        "description": "Send a message to another agent via MQTT. Sender identity from env MIM_UID/MIM_NAME. Recipient receives on their inbox topic.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -329,13 +327,8 @@ registry.register(
     toolset="winpeek_rpa",
     schema={
         "name": "winpeek_mim_poll",
-        "description": "Check for new incoming MIM messages. Call every 3 seconds to receive messages.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "uid": {"type": "integer", "description": "Your agent uid"},
-            },
-        },
+        "description": "Check for new incoming MIM messages. Returns messages sent to the calling agent (uid from env MIM_UID). Call every 3 seconds.",
+        "parameters": {"type": "object", "properties": {}},
     },
     handler=lambda args, **kw: _handle_mim_poll(args),
     check_fn=lambda: True,
