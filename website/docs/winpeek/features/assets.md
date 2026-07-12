@@ -1,12 +1,22 @@
 ---
 sidebar_position: 3
 title: "Computer Assets"
-description: "Computer asset management — installed software scanner, disk usage, hardware info, file browser"
+description: "Computer management — software scanner, disk usage, file browser, hardware info, process manager"
 ---
 
 # Computer Assets
 
-Automatic discovery and monitoring of installed software, disk usage, hardware specs, and running processes. Replaces the legacy PeekabooWin asset panel.
+Windows computer management dashboard. Five independent sub-modules, each with its own backend scanner and frontend tab.
+
+## Sub-Modules
+
+| Module | Backend | Tool | Description |
+|--------|---------|------|-------------|
+| **Software** | `software_scanner.py` (381 lines ✅) | `winpeek_scan_software` 🆕 | Scan registry + Start Menu + portable dirs, 60+ category rules |
+| **Disk** | `disk_scanner.py` 🆕 | `winpeek_get_disk_info` 🆕 | All drives with label, total/used/free, usage % as progress bars |
+| **Files** | `file_browser.py` 🆕 | `winpeek_list_files` 🆕 | Directory tree navigation, file search by name/suffix/size, top N largest |
+| **Hardware** | `hardware_info.py` 🆕 | `winpeek_get_hardware` 🆕 | CPU model/cores/usage, total/used/available memory |
+| **Processes** | `process_manager.py` 🆕 | `winpeek_list_processes` 🆕 | Running process list (name/PID/memory/CPU), search/filter, terminate |
 
 ## Quick Start
 
@@ -18,52 +28,14 @@ python plugins/winpeek_rpa/shared/software_scanner.py
 > Scan my installed software
 > Show disk usage
 > What's my CPU model?
+> List running processes
 ```
 
-## Features
+## Frontend
 
-### Software Inventory (P0)
-
-Scans Windows registry (HKLM + HKCU), Start Menu shortcuts, and portable app directories. Auto-categorizes into IM / Browser / Dev / Office / Media / Tools using 60+ category rules. Displays name, version, publisher, install path, and process name.
-
-### Disk Management (P0)
-
-Shows all drives with label, total/used/free capacity, and usage percentage as progress bars. V2.0 adds large file scanner and temp file cleanup suggestions.
-
-### Hardware Info (P1)
-
-CPU model, core count, real-time usage percentage. Total/used/available memory. V2.0 adds GPU info and network interfaces.
-
-### File Browser (P1)
-
-Directory tree navigation, file search by name/suffix/size, top N largest files.
-
-### Process Manager (P2)
-
-Running process list with name, PID, memory, CPU. Search/filter. Right-click to terminate.
-
-## Architecture
-
-```
-software_scanner.py → Hermes Tools → Desktop UI
-    ├── Registry scan (winreg)
-    ├── Start Menu scan
-    └── Portable dirs scan
-         ↓
-    JSON → winpeek_scan_software → AssetsView
-```
-
-## Hermes Tools
-
-| Tool | Function | Phase |
-|------|----------|-------|
-| `winpeek_scan_software` | Scan installed software | V1.0 |
-| `winpeek_get_disk_info` | Disk partitions + capacity | V1.0 |
-| `winpeek_get_hardware_info` | CPU + memory info | V1.0 |
-| `winpeek_list_files` | List directory contents | V2.0 |
-| `winpeek_list_processes` | List running processes | V2.0 |
+`apps/desktop/src/app/winpeek/assets/index.tsx` — one panel with 5+ sub-tabs. Each tab connects to its backend tool via `useGatewayRequest()`.
 
 ## Related
 
-- [Quickstart](../quickstart.md)
-- [Source: plugins/winpeek_rpa/shared/software_scanner.py](../../../plugins/winpeek_rpa/shared/software_scanner.py)
+- [Architecture](../developer-guide/architecture.md)
+- [Source: plugins/winpeek_rpa/shared/](../../../plugins/winpeek_rpa/shared/)
