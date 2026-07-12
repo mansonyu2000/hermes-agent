@@ -9,6 +9,7 @@ const sidebars: SidebarsConfig = {
       collapsed: true,
       items: [
         'getting-started/quickstart',
+        'getting-started/winpeek-quickstart',
         'getting-started/installation',
         'getting-started/platform-support',
         'getting-started/termux',
@@ -120,6 +121,16 @@ const sidebars: SidebarsConfig = {
             'user-guide/features/extending-the-dashboard',
             'user-guide/features/api-server',
             'user-guide/features/subscription-proxy',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'WinPeek',
+          collapsed: true,
+          items: [
+            'user-guide/features/automation-wechat',
+            'user-guide/features/mim-chat',
+            'user-guide/features/assets',
           ],
         },
         {
@@ -681,6 +692,9 @@ const sidebars: SidebarsConfig = {
       label: 'Guides & Tutorials',
       collapsed: true,
       items: [
+        'guides/build-a-hermes-plugin',
+        'guides/winpeek-development',
+        'guides/winpeek-mim-tutorial',
         'guides/run-nemotron-3-ultra-free',
         'guides/run-hermes-with-nous-portal',
         'guides/tips',
@@ -720,6 +734,7 @@ const sidebars: SidebarsConfig = {
           label: 'Architecture',
           items: [
             'developer-guide/architecture',
+            'developer-guide/winpeek',
             'developer-guide/agent-loop',
             'developer-guide/prompt-assembly',
             'developer-guide/context-compression-and-caching',
@@ -802,29 +817,6 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'reference/faq',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'WinPeek',
-      collapsed: false,
-      link: {
-        type: 'generated-index',
-        description: 'WinPeek — Windows desktop automation and multi-agent orchestration.',
-      },
-      items: [
-        'winpeek/QUICKSTART',
-        'winpeek/ARCHITECTURE',
-        'winpeek/HUB-API',
-        'winpeek/SCHEMAS',
-        {
-          type: 'category',
-          label: 'Features',
-          collapsed: true,
-          items: [
-            'winpeek/features/OVERVIEW',
-          ],
-        },
       ],
     },
   ],
