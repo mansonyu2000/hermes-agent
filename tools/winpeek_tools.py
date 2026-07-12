@@ -351,3 +351,69 @@ registry.register(
 )
 
 logger.info("WinPeek MIM tools registered: login + send + poll + contacts")
+
+# ── MIM: Online status ──
+
+def _handle_mim_online(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub import hub
+        from gateway.winpeek_hub.mqtt_adapter import UID, NAME
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    hub.register_node(UID, NAME)
+    hub.heartbeat(UID)
+    hub.sweep_dead_nodes()
+    return json.dumps({"nodes": hub.list_nodes()})
+
+registry.register(
+    name="winpeek_mim_online",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_online",
+        "description": "Register heartbeat and get online status of all nodes. Call every 30 seconds.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_mim_online(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM heartbeat + online status list",
+)
+
+logger.info("WinPeek MIM online tool registered")
+
+# ── MIM: Message History ──
+
+def _handle_mim_history(args: dict) -> str:
+    peer_uid = int(args.get("peer_uid", 0))
+    limit = int(args.get("limit", 50))
+    if not peer_uid:
+        return json.dumps({"error": "peer_uid required"})
+    try:
+        from gateway.winpeek_hub.mqtt_adapter import UID
+        from gateway.winpeek_hub.chat import get_history
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    return json.dumps({"messages": get_history(UID, peer_uid, limit)})
+
+registry.register(
+    name="winpeek_mim_history",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_history",
+        "description": "Get conversation history with a peer. Returns messages in chronological order.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "peer_uid": {"type": "integer", "description": "The peer agent's uid"},
+                "limit": {"type": "integer", "description": "Max messages (default 50)"},
+            },
+            "required": ["peer_uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_history(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM conversation history",
+)
+
+logger.info("WinPeek MIM tools: +online +history")
