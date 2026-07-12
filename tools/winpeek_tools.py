@@ -230,3 +230,131 @@ registry.register(
 )
 
 logger.info("WinPeek RPA tools registered: send + collect_msgs + collect_contacts + list_templates")
+
+# ═══════════════════════════════════════════════════════
+# MIM 工具
+# ═══════════════════════════════════════════════════════
+
+def _handle_mim_login(args: dict) -> str:
+    nickname = args.get("nickname", "").strip()
+    role = args.get("role", "Developer")
+    if not nickname:
+        return json.dumps({"error": "nickname required"})
+    try:
+        from gateway.winpeek_hub import identity
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded (WINPEEK_HUB_ENABLED=1?)"})
+    result = identity.login(nickname) or identity.register(nickname, role)
+    if not result:
+        return json.dumps({"error": f"name '{nickname}' taken"})
+    return json.dumps({"ok": True, "identity": result})
+
+
+def _handle_mim_send(args: dict) -> str:
+    body = args.get("body", "")
+    to_uid = args.get("to_uid")
+    if not to_uid or not body:
+        return json.dumps({"error": "to_uid and body required"})
+    try:
+        from gateway.winpeek_hub.mqtt_adapter import UID, NAME
+        from gateway.winpeek_hub.chat import send_message
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    from_uid = args.get("from_uid", UID)
+    from_name = args.get("from_name", NAME)
+    return json.dumps(send_message(int(from_uid), from_name, int(to_uid), body))
+
+
+def _handle_mim_poll(args: dict) -> str:
+    uid = int(args.get("uid", 0))
+    try:
+        from gateway.winpeek_hub.chat import poll_messages
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    return json.dumps({"messages": poll_messages(uid)})
+
+
+def _handle_mim_contacts(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.chat import get_contacts
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    return json.dumps({"contacts": get_contacts()})
+
+
+registry.register(
+    name="winpeek_mim_login",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_login",
+        "description": "Register or login to MIM messaging. Returns identity with uid.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "nickname": {"type": "string", "description": "Your display name"},
+                "role": {"type": "string", "description": "Developer/Architect/Ops/QA/PM"},
+            },
+            "required": ["nickname"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_login(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM identity register/login",
+)
+
+registry.register(
+    name="winpeek_mim_send",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_send",
+        "description": "Send a message to another agent via MQTT. Recipient receives it on their inbox topic.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "to_uid": {"type": "integer", "description": "Recipient agent uid"},
+                "body": {"type": "string", "description": "Message text"},
+            },
+            "required": ["to_uid", "body"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_send(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM send message via MQTT",
+)
+
+registry.register(
+    name="winpeek_mim_poll",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_poll",
+        "description": "Check for new incoming MIM messages. Call every 3 seconds to receive messages.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "Your agent uid"},
+            },
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_poll(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM poll incoming messages",
+)
+
+registry.register(
+    name="winpeek_mim_contacts",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_contacts",
+        "description": "List all registered agent identities.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_mim_contacts(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM contact list",
+)
+
+logger.info("WinPeek MIM tools registered: login + send + poll + contacts")

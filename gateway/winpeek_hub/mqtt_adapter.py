@@ -86,6 +86,19 @@ def _on_message(client, userdata, msg):
 
     logger.info(f"📩 [{from_name} ({from_uid})]: {body[:80]}")
 
+    # Route into chat queue for frontend polling
+    try:
+        from gateway.winpeek_hub.chat import enqueue
+        enqueue({
+            "from_uid": int(from_uid) if str(from_uid).isdigit() else 0,
+            "from_name": from_name,
+            "to_uid": UID,
+            "content": body,
+            "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        })
+    except Exception:
+        pass
+
     if _message_handler:
         try:
             _message_handler(from_uid, from_name, body)

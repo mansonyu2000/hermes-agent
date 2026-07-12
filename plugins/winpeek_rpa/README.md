@@ -48,12 +48,25 @@ WeChat GUI ← UIA → WeChatUIA (uia.py) → WeChatEngine (api.py) → WeChatDB
 - **wechat_friend extensions** (15 columns): customer_level, sales_stage, heat_score, portrait_summary, ai_profile, is_blacklisted, remark, etc.
 - **DDL**: `shared/crm_schema.sql`
 
-### Hermes Tools (15 total)
+### Hermes Tools
 
-| # | Tool | Phase |
-|---|------|-------|
-| 1-4 | winpeek_wechat_send, collect_msgs, collect_contacts, list_templates | ✅ V0 |
-| 5-15 | winpeek_list_contacts, get_contact_detail, get_chat_history, get_portrait, update_portrait, list_groups, dashboard, crud_sales_log, bulk_send, ai_script, execute_insight | V1.0/V2.0 |
+| Tool | Phase | Function |
+|------|-------|----------|
+| `winpeek_wechat_send` | ✅ V0 | Send message to contact |
+| `winpeek_wechat_collect_msgs` | ✅ V0 | Collect chat messages |
+| `winpeek_wechat_collect_contacts` | ✅ V0 | Collect all contacts |
+| `winpeek_list_templates` | ✅ V0 | List learned templates |
+| `winpeek_list_contacts` | V1.0 | Paginated friend list + search + sort |
+| `winpeek_get_contact_detail` | V1.0 | Single friend full profile |
+| `winpeek_get_chat_history` | V1.0 | Chat history + search + filter |
+| `winpeek_get_portrait` | V1.0 | 8-dim scores + classification + events |
+| `winpeek_update_portrait` | V1.0 | Manual score/category edit |
+| `winpeek_list_groups` | V1.0 | Group list |
+| `winpeek_dashboard` | V1.0 | Aggregated stats |
+| `winpeek_crud_sales_log` | V1.0 | Sales visit log CRUD |
+| `winpeek_bulk_send` | V1.0 | Batch messaging |
+| `winpeek_ai_script` | V2.0 | AI-generated message scripts |
+| `winpeek_execute_insight` | V2.0 | Execute action suggestion |
 
 ### Key Files (4200+ lines)
 
