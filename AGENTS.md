@@ -63,11 +63,41 @@ say 2028 "Task 1.2 完成"
 5. **WeChatDB 是唯一数据源** — 所有微信数据走 `WeChatDB` 的 CRUD，不要绕过
 6. **匹配现有风格** — 前端用 nanostores + shadcn/ui，后端用 Python 具名参数
 
-### 完成后
+### 提交前 (强制执行)
 
-7. **运行验证** — 不靠嘴说"好了"，跑实际命令查看输出
-8. **comment 回 Multica** — 完成的 issue 贴结果、失败的贴原因
-9. **更新 KNOWLEDGE-MAP.md** — 新增/删除文件时同步更新代码地图
+7. **运行质量检查** — `python scripts/winpeek-quality-check.py`，6 项全部通过才能 commit
+8. **CSS token 只允许 var(--ui-*)** — 禁止 `#fff`、`rgb(...)`、`bg-blue-500` 等硬编码
+9. **文档必须有 frontmatter** — `website/docs/winpeek/` 下每个 .md 必须 `---\nsidebar_position: N\ntitle: "xxx"\n---`
+10. **文件名全小写连字符** — 禁止大写字母（`QUICKSTART.md` → `quickstart.md`）
+11. **Commit scope 对齐上游** — 用 `tools(winpeek)`, `gateway(winpeek)`, `docs(winpeek)`, `skills(winpeek)`
+12. **MR 自动门禁** — CI 运行 `winpeek-quality-block`，不通过则无法合并
+
+### 质量门禁违规 → 自动退回
+
+```
+  Agent 提交 MR
+    ↓
+  .gitlab-ci.yml 触发:
+    ├─ winpeek-quality-diff  → 对比 DEV 只报新增 (咨询, 不堵门)
+    └─ winpeek-quality-block → 全量 6 项扫描
+         ↓                           ↓
+       通过                        失败
+         ↓                           ↓
+      可合并                      自动退回 MR
+                                  Pipeline ❌
+                                  Agent 必须修复后重新提交
+```
+
+### 检查项
+
+| # | 检查 | 错误示例 | 正确写法 |
+|---|------|---------|---------|
+| 1 | TypeScript | `error TS2345` | `pnpm typecheck` 通过 |
+| 2 | CSS token | `color: #333` | `color: var(--ui-text-secondary)` |
+| 3 | Python ruff | 裸 `open()` 无 encoding | `open(f, encoding="utf-8")` |
+| 4 | frontmatter | 无 `---` 头 | `---\nsidebar_position: 5\ntitle: "xxx"\n---` |
+| 5 | 文件名 | `QUICKSTART.md` | `quickstart.md` |
+| 6 | 死链 | `[docs](../not-exist.md)` | 指向存在的文件 |
 
 ## What Hermes Is
 

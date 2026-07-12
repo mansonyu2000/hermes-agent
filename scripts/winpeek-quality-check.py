@@ -208,13 +208,13 @@ CHECKS = [
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="WinPeek 质量检查")
+    parser = argparse.ArgumentParser(description="WinPeek Quality Check")
     parser.add_argument("--diff", metavar="BASE_REF",
-                        help="仅检查相对 BASE_REF 的变更文件")
+                        help="Only check files changed vs BASE_REF")
     parser.add_argument("--json", action="store_true",
-                        help="输出 JSON (供 CI 消费)")
+                        help="Output JSON for CI consumption")
     parser.add_argument("--check", metavar="NAME",
-                        help="只运行指定检查")
+                        help="Run only a specific check")
     args = parser.parse_args()
 
     all_errors: dict[str, list[str]] = {}
@@ -225,21 +225,21 @@ def main() -> int:
             errs = fn(args.diff)
             all_errors[name] = errs
         except Exception as e:
-            all_errors[name] = [f"{name} 检查异常: {e}"]
+            all_errors[name] = [f"{name} failed: {e}"]
 
     total = sum(len(v) for v in all_errors.values())
 
     if args.json:
-        print(json.dumps(all_errors, indent=2, ensure_ascii=False))
-    else:
-        passed = total == 0
-        emoji = "✅" if passed else "❌"
-        print(f"\n{emoji} WinPeek 质量检查 ({'diff' if args.diff else '全量'}) — "
-              f"{'通过' if passed else f'{total} 项违反'}\n")
-        for name, errs in all_errors.items():
-            print(f"  {len(errs)}  {name}")
-            for e in errs:
-                print(f"    {e}")
+        json.dump(all_errors, sys.stdout, indent=2, ensure_ascii=False)
+        return 1 if total > 0 else 0
+
+    passed = total == 0
+    status = "PASS" if passed else f"FAIL ({total} violations)"
+    print(f"\nWinPeek Quality Check ({'diff' if args.diff else 'full'}) — {status}\n")
+    for name, errs in all_errors.items():
+        print(f"  {len(errs):>3}  {name}")
+        for e in errs:
+            print(f"       {e}")
 
     return 1 if total > 0 else 0
 
