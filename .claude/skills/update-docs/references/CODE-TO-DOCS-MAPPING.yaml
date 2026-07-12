@@ -1,0 +1,144 @@
+# WinPeek 代码 → 文档 映射表
+#
+# 对标 Next.js .agents/skills/update-docs/references/CODE-TO-DOCS-MAPPING.md
+# 用途: Agent 改代码后，用此表找出受影响的文档，自动提醒更新。
+# 格式: source_pattern → [doc_path, doc_path, ...]
+
+mappings:
+
+  # ── 微信 CRM 后端 ──────────────────────────────
+  - source: plugins/winpeek_rpa/platforms/wechat/db.py
+    docs:
+      - website/docs/winpeek/developer-guide/wechat-database.md
+      - website/docs/winpeek/reference/schemas.md
+
+  - source: plugins/winpeek_rpa/platforms/wechat/uia.py
+    docs:
+      - website/docs/winpeek/developer-guide/wechat-automation-engine.md
+
+  - source: plugins/winpeek_rpa/platforms/wechat/api.py
+    docs:
+      - website/docs/winpeek/developer-guide/wechat-automation-engine.md
+
+  - source: plugins/winpeek_rpa/platforms/wechat/analyze.py
+    docs:
+      - website/docs/winpeek/developer-guide/wechat-portrait-engine.md
+
+  - source: plugins/winpeek_rpa/platforms/wechat/collect.py
+    docs:
+      - website/docs/winpeek/user-guide/wechat-sync.md
+
+  - source: plugins/winpeek_rpa/platforms/wechat/contacts.py
+    docs:
+      - website/docs/winpeek/user-guide/wechat-sync.md
+
+  - source: plugins/winpeek_rpa/platforms/wechat/msg_collect.py
+    docs:
+      - website/docs/winpeek/user-guide/wechat-sync.md
+
+  - source: plugins/winpeek_rpa/platforms/wechat/msg_traverse.py
+    docs:
+      - website/docs/winpeek/user-guide/wechat-sync.md
+
+  # ── 资产管理后端 ──────────────────────────────
+  - source: plugins/winpeek_rpa/shared/software_scanner.py
+    docs:
+      - website/docs/winpeek/user-guide/assets-dashboard.md
+      - website/docs/winpeek/developer-guide/assets-scanner.md
+
+  # ── RPA 共享层 ──────────────────────────────
+  - source: plugins/winpeek_rpa/shared/rpa_tools.py
+    docs:
+      - website/docs/winpeek/developer-guide/wechat-automation-engine.md
+
+  - source: plugins/winpeek_rpa/shared/bg_input.py
+    docs:
+      - website/docs/winpeek/developer-guide/wechat-automation-engine.md
+
+  - source: plugins/winpeek_rpa/shared/position_memory.py
+    docs:
+      - website/docs/winpeek/developer-guide/wechat-automation-engine.md
+
+  # ── DB Schema (SQL) ──────────────────────────
+  - source: plugins/winpeek_rpa/shared/crm_schema.sql
+    docs:
+      - website/docs/winpeek/developer-guide/wechat-database.md
+      - website/docs/winpeek/reference/schemas.md
+
+  - source: plugins/winpeek_rpa/shared/hub_schema.sql
+    docs:
+      - website/docs/winpeek/developer-guide/mim-mqtt.md
+      - website/docs/winpeek/reference/schemas.md
+
+  # ── Hermes 工具注册 ──────────────────────────
+  - source: tools/winpeek_tools.py
+    docs:
+      - website/docs/winpeek/reference/tools.md
+      - website/docs/winpeek/developer-guide/adding-tools.md
+
+  # ── 前端 — 微信 CRM ──────────────────────────
+  - source: apps/desktop/src/app/winpeek/wechat/
+    docs:
+      - website/docs/winpeek/user-guide/wechat-crm.md
+
+  # ── 前端 — MIM 聊天 ──────────────────────────
+  - source: apps/desktop/src/app/winpeek/mim/
+    docs:
+      - website/docs/winpeek/user-guide/mim-chat.md
+
+  # ── 前端 — 资产管理 ──────────────────────────
+  - source: apps/desktop/src/app/winpeek/assets/
+    docs:
+      - website/docs/winpeek/user-guide/assets-dashboard.md
+
+  # ── 前端 — 自动化平台切换 ────────────────────
+  - source: apps/desktop/src/app/winpeek/automation/
+    docs:
+      - website/docs/winpeek/user-guide/automation-overview.md
+
+  # ── Gateway Hub 后端 ──────────────────────────
+  - source: gateway/winpeek_hub/mqtt_adapter.py
+    docs:
+      - website/docs/winpeek/developer-guide/mim-mqtt.md
+
+  - source: gateway/winpeek_hub/identity.py
+    docs:
+      - website/docs/winpeek/developer-guide/mim-identity.md
+
+  - source: gateway/winpeek_hub/archive.py
+    docs:
+      - website/docs/winpeek/developer-guide/mim-mqtt.md
+
+  - source: gateway/winpeek_hub/routing.py
+    docs:
+      - website/docs/winpeek/developer-guide/mim-mqtt.md
+
+  - source: gateway/winpeek_hub/tenant.py
+    docs:
+      - website/docs/winpeek/developer-guide/mim-identity.md
+
+  - source: gateway/winpeek_hub/hub_bridge.py
+    docs:
+      - website/docs/winpeek/developer-guide/mim-architecture.md
+
+  # ── 需求与设计文档 ──────────────────────────
+  - source: docs/requirements/wechat-prd.md
+    docs:
+      - website/docs/winpeek/user-guide/wechat-crm.md
+
+  - source: docs/requirements/mim-prd.md
+    docs:
+      - website/docs/winpeek/user-guide/mim-chat.md
+
+  - source: docs/requirements/assets-prd.md
+    docs:
+      - website/docs/winpeek/user-guide/assets-dashboard.md
+
+  # ── 测试与质量 ──────────────────────────────
+  - source: scripts/winpeek-quality-check.py
+    docs:
+      - website/docs/winpeek/developer-guide/quality-gate.md
+
+  - source: .gitlab-ci.yml
+    docs:
+      - website/docs/winpeek/developer-guide/quality-gate.md
