@@ -270,8 +270,11 @@ def inject_backend(title_keyword: str, click_x: int, click_y: int, text: str) ->
 # High-level: deliver MIM message to an agent window
 # ═══════════════════════════════════════════════
 
-def deliver_to_agent(agent_name: str, text: str, use_backend: bool = False) -> bool:
-    """Find agent window, activate it, inject message. Returns success."""
+def deliver_to_agent(agent_name: str, text: str, mode: str = "rpa") -> bool:
+    """Find agent window, inject message. Returns success.
+
+    mode: 'rpa' (click+paste), 'backend' (SendInput batch), 'conpty' (ConPTY, no focus)
+    """
     config = load_config()
     agent_cfg = config.get(agent_name, {})
     if not agent_cfg:
@@ -282,10 +285,19 @@ def deliver_to_agent(agent_name: str, text: str, use_backend: bool = False) -> b
     cy = agent_cfg.get("click_y", 0)
     tab_index = agent_cfg.get("tab_index")
 
+    # ConPTY — no window activation needed
+    if mode == "conpty":
+        try:
+            from .conpty_inject import inject_cc
+            return inject_cc(text + "\n", window_title=title)
+        except ImportError:
+            pass  # Fallback to RPA
+
+    # RPA/Backend — need window activation
     if not activate_window(title, tab_index=tab_index):
         return False
 
-    if use_backend:
+    if mode == "backend":
         return inject_backend(title, cx, cy, text)
     else:
         inject_rpa(cx, cy, text)

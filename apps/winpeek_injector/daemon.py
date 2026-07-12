@@ -7,7 +7,7 @@ to identity DB, injects MIM MCP config, maintains heartbeat.
 Runs silently — no window, no tray (yet). Started by hub_bridge.try_load_hub().
 """
 
-import json, os, time, threading
+import json, os, stat, time, threading
 from datetime import datetime
 from pathlib import Path
 
@@ -89,7 +89,11 @@ def scan_installed_agents() -> list[dict]:
     return found
 
 def inject_mcp_config(config_path: Path) -> bool:
-    """Write MIM MCP server config into agent's JSON settings file."""
+    """Write MIM MCP server config into agent's JSON settings file.
+
+    Uses strict owner-only permissions (0o600) — settings files may
+    contain credentials and must not be world-readable.
+    """
     if not config_path.exists():
         return False
     try:
@@ -101,15 +105,18 @@ def inject_mcp_config(config_path: Path) -> bool:
     if "winpeek-mim" in existing:
         return False  # Already injected
 
-    # Backup
+    # Backup with owner-only permissions
     bak = Path(str(config_path) + ".mim-bak")
     if not bak.exists():
         bak.write_bytes(config_path.read_bytes())
+        os.chmod(bak, stat.S_IRUSR | stat.S_IWUSR)
 
     config.setdefault("mcpServers", {})
     config["mcpServers"]["winpeek-mim"] = MCP_BLOCK["mcpServers"]["winpeek-mim"]
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+    fd = os.open(str(config_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
     return True
 
 def register_and_inject():
@@ -129,7 +136,7 @@ def register_and_inject():
         # Register identity if not exists
         existing = identity.login(name)
         if not existing:
-            existing = identity.register(name, "Agent", f"{agent_type}-{os.uname().nodename}" if hasattr(os, 'uname') else agent_type)
+            existing = identity.register(name, "Agent", agent_type)
 
         uid = existing.get("uid") if existing else None
 
