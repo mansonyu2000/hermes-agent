@@ -34,6 +34,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # ── 规则定义 ──────────────────────────────────────────────
 
+# 死链检查只允许在 docs/website/winpeek/ 范围内解析相对路径。
+# 任何试图通过 .. 逃逸到上层目录的引用都会被拒绝。
+DOCS_ALLOWED_DIR = (REPO_ROOT / "website" / "docs" / "winpeek").resolve()
+DOCS_WEBSITE_ROOT = (REPO_ROOT / "website" / "docs").resolve()
+
 CSS_TOKEN_EXEMPT = [
     "0,0,0", "255,255,255",                 # black/white
     "transparent", "inherit", "currentColor",
@@ -183,13 +188,31 @@ def check_dead_links(diff_base: str | None = None) -> list[str]:
             target = match.group(2)
             if target.startswith("http") or target.startswith("#"):
                 continue
+            # Reject path traversal — only allow links within website/docs/
+            if ".." in target or target.startswith("/"):
+                errors.append(
+                    f"[LINK] {f}:{content[:match.start()].count(chr(10)) + 1}"
+                    f" → {target} (禁止路径逃逸/绝对路径)"
+                )
+                continue
             resolved = (f.parent / target).resolve()
+            try:
+                resolved.relative_to(DOCS_WEBSITE_ROOT)
+            except ValueError:
+                errors.append(
+                    f"[LINK] {f}:{content[:match.start()].count(chr(10)) + 1}"
+                    f" → {target} (解析后越界)"
+                )
+                continue
             if resolved.exists() or (f.parent / f"{target}.mdx").resolve().exists():
                 continue
             if resolved.suffix in (".png", ".jpg", ".svg", ".gif", ".pdf"):
                 if resolved.exists():
                     continue
-            errors.append(f"[LINK] {f}:{content[:match.start()].count(chr(10))+1} → {target} (不存在)")
+            errors.append(
+                f"[LINK] {f}:{content[:match.start()].count(chr(10)) + 1}"
+                f" → {target} (文件不存在)"
+            )
     return errors
 
 
