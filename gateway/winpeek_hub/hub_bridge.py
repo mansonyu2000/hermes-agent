@@ -48,6 +48,7 @@ def try_load_hub():
     # ── 启动 MQTT 连接 ──
     try:
         from gateway.winpeek_hub import mqtt_adapter
+        mqtt_adapter._resolve_identity()  # 先解析身份(从DB读取)
         if mqtt_adapter.is_configured() and mqtt_adapter.is_available():
             mqtt_adapter.connect()
             logger.info(
@@ -58,7 +59,8 @@ def try_load_hub():
         else:
             logger.info(
                 f"WinPeek MQTT skipped: uid={mqtt_adapter.UID} "
-                f"(set MIM_UID and MIM_NAME to enable)"
+                f"name={mqtt_adapter.NAME} "
+                f"(identity DB empty or paho-mqtt missing)"
             )
     except Exception as e:
         logger.warning(f"WinPeek MQTT connect failed: {e}")
