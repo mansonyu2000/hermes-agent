@@ -1,7 +1,8 @@
 """MIM message engine — send, receive, contacts, history.
 
-SQLite storage at ~/.hermes/winpeek/mim.db.
+Per-user SQLite at ~/.hermes/winpeek/data/uid{uid}/mim.db
 Memory queue bridges MQTT incoming → frontend polling.
+Each user's chat records stored independently — switch user, see own history.
 """
 
 import json, sqlite3, time
@@ -9,13 +10,39 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-DB_PATH = Path.home() / ".hermes" / "winpeek" / "mim.db"
+DATA_ROOT = Path.home() / ".hermes" / "winpeek" / "data"
 
-# ── DB ──────────────────────────────────────────
+# ── Active session ────────────────────────────────
+
+_active_uid: int = 0
+_active_name: str = ""
+
+def _user_dir(uid: int = None) -> Path:
+    uid = uid if uid is not None else _active_uid
+    return DATA_ROOT / f"uid{uid}" if uid else DATA_ROOT / "_default"
+
+def _user_db(uid: int = None) -> Path:
+    return _user_dir(uid) / "mim.db"
+
+def set_active_session(uid: int, name: str = ""):
+    global _active_uid, _active_name
+    _active_uid = uid
+    _active_name = name
+    if uid:
+        _db()  # init DB for this user on first switch
+
+def active_uid() -> int:
+    return _active_uid
+
+def active_name() -> str:
+    return _active_name
+
+# ── DB (per-user) ─────────────────────────────────
 
 def _db():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    db_path = _user_db()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     conn.execute("""
@@ -28,8 +55,7 @@ def _db():
             msg_ts TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         )
     """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_msg_to ON messages(to_uid)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_msg_from ON messages(from_uid)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_msg_peer ON messages(from_uid, to_uid)")
     conn.commit()
     return conn
 
@@ -37,30 +63,10 @@ def _db():
 
 _pending: list[dict] = []
 
-# ── Active session (per-frontend-login, supports user switching) ──
-
-_active_uid: int = 0
-_active_name: str = ""
-
-def set_active_session(uid: int, name: str = ""):
-    """Set the currently active identity. Called by winpeek_mim_login on success.
-    All subsequent send/poll operations use this identity."""
-    global _active_uid, _active_name
-    _active_uid = uid
-    _active_name = name
-
-def active_uid() -> int:
-    return _active_uid
-
-def active_name() -> str:
-    return _active_name
-
 def enqueue(msg: dict):
-    """Called by mqtt_adapter._on_message when MQTT message arrives."""
     _pending.append(msg)
 
 def poll_messages(to_uid: int) -> list[dict]:
-    """Called by winpeek_mim_poll every 3s. Returns + clears queue."""
     mine = [m for m in _pending if m.get("to_uid") == to_uid]
     _pending[:] = [m for m in _pending if m.get("to_uid") != to_uid]
     return mine
@@ -68,7 +74,6 @@ def poll_messages(to_uid: int) -> list[dict]:
 # ── Send ────────────────────────────────────────
 
 def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
-    """Persist to SQLite, then publish via MQTT."""
     conn = _db()
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
@@ -81,14 +86,13 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
         from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
         mqtt_send(to_uid, body, from_name)
     except Exception:
-        pass  # MQTT is best-effort; message is already in SQLite
+        pass
 
     return {"ok": True, "msg_ts": ts}
 
 # ── History ─────────────────────────────────────
 
 def get_history(uid: int, peer_uid: int, limit: int = 50) -> list[dict]:
-    """Get conversation history between two uids."""
     conn = _db()
     rows = conn.execute(
         """SELECT from_uid, to_uid, from_name, content, msg_ts
@@ -102,7 +106,6 @@ def get_history(uid: int, peer_uid: int, limit: int = 50) -> list[dict]:
 # ── Contacts ────────────────────────────────────
 
 def get_contacts() -> list[dict]:
-    """List all identities as contacts."""
     try:
         from gateway.winpeek_hub import identity
         return identity.list_all()
