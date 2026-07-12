@@ -1,0 +1,63 @@
+# WinPeek 质量门禁 — 对标 Hermes 上游 CI
+#
+# 两条作业:
+#   winpeek-quality-diff  — 对比 DEV 只报新增问题 (不堵门, 贴评论)
+#   winpeek-quality-block  — 全量扫描, 失败=堵门 (阻断合并)
+#
+# 分支保护: DEV 分支设置 "Pipelines must succeed"
+
+stages:
+  - quality
+
+# ═══════════════════════════════════════════════════════
+# 作业 1: diff 对比 — 只报新增问题 (咨询)
+# ═══════════════════════════════════════════════════════
+winpeek-quality-diff:
+  stage: quality
+  image: node:22
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git python3 python3-pip > /dev/null
+    - pip3 install ruff --quiet 2>/dev/null || true
+    - cd apps/desktop && npm ci --silent 2>/dev/null || true && cd ../..
+    - git fetch origin DEV 2>/dev/null || git fetch local DEV 2>/dev/null || true
+  script:
+    - python3 scripts/winpeek-quality-check.py --diff DEV --json > quality-report.json
+    - |
+      TOTAL=$(python3 -c "import json; d=json.load(open('quality-report.json')); print(sum(len(v) for v in d.values()))")
+      if [ "$TOTAL" -gt 0 ]; then
+        echo "## WinPeek 质量检查 (增量)" >> quality-comment.md
+        echo "" >> quality-comment.md
+        python3 -c "
+import json
+d = json.load(open('quality-report.json'))
+for name, errs in d.items():
+    if errs:
+        print(f'**{name}**: {len(errs)} 项', file=open('quality-comment.md','a'))
+        for e in errs[:5]:
+            print(f'  - {e}', file=open('quality-comment.md','a'))
+        if len(errs) > 5:
+            print(f'  - ... 还有 {len(errs)-5} 项', file=open('quality-comment.md','a'))
+"
+        cat quality-comment.md
+      else
+        echo "✅ 无新增问题" >> quality-comment.md
+      fi
+  allow_failure: true  # 不堵门
+  only:
+    - merge_requests
+
+# ═══════════════════════════════════════════════════════
+# 作业 2: 全量扫描 — 必须通过 (堵门)
+# ═══════════════════════════════════════════════════════
+winpeek-quality-block:
+  stage: quality
+  image: node:22
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git python3 python3-pip > /dev/null
+    - pip3 install ruff --quiet 2>/dev/null || true
+    - cd apps/desktop && npm ci --silent 2>/dev/null || true && cd ../..
+  script:
+    - python3 scripts/winpeek-quality-check.py
+  allow_failure: false  # 堵门 — 失败阻止合并
+  only:
+    - merge_requests
