@@ -1,103 +1,174 @@
-# WinPeek Hub — MIM Multi-Agent Instant Messaging
+# MIM — Multi-Agent Instant Messaging
 
-Multi-agent messaging running inside Hermes Gateway. Migrated from PeekabooWin chat engine.
+Multi-agent messaging inside Hermes Gateway. Agents register an identity, discover peers, send and receive messages over MQTT. Migrated from PeekabooWin chat engine.
 
 ## Requirements
 
-### V1.0 — Text Chat
+### V1.0
 
-| Module | Features | Status |
-|--------|----------|--------|
-| Identity | Register (nickname + role → uid), login, query by uid, list all identities | P0 |
-| Single Chat | Send message (MQTT or direct), receive (poll 3s or WebSocket push), message history (paginated), mark read | P0 |
-| Contact List | All registered identities with online status (green/gray dot), sort by recent activity | P0 |
-| Online Status | Heartbeat every 30s, auto-offline after 120s no heartbeat | P1 |
-| Message ACK | Delivery receipt (pending→delivered→read), retry (3x with exponential backoff) | P1 |
-| Agent Discovery | Scan local machine for Agent CLI, auto-register to WinPeek | P1 |
+| Feature | Description | Status |
+|---------|-------------|--------|
+| Identity | Register (nickname + role → uid), login, query by uid, list all | ✅ |
+| 1-to-1 chat | Send via MQTT, receive via poll, message history (paginated) | 🆕 chat.py needed |
+| Contact list | All registered identities with online status (green/gray) | ✅ identity.list_all() |
+| Online heartbeat | 30s ping, auto-offline after 120s | 🆕 hub.py needed |
+| Message ACK | Delivery receipt (pending→delivered→read), retry 3x | 🆕 |
 
-### V2.0 — Group Chat & Rich Media
+### V2.0
 
-| Module | Features |
-|--------|----------|
-| Group Chat | Create/join/leave group, group message broadcast, member list, group rules |
-| Agent Personas | Role-based speaking style (from .claude/agents/ files), topic matching |
-| File Attachments | Reuse Hermes attachment system, image/file in message body |
-| Voice Messages | Reuse Hermes voice recording + transcription |
-| Cross-Platform | Message routing between WeChat/MIM/DingTalk via Hub routing |
+| Feature | Description |
+|---------|-------------|
+| Group chat | Create/join/leave, group broadcast, member list |
+| Agent personas | Role-based speaking style from `.claude/agents/` files |
+| File attachments | Reuse Hermes attachment system |
+| Voice messages | Reuse Hermes voice recording |
+| Cross-platform | Route messages between WeChat/MIM/DingTalk |
 
-## Architecture
-
-```
-Desktop UI (apps/desktop/src/app/winpeek/mim/)
-    ↓ useGatewayRequest()
-Hermes Tools (tools/winpeek_tools.py)
-    ↓
-┌─ Gateway Hub ─────────────────────┐
-│  chat.py       🆕 Message engine  │ ← SQLite mim.db
-│  identity.py   ✅ Identity CRUD   │ ← JSONL storage
-│  mqtt_adapter  ✅ MQTT send/recv  │ ← + queue
-│  hub.py        🆕 Node registry   │ ← heartbeat
-│  group.py      🆕 Group control   │
-│  personas.py   🆕 Agent personas  │
-│  greeting.py   🆕 Online greeting │
-│  archive.py    ✅ Message archive │
-└───────────────────────────────────┘
-    ↓ MQTT
-MQTT Broker (192.168.3.23:1883)
-    ├── comms/say/{uid}    → Send
-    ├── comms/inbox/{uid}  → Receive
-    └── comms/ack/{uid}    → ACK
-```
-
-## Migration from PeekabooWin
-
-31 source files → 3 categories:
-
-**A. Migrate** (14 files → Python rewrite): db.js + ws-chat.js + inbox-push.js + chat-relay.js + hub.js + node-registry.js + checksum.js + name-validator.js + speaker-resolver.js + greeting.js + agent-launcher.js + agent-discovery.js + agent-group.js + agent-personas.js
-
-**B. Reuse Hermes** (6 functions): file attachments, voice, session management, AI conversation, memory, approvals — Hermes already has these.
-
-**C. V2.0 defer** (7 files): group-rules.js, group-matcher.js, group-observer.js, manager-agent.js, sub-topic.js, meeting-brief.js, code-reviewer.js
-
-References: `D:/mydata/mycode/github/PeekabooWin/server/chat/` (31 files), `docs/topics/group-chat-collaboration.md`, `setup_mqtt/winpeek-server-mqtt.md`
-
-## Database
-
-V1.0: SQLite `~/.hermes/winpeek/mim.db`
+## Where Everything Lives
 
 ```
-messages    (message_id, from_uid, to_uid, gid, content, msg_type, checksum, created_at)
-contacts    (uid, name, role, online, last_message, unread)
-nodes       (node_id, name, hostname, role, status, last_seen)
+MIM
+├── gateway/winpeek_hub/        ← Backend engine (7 files, 668 lines)
+│   ├── README.md               ← This document: requirements + design
+│   ├── identity.py   ✅        Register/login/list (JSONL)
+│   ├── mqtt_adapter.py ✅      MQTT connect/publish/subscribe (paho-mqtt)
+│   ├── chat.py       🆕        Message CRUD + memory queue (SQLite)
+│   ├── hub.py        🆕        Node registry + heartbeat + dead detection
+│   ├── archive.py    ✅        Message archive (MySQL/JSONL)
+│   ├── hub_bridge.py ✅        Gateway lifecycle hooks
+│   ├── routing.py    ✅        Cross-platform routing
+│   └── tenant.py     ✅        Multi-tenant management
+│
+├── tools/winpeek_tools.py      ← Hermes tools (0 MIM tools registered)
+│   ├── winpeek_mim_login       🆕 Register/login identity
+│   ├── winpeek_mim_send        🆕 Send message via MQTT
+│   ├── winpeek_mim_poll        🆕 Poll incoming messages
+│   └── winpeek_mim_contacts    🆕 List contacts
+│
+├── apps/desktop/.../mim/        ← Frontend (371 lines)
+│   └── index.tsx                Chat UI: login panel, contact list, chat bubbles
+│
+├── website/docs/user-guide/features/
+│   └── mim-chat.md              ← User guide
+│
+└── PeekabooWin (migration source)
+    └── D:/mydata/mycode/github/PeekabooWin/server/chat/ (31 files)
+        ├── ws-chat.js           WebSocket protocol
+        ├── db.js                SQLite CRUD reference
+        ├── inbox-push.js        MQTT bridge reference
+        └── docs/migration/winpeek-chat-to-hermes-migration.md
 ```
 
-V2.0: MySQL `hub_messages` (hub_schema.sql, 4 tables)
-
-## Hermes Tools
-
-| Tool | Function |
-|------|----------|
-| winpeek_mim_login | Register/login identity |
-| winpeek_mim_contacts | List contacts with online status |
-| winpeek_mim_send | Send message |
-| winpeek_mim_poll | Poll new messages |
-
-## Key Files
+## Message Flow
 
 ```
-gateway/winpeek_hub/
-├── README.md              This document
-├── __init__.py
-├── chat.py                🆕 Message engine (300 lines)
-├── hub.py                 🆕 Node registry + heartbeat (150 lines)
-├── group.py                🆕 Group control (150 lines)
-├── personas.py             🆕 Agent personas (100 lines)
-├── greeting.py             🆕 Online greeting (80 lines)
-├── agent_launcher.py      🆕 Agent launcher + discovery (120 lines)
-├── identity.py            ✅ Identity CRUD (91 lines, JSONL)
-├── mqtt_adapter.py        ✅ MQTT send/receive (189 lines)
-├── archive.py             ✅ Message archive (MySQL/JSONL)
-├── hub_bridge.py          ✅ Gateway integration (94 lines)
-├── routing.py             ✅ Cross-platform routing (68 lines)
-└── tenant.py              ✅ Multi-tenant (106 lines)
+Agent A (uid=2022)                    Agent B (uid=2027)
+     │                                      │
+     │ 1. Frontend calls winpeek_mim_send   │
+     ↓                                      │
+  chat.send_message()                       │
+     │   writes to SQLite for history       │
+     │                                      │
+     │ 2. MQTT publish comms/say/2027       │
+     ↓                                      │
+  MQTT Broker (192.168.3.23:1883) ─────────→ 3. comms/inbox/2027
+                                                │
+                                            4. mqtt_adapter._on_message()
+                                                │  appends to _pending queue
+                                                │
+                                            5. Frontend polls every 3s
+                                                winpeek_mim_poll → clears queue
+                                                │
+                                            6. Appears in chat window
 ```
+
+## Data Flow
+
+```
+User types "hello" in MIM frontend
+  → frontend calls winpeek_mim_send(to_uid=2027, body="hello")
+    → chat.send_message() writes SQLite mim.db
+    → mqtt_adapter.send_message() publishes to MQTT
+      → Broker delivers to Agent B's inbox topic
+        → Agent B's mqtt_adapter._on_message() enqueues
+          → Agent B's frontend polls winpeek_mim_poll every 3s
+            → chat.poll_messages() returns + clears queue
+              → Message displayed in chat window
+```
+
+## Message Format
+
+```json
+{
+  "from_uid": "2022",
+  "from": "CC-yu2",
+  "to_uid": "2027",
+  "body": "task done",
+  "ts": "2026-07-12T15:30:00"
+}
+```
+
+## MQTT Topics
+
+| Topic | Direction | QoS | Purpose |
+|-------|-----------|-----|---------|
+| `comms/say/{uid}` | Agent → Broker | 1 | Send message |
+| `comms/inbox/{uid}` | Broker → Agent | 1 | Receive message |
+| `comms/ack/{uid}` | Agent → Broker | 1 | Delivery receipt |
+
+Broker: `192.168.3.23:1883` (mosquitto). Subscriptions via `mqtt_adapter.connect()`.
+
+## Key Files (Code Reference)
+
+### identity.py (91 lines, ✅)
+
+```python
+from gateway.winpeek_hub import identity
+
+identity.register("name", "Developer")   # → {uid, nickname, role}
+identity.login("name")                    # → identity dict or None
+identity.list_all()                       # → list of all identities
+```
+
+Stores to `~/.hermes/winpeek/identities.jsonl`.
+
+### mqtt_adapter.py (189 lines, ✅)
+
+Connects to MQTT broker, subscribes to `comms/inbox/{UID}`. Exposes `send_message(target_uid, text)` and `connect()`. Incoming messages route to `_message_handler` callback.
+
+Requires env vars: `MIM_UID`, `MIM_NAME`, `MIM_BROKER`, `MIM_PORT`.
+
+### chat.py (🆕, ~150 lines)
+
+Message engine. Creates SQLite `~/.hermes/winpeek/mim.db` with `messages` table. Provides:
+
+- `send_message(from_uid, from_name, to_uid, body)` — persist + MQTT publish
+- `poll_messages(to_uid)` — return + clear memory queue
+- `enqueue(msg)` — called by mqtt_adapter._on_message
+
+### hub.py (🆕, ~80 lines)
+
+Node registry: register agent on startup, heartbeat every 30s, mark nodes offline after 120s without heartbeat.
+
+## How to Start Development
+
+1. **Read this README** — understand what exists and what's needed
+2. **Read the migration doc**: `docs/superpowers/specs/2026-07-12-mim-migration-design.md`
+3. **Read the user guide**: `website/docs/user-guide/features/mim-chat.md`
+4. **Create chat.py**: message engine with SQLite persistence + MQTT bridge
+5. **Create hub.py**: online status tracking
+6. **Register 4 tools** in `tools/winpeek_tools.py`
+7. **Replace mock data** in `apps/desktop/.../mim/index.tsx` (4 sections)
+8. **Run quality checks**: `python scripts/winpeek-quality-check.py`
+
+## Technical Design Docs
+
+- [Identity API design](../../docs/design/mim-identity-api.md) — Hub Server 独立端口方案 (Qoder-yu2)
+- [Migration design](../../docs/superpowers/specs/2026-07-12-mim-migration-design.md) — PeekabooWin → Hermes 迁移方案
+- [User guide](../../website/docs/user-guide/features/mim-chat.md) — 面向用户的功能文档
+
+## Reference
+
+- PeekabooWin source: `D:/mydata/mycode/github/PeekabooWin/server/chat/`
+- PeekabooWin migration: `D:/mydata/mycode/github/PeekabooWin/docs/migration/winpeek-chat-to-hermes-migration.md`
+- MQTT broker: `192.168.3.23:1883`
