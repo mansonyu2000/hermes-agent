@@ -61,10 +61,6 @@ const config: Config = {
         ignoreFiles: [
           /^user-guide\/skills\/bundled\//,
           /^user-guide\/skills\/optional\//,
-          // WinPeek — development in progress. Docs stay in repo
-          // for agent + developer access but are not published.
-          /winpeek/,
-          /automation-wechat/,
         ],
       }),
     ],
