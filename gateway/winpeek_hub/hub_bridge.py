@@ -87,6 +87,14 @@ def try_load_hub():
     except Exception as e:
         logger.warning(f"WinPeek node registration failed: {e}")
 
+    # ── 启动 Agent Injector daemon ──
+    try:
+        from apps.winpeek_injector.daemon import start_daemon
+        start_daemon()
+        logger.info("WinPeek injector daemon started")
+    except Exception as e:
+        logger.warning(f"WinPeek injector start failed: {e}")
+
     _HUB_LOADED = True
     return True
 
