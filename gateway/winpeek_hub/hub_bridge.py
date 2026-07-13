@@ -1,15 +1,26 @@
 """
 hub_bridge.py — WinPeek Hub 零侵入集成桥
 
-在 gateway/run.py 启动时自动加载（通过环境变量 WINPEEK_HUB_ENABLED=1）。
+在 gateway/run.py 启动时自动加载。不需要额外参数或环境变量。
 不修改任何 Hermes 核心文件。
 
 加载顺序: identity → mqtt_adapter(connect) → chat → archive → routing → tenant
 
-使用方式:
-  1. 设置环境变量: WINPEEK_HUB_ENABLED=1
-  2. Hermes Gateway 启动时自动加载 Hub 模块 + 连接 MQTT Broker
-  3. Hub 在 gateway hooks 中注册消息监听
+配置方式 (config.yaml):
+  winpeek:
+    mim:
+      enabled: true         # 启用 MIM 服务
+      broker: 192.168.3.23  # MQTT Broker 地址 (可选)
+      port: 1883            # MQTT 端口 (可选)
+
+  dashboard:
+    basic_auth:             # 绑定 0.0.0.0 时必须配 basic auth
+      username: admin
+      password_hash: "..."
+
+启动:
+  hermes serve --host 0.0.0.0   # 对外提供 MIM 服务
+  hermes serve                    # 仅本地 (默认 127.0.0.1)
 """
 
 import os
@@ -21,7 +32,17 @@ _HUB_LOADED = False
 
 
 def is_enabled() -> bool:
-    """检查 Hub 是否应启用"""
+    """检查 Hub 是否应启用。优先级: config.yaml > 环境变量"""
+    # 优先读 config.yaml
+    try:
+        from hermes_cli.config import load_config
+        cfg = load_config()
+        mim = cfg.get("winpeek", {}).get("mim", {})
+        if isinstance(mim, dict) and "enabled" in mim:
+            return bool(mim["enabled"])
+    except Exception:
+        pass
+    # Fallback 环境变量 (向后兼容)
     return os.getenv("WINPEEK_HUB_ENABLED", "0") == "1"
 
 
