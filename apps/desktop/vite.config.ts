@@ -25,35 +25,9 @@ const fsAllow = [
   )
 ]
 
-// ── Patch leva imports for zustand v5 ──────────────────────────
-// leva@0.10.1 uses `import create from 'zustand'` (CJS default export).
-// zustand@5.x removed the default export (ESM named exports only).
-// This plugin rewrites leva's imports to use named exports at build time,
-// without touching npm resolution — works in dev and production builds.
-const fixLevaZustandPlugin = () => ({
-  name: 'fix-leva-zustand',
-  transform(code: string, id: string) {
-    if (!id.includes('leva')) return
-    // Vite dev adds ?v=... query suffix — strip before extension check
-if (!/\.(m?js)(\?|$)/.test(id)) return
-    return {
-      code: code
-        .replace(
-          /import\s+create\s+from\s+['"]zustand['"]/,
-          'import { create } from \'zustand\'',
-        )
-        .replace(
-          /import\s+shallow\s+from\s+['"]zustand\/shallow['"]/,
-          'import { shallow } from \'zustand/shallow\'',
-        ),
-      map: null,
-    }
-  },
-})
-
 export default defineConfig({
   base: './',
-  plugins: [react(), tailwindcss(), fixLevaZustandPlugin()],
+  plugins: [react(), tailwindcss()],
   css: {
     // Pin an explicit (empty) PostCSS config. Tailwind is handled entirely by
     // `@tailwindcss/vite`, so the renderer needs no PostCSS plugins — and
@@ -90,13 +64,7 @@ export default defineConfig({
       'react/jsx-dev-runtime': path.resolve(__dirname, '../../node_modules/react/jsx-dev-runtime.js'),
       'react/jsx-runtime': path.resolve(__dirname, '../../node_modules/react/jsx-runtime.js')
     },
-    dedupe: ['react', 'react-dom', 'zustand']
-  },
-  optimizeDeps: {
-    // Only leva needs exclusion — its zustand imports must pass through
-    // the transform plugin first. Other deps (attr-accept etc.) stay in
-    // so esbuild wraps them with synthetic default exports.
-    exclude: ['leva'],
+    dedupe: ['react', 'react-dom']
   },
   server: {
     host: '127.0.0.1',
