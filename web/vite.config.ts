@@ -105,6 +105,9 @@ export default defineConfig({
       "zustand",
     ],
   },
+  optimizeDeps: {
+    exclude: ['leva'],
+  },
   build: {
     outDir: "../hermes_cli/web_dist",
     emptyOutDir: true,

@@ -91,6 +91,11 @@ export default defineConfig({
     },
     dedupe: ['react', 'react-dom', 'zustand']
   },
+  optimizeDeps: {
+    // Exclude leva from pre-bundling so the fixLevaZustandPlugin transform
+    // can rewrite its zustand imports before rolldown resolves them.
+    exclude: ['leva'],
+  },
   server: {
     host: '127.0.0.1',
     port: Number(process.env.HERMES_DESKTOP_DEV_PORT) || 5175,
