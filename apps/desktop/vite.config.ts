@@ -93,7 +93,7 @@ export default defineConfig({
   },
   server: {
     host: '127.0.0.1',
-    port: 5174,
+    port: Number(process.env.HERMES_DESKTOP_DEV_PORT) || 5175,
     strictPort: true,
     fs: {
       allow: fsAllow
