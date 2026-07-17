@@ -462,13 +462,16 @@ export function MimView({ onClose }: { onClose: () => void }) {
 
           <div className="flex-1 overflow-y-auto">
             {sortedContacts.map(contact => (
-              <button
+              <div
                 key={contact.id}
                 className={cn(
-                  'flex w-full items-center gap-2.5 border-b border-(--ui-stroke-quaternary) px-3 py-2.5 text-left transition-colors hover:bg-(--ui-control-hover-background)',
+                  'flex w-full items-center gap-2.5 border-b border-(--ui-stroke-quaternary) px-3 py-2.5 text-left transition-colors hover:bg-(--ui-control-hover-background) cursor-pointer',
                   activeContactId === contact.id && 'bg-(--ui-control-active-background)'
                 )}
                 onClick={() => setActiveContactId(contact.id)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveContactId(contact.id) }}}
+                role="button"
+                tabIndex={0}
               >
                 <div className="relative shrink-0">
                   <div className={cn('flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold',
@@ -500,7 +503,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
                     )}
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </div>
