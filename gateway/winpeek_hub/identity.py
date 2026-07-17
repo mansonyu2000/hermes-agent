@@ -7,7 +7,6 @@ Provides: register, login, get_identity, list_identities.
 
 import hashlib
 import logging
-import os
 import time
 from typing import Optional
 
@@ -31,6 +30,8 @@ def register(nickname: str, role: str = "Developer", host: str = "local", passwo
         role = "Developer"
 
     conn = get_conn()
+    if conn is None:
+        return None
     try:
         with conn.cursor() as cur:
             # Check duplicate nickname
@@ -72,6 +73,8 @@ def login(nickname: str, password: str = "") -> dict | None:
     Login by nickname + password. Returns identity if found and password matches.
     """
     conn = get_conn()
+    if conn is None:
+        return None
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -108,6 +111,8 @@ def _row_to_dict(row: dict) -> dict:
 def get_by_uid(uid: int) -> Optional[dict]:
     """Get identity by uid."""
     conn = get_conn()
+    if conn is None:
+        return None
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -125,6 +130,8 @@ def get_by_uid(uid: int) -> Optional[dict]:
 def list_all() -> list[dict]:
     """List all registered identities."""
     conn = get_conn()
+    if conn is None:
+        return []
     try:
         with conn.cursor() as cur:
             cur.execute(

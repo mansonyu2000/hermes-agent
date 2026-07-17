@@ -6,7 +6,6 @@ Memory queue bridges MQTT incoming → frontend polling.
 
 import json
 import logging
-import os
 import time
 import uuid
 from datetime import datetime
@@ -61,6 +60,8 @@ def _next_mid() -> str:
 
 def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
     conn = get_conn()
+    if conn is None:
+        return {"ok": False, "error": "DB unavailable"}
     try:
         with conn.cursor() as cur:
             mid = _next_mid()
@@ -118,6 +119,8 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
 
 def get_history(uid: int, peer_uid: int, limit: int = 50) -> list[dict]:
     conn = get_conn()
+    if conn is None:
+        return []
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -157,6 +160,8 @@ def get_contacts() -> list[dict]:
 def get_user_contacts(uid: int) -> list[dict]:
     """Get contacts for a specific user from contacts table."""
     conn = get_conn()
+    if conn is None:
+        return []
     try:
         with conn.cursor() as cur:
             cur.execute(

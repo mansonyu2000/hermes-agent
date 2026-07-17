@@ -14,9 +14,6 @@ import os
 import logging
 from functools import lru_cache
 
-import pymysql
-from pymysql.cursors import DictCursor
-
 logger = logging.getLogger(__name__)
 
 _DB_CONFIG = {
@@ -30,9 +27,17 @@ _DB_CONFIG = {
 
 
 def get_conn():
-    """获取 MySQL 连接（DictCursor，所有调用方统一使用）。"""
+    """获取 MySQL 连接（DictCursor，所有调用方统一使用）。
+
+    未安装 pymysql 或连接失败时返回 None — 调用方必须检查。
+    """
     try:
+        import pymysql
+        from pymysql.cursors import DictCursor
         return pymysql.connect(**_DB_CONFIG, cursorclass=DictCursor)
+    except ImportError:
+        logger.warning("pymysql not installed. Run: pip install pymysql")
+        return None
     except Exception as e:
         logger.error(f"MySQL connection failed: {e}")
         return None
