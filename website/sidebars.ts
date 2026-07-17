@@ -724,6 +724,14 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'WinPeek',
+      collapsed: true,
+      items: [
+        'winpeek/code-review-mim-db-refactor',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Developer Guide',
       collapsed: true,
       items: [
