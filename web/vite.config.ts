@@ -8,7 +8,8 @@ const fixLevaZustandPlugin = (): Plugin => ({
   name: 'fix-leva-zustand',
   transform(code: string, id: string) {
     if (!id.includes('leva')) return
-    if (!/\.(m?js|ts)$/.test(id)) return
+    // Vite dev adds ?v=... query suffix — strip before extension check
+if (!/\.(m?js)(\?|$)/.test(id)) return
     return {
       code: code
         .replace(
