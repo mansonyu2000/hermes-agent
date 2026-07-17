@@ -62,15 +62,16 @@ say 2028 "Task 1.2 完成"
 4. **先写后端工具** — 新功能先注册 Hermes 工具（`tools/winpeek_tools.py`），前端再调
 5. **WeChatDB 是唯一数据源** — 所有微信数据走 `WeChatDB` 的 CRUD，不要绕过
 6. **匹配现有风格** — 前端用 nanostores + shadcn/ui，后端用 Python 具名参数
+7. **禁止手动修改 `node_modules/`** — 依赖问题用 `npm install <包名>@<版本>` 或 `pnpm add <包名>@<版本>` 升级，不要直接编辑 node_modules 里的文件
 
 ### 提交前 (强制执行)
 
-7. **运行质量检查** — `python scripts/winpeek-quality-check.py`，6 项全部通过才能 commit
-8. **CSS token 只允许 var(--ui-*)** — 禁止 `#fff`、`rgb(...)`、`bg-blue-500` 等硬编码
-9. **文档必须有 frontmatter** — `website/docs/winpeek/` 下每个 .md 必须 `---\nsidebar_position: N\ntitle: "xxx"\n---`
-10. **文件名全小写连字符** — 禁止大写字母（`QUICKSTART.md` → `quickstart.md`）
-11. **Commit scope 对齐上游** — 用 `tools(winpeek)`, `gateway(winpeek)`, `docs(winpeek)`, `skills(winpeek)`
-12. **MR 自动门禁** — CI 运行 `winpeek-quality-block`，不通过则无法合并
+8. **运行质量检查** — `python scripts/winpeek-quality-check.py`，6 项全部通过才能 commit
+9. **CSS token 只允许 var(--ui-*)** — 禁止 `#fff`、`rgb(...)`、`bg-blue-500` 等硬编码
+10. **文档必须有 frontmatter** — `website/docs/winpeek/` 下每个 .md 必须 `---\nsidebar_position: N\ntitle: "xxx"\n---`
+11. **文件名全小写连字符** — 禁止大写字母（`QUICKSTART.md` → `quickstart.md`）
+12. **Commit scope 对齐上游** — 用 `tools(winpeek)`, `gateway(winpeek)`, `docs(winpeek)`, `skills(winpeek)`
+13. **MR 自动门禁** — CI 运行 `winpeek-quality-block`，不通过则无法合并
 
 ### 质量门禁违规 → 自动退回
 

@@ -14,6 +14,44 @@ Multi-agent messaging inside Hermes Gateway. Agents register an identity, discov
 | Online heartbeat | 30s ping, auto-offline after 120s | 🆕 hub.py needed |
 | Message ACK | Delivery receipt (pending→delivered→read), retry 3x | 🆕 |
 
+## Database
+
+### MIM Chat Storage (当前: SQLite)
+
+MIM 的实时聊天数据目前使用 **per-user SQLite**，每个用户独立文件：
+
+```
+~/.hermes/winpeek/data/uid{uid}/mim.db
+```
+
+每个用户一个 `mim.db`，包含 `messages` 表（from_uid, to_uid, content, msg_ts）。
+
+### Hub Archive (MySQL / JSONL)
+
+消息归档支持 MySQL，用于审计/合规/多端同步：
+
+```
+Host:     192.168.3.23 (htubs24)
+Port:     3306
+User:     winpeek
+Password: Server33
+Database: winpeek-db2
+Table:    hub_messages
+```
+
+配置方式（环境变量）：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `WINPEEK_DB_HOST` | `192.168.3.23` | MySQL 主机 |
+| `WINPEEK_DB_PORT` | `3306` | MySQL 端口 |
+| `WINPEEK_DB_USER` | `winpeek` | MySQL 用户 |
+| `WINPEEK_DB_PASS` | `Server33` | MySQL 密码 |
+| `WINPEEK_DB_NAME` | `winpeek-db2` | MySQL 数据库名 |
+| `HUB_ARCHIVE_ENGINE` | `mysql` | 归档引擎: `mysql` / `jsonl` / `off` |
+
+> 生产环境建议设置 `WINPEEK_DB_USER=winpeek`、`WINPEEK_DB_PASS=Server33` 连接 htubs24 的 `winpeek-db2` 数据库。
+
 ### V2.0
 
 | Feature | Description |

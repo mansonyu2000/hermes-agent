@@ -3,7 +3,7 @@ mqtt_adapter.py — MIM MQTT 平台适配器
 
 让 Hermes 通过 MQTT Broker 收发消息，实现多实例互通。
 
-身份自动从 identity.py (JSONL) 读取，不需要手动设环境变量。
+身份自动从 MySQL winpeek-db2.users 表读取，不需要手动设环境变量。
 首次启动时自动注册默认身份。
 
 Topic 协议:
