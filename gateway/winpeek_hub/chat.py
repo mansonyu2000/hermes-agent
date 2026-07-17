@@ -12,22 +12,9 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-import pymysql
-from pymysql.cursors import DictCursor
+from .db import get_conn
 
 logger = logging.getLogger(__name__)
-
-_DB_CONFIG = {
-    "host": os.getenv("WINPEEK_DB_HOST", "192.168.3.23"),
-    "port": int(os.getenv("WINPEEK_DB_PORT", "3306")),
-    "user": os.getenv("WINPEEK_DB_USER", "winpeek"),
-    "password": os.getenv("WINPEEK_DB_PASS", "Server33"),
-    "database": os.getenv("WINPEEK_DB_NAME", "winpeek-db2"),
-}
-
-
-def _get_conn():
-    return pymysql.connect(**_DB_CONFIG, cursorclass=DictCursor)
 
 
 # ── Active session ────────────────────────────────
@@ -73,7 +60,7 @@ def _next_mid() -> str:
 
 
 def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
-    conn = _get_conn()
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             mid = _next_mid()
@@ -130,7 +117,7 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
 # ── History ─────────────────────────────────────
 
 def get_history(uid: int, peer_uid: int, limit: int = 50) -> list[dict]:
-    conn = _get_conn()
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -169,7 +156,7 @@ def get_contacts() -> list[dict]:
 
 def get_user_contacts(uid: int) -> list[dict]:
     """Get contacts for a specific user from contacts table."""
-    conn = _get_conn()
+    conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(

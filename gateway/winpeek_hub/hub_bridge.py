@@ -88,13 +88,16 @@ def try_load_hub():
 
     # ── 初始化 chat 引擎 (MySQL) ──
     try:
-        from gateway.winpeek_hub import chat
+        from gateway.winpeek_hub.db import get_conn
         # Verify MySQL connection by testing a simple query
-        conn = chat._get_conn()
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1")
-        conn.close()
-        logger.info("WinPeek chat engine ready (MySQL)")
+        conn = get_conn()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            conn.close()
+            logger.info("WinPeek chat engine ready (MySQL)")
+        else:
+            logger.warning("WinPeek MySQL unavailable")
     except Exception as e:
         logger.warning(f"WinPeek chat engine init failed: {e}")
 
