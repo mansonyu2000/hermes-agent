@@ -93,8 +93,9 @@ export default defineConfig({
     dedupe: ['react', 'react-dom', 'zustand']
   },
   optimizeDeps: {
-    // Exclude leva from pre-bundling so the fixLevaZustandPlugin transform
-    // can rewrite its zustand imports before rolldown resolves them.
+    // Only leva needs exclusion — its zustand imports must pass through
+    // the transform plugin first. Other deps (attr-accept etc.) stay in
+    // so esbuild wraps them with synthetic default exports.
     exclude: ['leva'],
   },
   server: {
