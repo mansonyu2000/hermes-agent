@@ -89,7 +89,6 @@ def try_load_hub():
     # ── 初始化 chat 引擎 ──
     try:
         from gateway.winpeek_hub import chat
-        chat._db()  # Ensure SQLite mim.db is created
         logger.info("WinPeek chat engine ready")
     except Exception as e:
         logger.warning(f"WinPeek chat engine init failed: {e}")
