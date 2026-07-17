@@ -105,12 +105,21 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
     finally:
         conn.close()
 
-    # MQTT publish
+    # MQTT publish (best-effort)
     try:
         from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
         mqtt_send(to_uid, body, from_name)
     except Exception:
         pass
+
+    # Local delivery — enqueue so recipient can poll without MQTT
+    enqueue({
+        "to_uid": to_uid,
+        "from_uid": from_uid,
+        "from_name": from_name,
+        "content": body,
+        "time": now,
+    })
 
     return {"ok": True, "mid": mid}
 

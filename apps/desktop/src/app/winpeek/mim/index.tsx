@@ -357,10 +357,19 @@ export function MimView({ onClose }: { onClose: () => void }) {
   // ── Load chat history when contact selected ──
   useEffect(() => {
     if (!activeContact || !identity) { setMessages([]); return }
-    // For now load from history via chat.py. Without a dedicated MIM get_history tool yet,
-    // start with empty messages — polling will fill in new ones.
-    setMessages([])
-  }, [activeContact, identity])
+    gatewayRequest<any>('winpeek_mim_history', { peer_uid: activeContact.uid }).then(data => {
+      if (data.messages) {
+        setMessages(data.messages.map((m: any) => ({
+          id: `h-${m.from_uid}-${m.msg_ts}-${Math.random()}`,
+          fromUid: m.from_uid,
+          fromName: m.from_name || '',
+          content: m.content,
+          time: typeof m.msg_ts === 'string' ? m.msg_ts.slice(11, 16) : '',
+          isSelf: String(m.from_uid) === String(identity.uid),
+        })))
+      }
+    }).catch(() => {})
+  }, [activeContact, identity, gatewayRequest])
 
   // ── Poll for new messages every 3s ──
   useEffect(() => {
