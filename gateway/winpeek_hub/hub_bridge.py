@@ -86,11 +86,15 @@ def try_load_hub():
     except Exception as e:
         logger.warning(f"WinPeek MQTT connect failed: {e}")
 
-    # ── 初始化 chat 引擎 ──
+    # ── 初始化 chat 引擎 (MySQL) ──
     try:
         from gateway.winpeek_hub import chat
-        chat._db()  # Ensure SQLite mim.db is created
-        logger.info("WinPeek chat engine ready")
+        # Verify MySQL connection by testing a simple query
+        conn = chat._get_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        conn.close()
+        logger.info("WinPeek chat engine ready (MySQL)")
     except Exception as e:
         logger.warning(f"WinPeek chat engine init failed: {e}")
 

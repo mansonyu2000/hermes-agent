@@ -238,16 +238,17 @@ logger.info("WinPeek RPA tools registered: send + collect_msgs + collect_contact
 def _handle_mim_login(args: dict) -> str:
     nickname = args.get("nickname", "").strip()
     role = args.get("role", "Developer")
+    password = args.get("password", "123321")  # default password
     if not nickname:
         return json.dumps({"error": "nickname required"})
     try:
         from gateway.winpeek_hub import identity
         from gateway.winpeek_hub.chat import set_active_session
-    except ImportError:
-        return json.dumps({"error": "MIM Hub not loaded (WINPEEK_HUB_ENABLED=1?)"})
-    result = identity.login(nickname) or identity.register(nickname, role)
+    except ImportError as e:
+        return json.dumps({"error": f"MIM Hub not loaded: {e}"})
+    result = identity.login(nickname, password) or identity.register(nickname, role, password=password)
     if not result:
-        return json.dumps({"error": f"name '{nickname}' taken"})
+        return json.dumps({"error": f"login failed — wrong nickname or password"})
     set_active_session(result["uid"], result["nickname"])
     return json.dumps({"ok": True, "identity": result})
 
@@ -291,11 +292,12 @@ registry.register(
     toolset="winpeek_rpa",
     schema={
         "name": "winpeek_mim_login",
-        "description": "Register or login to MIM messaging. Returns identity with uid.",
+        "description": "Register or login to MIM messaging. Password defaults to 123321.",
         "parameters": {
             "type": "object",
             "properties": {
                 "nickname": {"type": "string", "description": "Your display name"},
+                "password": {"type": "string", "description": "Login password (default 123321)"},
                 "role": {"type": "string", "description": "Developer/Architect/Ops/QA/PM"},
             },
             "required": ["nickname"],
@@ -422,3 +424,42 @@ registry.register(
 )
 
 logger.info("WinPeek MIM tools: +online +history")
+
+# ── MIM: User Info ──
+
+
+def _handle_mim_user_info(args: dict) -> str:
+    uid = int(args.get("uid", 0))
+    if not uid:
+        return json.dumps({"error": "uid required"})
+    try:
+        from gateway.winpeek_hub import identity
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    user = identity.get_by_uid(uid)
+    if not user:
+        return json.dumps({"error": "user not found"})
+    return json.dumps({"user": user})
+
+
+registry.register(
+    name="winpeek_mim_user_info",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_user_info",
+        "description": "Get detailed profile info for a user by uid.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "User uid to query"},
+            },
+            "required": ["uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_user_info(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM user profile info",
+)
+
+logger.info("WinPeek MIM tools: +user_info")

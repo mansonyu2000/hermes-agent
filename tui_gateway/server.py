@@ -14312,3 +14312,85 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5002, "command timed out (30s)")
     except Exception as e:
         return _err(rid, 5003, str(e))
+
+
+# ── MIM tools (WinPeek multi-agent messaging) ─────
+
+
+def _ensure_mim_loaded() -> str | None:
+    """Import winpeek_tools lazily; returns error string or None on success."""
+    try:
+        from tools import winpeek_tools  # noqa: F401 — triggers registry.register()
+        return None
+    except Exception as e:
+        return str(e)
+
+
+@method("winpeek_mim_login")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_login
+    result = _handle_mim_login(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_send")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_send
+    result = _handle_mim_send(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_poll")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_poll
+    result = _handle_mim_poll(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_contacts")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_contacts
+    result = _handle_mim_contacts(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_user_info")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_user_info
+    result = _handle_mim_user_info(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})

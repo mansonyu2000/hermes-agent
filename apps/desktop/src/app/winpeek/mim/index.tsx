@@ -16,12 +16,20 @@ interface WinPeekIdentity {
   name: string
   role: string
   host: string
+  title?: string
+  bio?: string
+  skills?: string
+  manager_uid?: number
 }
 interface Contact {
   id: string
   name: string
   uid: number
   role?: string
+  title?: string
+  bio?: string
+  skills?: string
+  manager_uid?: number
   lastMessage?: string
   lastTime?: string
   unread: number
@@ -52,27 +60,34 @@ function saveIdentity(id: WinPeekIdentity) {
 
 /* ── Login / Register Form ───────────────────── */
 
-function LoginPanel({ existingUsers, onLogin, onRegister, onRefreshUsers }: {
+function LoginPanel({ existingUsers, onLogin, onRegister }: {
   existingUsers: {uid: number; nickname: string; role: string}[]
-  onLogin: (name: string) => void
-  onRegister: (name: string, role: string) => void
+  onLogin: (name: string, password: string) => Promise<string | null>
+  onRegister: (name: string, role: string, password: string) => Promise<string | null>
   onRefreshUsers: () => void
 }) {
   const [nick, setNick] = useState('')
+  const [password, setPassword] = useState('123321')
   const [showRegister, setShowRegister] = useState(false)
   const [role, setRole] = useState<string>('Developer')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleLogin = useCallback(() => {
+  const handleLogin = useCallback(async () => {
     if (!nick.trim()) { return }
-    onLogin(nick.trim())
-  }, [nick, onLogin])
+    setLoading(true); setError('')
+    const err = await onLogin(nick.trim(), password)
+    if (err) setError(err)
+    setLoading(false)
+  }, [nick, password, onLogin])
 
-  const handleRegister = useCallback(() => {
+  const handleRegister = useCallback(async () => {
     if (!nick.trim()) { return }
-    onRegister(nick.trim(), role)
-  }, [nick, role, onRegister])
+    setLoading(true); setError('')
+    const err = await onRegister(nick.trim(), role, password)
+    if (err) setError(err)
+    setLoading(false)
+  }, [nick, role, password, onRegister])
 
   return (
     <div className="grid h-full place-items-center p-6">
@@ -92,7 +107,7 @@ function LoginPanel({ existingUsers, onLogin, onRegister, onRefreshUsers }: {
                 <button
                   key={u.uid}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-(--ui-control-hover-background)"
-                  onClick={() => { setNick(u.nickname); onLogin(u.nickname) }}
+                  onClick={async () => { setNick(u.nickname); setLoading(true); setError(''); const e = await onLogin(u.nickname, password); if (e) setError(e); setLoading(false) }}
                 >
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-(--ui-accent)/15 text-[0.55rem] font-semibold text-(--ui-accent)">
                     {u.nickname.charAt(0)}
@@ -109,6 +124,13 @@ function LoginPanel({ existingUsers, onLogin, onRegister, onRefreshUsers }: {
           onKeyDown={e => e.key === 'Enter' && !showRegister && handleLogin()}
           placeholder="用户名"
           value={nick}
+        />
+        <Input
+          onChange={e => setPassword(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && !showRegister && handleLogin()}
+          placeholder="密码"
+          type="password"
+          value={password}
         />
         {showRegister ? (
           <>
@@ -148,34 +170,94 @@ function LoginPanel({ existingUsers, onLogin, onRegister, onRefreshUsers }: {
   )
 }
 
-/* ── Profile Panel ───────────────────────────── */
+/* ── Profile Panel (self) ────────────────────── */
 
-function ProfilePanel({ identity, onLogout }: { identity: WinPeekIdentity; onLogout: () => void }) {
+function ProfilePanel({ identity, onLogout, onBack }: { identity: WinPeekIdentity; onLogout: () => void; onBack?: () => void }) {
+  const skills = identity.skills ? identity.skills.split(',').filter(Boolean) : []
   return (
-    <div className="p-4 space-y-3">
+    <div className="p-4 space-y-4">
+      {onBack && (
+        <button className="text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={onBack}>← 返回</button>
+      )}
       <div className="text-center">
-        <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-(--ui-accent)/15 text-xl font-bold text-(--ui-accent)">
+        <div className="mx-auto mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-(--ui-accent)/15 text-2xl font-bold text-(--ui-accent)">
           {identity.name.charAt(0)}
         </div>
-        <h3 className="text-sm font-semibold text-foreground">{identity.name}</h3>
-        <p className="text-xs text-(--ui-text-tertiary)}">{identity.role} · #{identity.uid}</p>
-        <p className="text-[0.6rem] text-(--ui-text-quaternary)">主机: {identity.host}</p>
+        <h3 className="text-base font-semibold text-foreground">{identity.name}</h3>
+        <p className="text-xs text-(--ui-text-tertiary)">{identity.title || identity.role} · #{identity.uid}</p>
       </div>
-      <div className="space-y-1.5 border-t border-(--ui-stroke-tertiary) pt-3">
-        <div className="flex items-center justify-between text-xs text-(--ui-text-secondary)">
-          <span>MQTT Broker</span><span className="font-mono text-(--ui-text-tertiary)">192.168.3.23:1883</span>
-        </div>
-        <div className="flex items-center justify-between text-xs text-(--ui-text-secondary)">
-          <span>WinPeek Hub</span><span className="font-mono text-(--ui-text-tertiary)">127.0.0.1:9200</span>
-        </div>
-        <div className="flex items-center justify-between text-xs text-(--ui-text-secondary)">
-          <span>消息通知</span>
-          <Switch defaultChecked id="mim-notify" />
-        </div>
+      <div className="space-y-2 rounded-lg border border-(--ui-stroke-tertiary) p-3 text-xs">
+        <div className="flex justify-between"><span className="text-(--ui-text-secondary)">角色</span><span>{identity.role}</span></div>
+        {identity.title && <div className="flex justify-between"><span className="text-(--ui-text-secondary)">职位</span><span>{identity.title}</span></div>}
+        {identity.bio && <div><div className="mb-1 text-(--ui-text-secondary)">简介</div><div className="text-foreground leading-relaxed">{identity.bio}</div></div>}
+        {skills.length > 0 && (
+          <div>
+            <div className="mb-1 text-(--ui-text-secondary)">技能</div>
+            <div className="flex flex-wrap gap-1">{skills.map(s => <span key={s} className="rounded-full bg-(--ui-accent)/10 px-2 py-0.5 text-[0.6rem] text-(--ui-accent)">{s}</span>)}</div>
+          </div>
+        )}
       </div>
-      <Button className="w-full" onClick={onLogout} size="xs" variant="secondary">
-        退出登录
-      </Button>
+      <div className="space-y-1.5 rounded-lg border border-(--ui-stroke-tertiary) p-3 text-xs">
+        <div className="flex justify-between"><span className="text-(--ui-text-secondary)">MQTT Broker</span><span className="font-mono">192.168.3.23:1883</span></div>
+        <div className="flex justify-between"><span className="text-(--ui-text-secondary)">WinPeek Hub</span><span className="font-mono">127.0.0.1:9200</span></div>
+        <div className="flex items-center justify-between"><span className="text-(--ui-text-secondary)">消息通知</span><Switch defaultChecked id="mim-notify" /></div>
+      </div>
+      <Button className="w-full" onClick={onLogout} size="xs" variant="secondary">退出登录</Button>
+    </div>
+  )
+}
+
+
+/* ── Contact Profile Panel (view others) ─────── */
+
+function ContactProfilePanel({ uid, gatewayRequest, onBack }: { uid: number; gatewayRequest: (method: string, params: any) => Promise<any>; onBack: () => void }) {
+  const [user, setUser] = useState<WinPeekIdentity | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    gatewayRequest('winpeek_mim_user_info', { uid }).then((data: any) => {
+      if (data?.user) {
+        setUser({
+          uid: data.user.uid,
+          name: data.user.nickname,
+          role: data.user.role || '',
+          host: data.user.host || '',
+          title: data.user.title,
+          bio: data.user.bio,
+          skills: data.user.skills,
+          manager_uid: data.user.manager_uid,
+        })
+      }
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [uid, gatewayRequest])
+
+  if (loading) return <div className="grid h-full place-items-center"><p className="text-xs text-(--ui-text-tertiary)">加载中...</p></div>
+  if (!user) return <div className="grid h-full place-items-center"><p className="text-xs text-(--ui-text-tertiary)">用户不存在</p></div>
+
+  const skills = user.skills ? user.skills.split(',').filter(Boolean) : []
+  return (
+    <div className="p-4 space-y-4">
+      <button className="text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={onBack}>← 返回聊天</button>
+      <div className="text-center">
+        <div className="mx-auto mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-(--ui-accent)/15 text-2xl font-bold text-(--ui-accent)">
+          {user.name.charAt(0)}
+        </div>
+        <h3 className="text-base font-semibold text-foreground">{user.name}</h3>
+        <p className="text-xs text-(--ui-text-tertiary)">{user.title || user.role} · #{user.uid}</p>
+      </div>
+      <div className="space-y-2 rounded-lg border border-(--ui-stroke-tertiary) p-3 text-xs">
+        <div className="flex justify-between"><span className="text-(--ui-text-secondary)">角色</span><span>{user.role}</span></div>
+        {user.title && <div className="flex justify-between"><span className="text-(--ui-text-secondary)">职位</span><span>{user.title}</span></div>}
+        {user.bio && <div><div className="mb-1 text-(--ui-text-secondary)">简介</div><div className="text-foreground leading-relaxed">{user.bio}</div></div>}
+        {skills.length > 0 && (
+          <div>
+            <div className="mb-1 text-(--ui-text-secondary)">技能</div>
+            <div className="flex flex-wrap gap-1">{skills.map(s => <span key={s} className="rounded-full bg-(--ui-accent)/10 px-2 py-0.5 text-[0.6rem] text-(--ui-accent)">{s}</span>)}</div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -183,9 +265,10 @@ function ProfilePanel({ identity, onLogout }: { identity: WinPeekIdentity; onLog
 /* ── Main View ───────────────────────────────── */
 
 export function MimView({ onClose }: { onClose: () => void }) {
-  const gatewayRequest = useGatewayRequest()
+  const { requestGateway: gatewayRequest } = useGatewayRequest()
   const [identity, setIdentity] = useState<WinPeekIdentity | null>(loadSavedIdentity)
   const [showProfile, setShowProfile] = useState(false)
+  const [viewContactUid, setViewContactUid] = useState<number | null>(null)
 
   const [contacts, setContacts] = useState<Contact[]>([])
   const [existingUsers, setExistingUsers] = useState<{uid: number; nickname: string; role: string}[]>([])
@@ -197,8 +280,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
   identRef.current = identity
 
   const refreshUsers = useCallback(() => {
-    gatewayRequest('winpeek_mim_contacts', {}).then(raw => {
-      const data = JSON.parse(raw)
+    gatewayRequest<any>('winpeek_mim_contacts', {}).then(data => {
       if (data.contacts) {
         setExistingUsers(data.contacts.filter((c: any) => c.uid > 0))
       }
@@ -213,36 +295,37 @@ export function MimView({ onClose }: { onClose: () => void }) {
     [contacts, activeContactId]
   )
 
-  const handleLogin = useCallback(async (name: string) => {
+  const handleLogin = useCallback(async (name: string, password: string): Promise<string | null> => {
     try {
-      const raw = await gatewayRequest('winpeek_mim_login', { nickname: name })
-      const data = JSON.parse(raw)
+      const data: any = await gatewayRequest('winpeek_mim_login', { nickname: name, password })
       if (data.ok && data.identity) {
         const id: WinPeekIdentity = { uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role, host: 'local' }
         saveIdentity(id)
         setIdentity(id)
         refreshUsers()
+        return null
       }
-    } catch {
-      // fallback to localStorage
-      const saved = loadSavedIdentity()
-      if (saved) setIdentity(saved)
+      return data.error || '登录失败，请检查用户名和密码'
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return `无法连接到网关: ${msg}`
     }
   }, [gatewayRequest, refreshUsers])
 
-  const handleRegister = useCallback(async (name: string, role: string) => {
+  const handleRegister = useCallback(async (name: string, role: string, password: string): Promise<string | null> => {
     try {
-      const raw = await gatewayRequest('winpeek_mim_login', { nickname: name, role })
-      const data = JSON.parse(raw)
+      const data: any = await gatewayRequest('winpeek_mim_login', { nickname: name, role, password })
       if (data.ok && data.identity) {
         const id: WinPeekIdentity = { uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role, host: 'local' }
         saveIdentity(id)
         setIdentity(id)
         refreshUsers()
+        return null
       }
-    } catch {
-      const saved = loadSavedIdentity()
-      if (saved) setIdentity(saved)
+      return data.error || '注册失败，请重试'
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return `无法连接到网关: ${msg}`
     }
   }, [gatewayRequest, refreshUsers])
 
@@ -256,8 +339,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
   // ── Load contacts via winpeek_mim_contacts ──
   useEffect(() => {
     if (!identity) return
-    gatewayRequest('winpeek_mim_contacts', {}).then(raw => {
-      const data = JSON.parse(raw)
+    gatewayRequest<any>('winpeek_mim_contacts', {}).then(data => {
       if (data.contacts) {
         setContacts(data.contacts.map((c: any) => ({
           id: String(c.uid),
@@ -284,8 +366,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!identity) return
     const interval = setInterval(() => {
-      gatewayRequest('winpeek_mim_poll', {}).then(raw => {
-        const data = JSON.parse(raw)
+      gatewayRequest<any>('winpeek_mim_poll', {}).then(data => {
         if (data.messages?.length > 0) {
           setMessages(prev => [...prev, ...data.messages.map((m: any) => ({
             id: `m-${Date.now()}-${Math.random()}`,
@@ -332,11 +413,20 @@ export function MimView({ onClose }: { onClose: () => void }) {
     )
   }
 
+  // ── View contact profile ──
+  if (viewContactUid) {
+    return (
+      <MasterDetail>
+        <ContactProfilePanel uid={viewContactUid} gatewayRequest={gatewayRequest} onBack={() => setViewContactUid(null)} />
+      </MasterDetail>
+    )
+  }
+
   // ── Profile view ──
   if (showProfile) {
     return (
       <MasterDetail>
-        <ProfilePanel identity={identity} onLogout={handleLogout} />
+        <ProfilePanel identity={identity} onLogout={handleLogout} onBack={() => setShowProfile(false)} />
       </MasterDetail>
     )
   }
@@ -381,7 +471,16 @@ export function MimView({ onClose }: { onClose: () => void }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between">
                     <span className="truncate text-sm font-medium text-foreground">{contact.name}</span>
-                    {contact.lastTime && <span className="ml-2 shrink-0 text-[0.6rem] text-(--ui-text-tertiary)}">{contact.lastTime}</span>}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {contact.uid !== identity?.uid && (
+                        <button
+                          className="text-[0.55rem] text-(--ui-text-quaternary) hover:text-(--ui-accent) px-1"
+                          onClick={e => { e.stopPropagation(); setViewContactUid(contact.uid) }}
+                          title="查看资料"
+                        >ℹ</button>
+                      )}
+                      {contact.lastTime && <span className="text-[0.6rem] text-(--ui-text-tertiary)">{contact.lastTime}</span>}
+                    </div>
                   </div>
                   <div className="mt-0.5 flex items-center justify-between">
                     <span className="truncate text-xs text-(--ui-text-tertiary)}">{contact.lastMessage ?? '暂无消息'}</span>

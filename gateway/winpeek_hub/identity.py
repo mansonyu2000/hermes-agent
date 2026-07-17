@@ -1,91 +1,150 @@
 """
-identity.py — WinPeek MIM identity management with JSONL persistence.
+identity.py — WinPeek MIM identity management with MySQL persistence.
 
-Stores identities at ~/.hermes/winpeek/identities.jsonl.
+Uses winpeek-db2.users table (192.168.3.23:3306).
 Provides: register, login, get_identity, list_identities.
 """
-import json
+
+import hashlib
+import logging
 import os
 import time
-from pathlib import Path
 from typing import Optional
 
-IDENTITIES_PATH = Path.home() / ".hermes" / "winpeek" / "identities.jsonl"
+import pymysql
+from pymysql.cursors import DictCursor
+
+logger = logging.getLogger(__name__)
+
+# MySQL 连接配置（与已有 winpeek 生态共用）
+_DB_CONFIG = {
+    "host": os.getenv("WINPEEK_DB_HOST", "192.168.3.23"),
+    "port": int(os.getenv("WINPEEK_DB_PORT", "3306")),
+    "user": os.getenv("WINPEEK_DB_USER", "winpeek"),
+    "password": os.getenv("WINPEEK_DB_PASS", "Server33"),
+    "database": os.getenv("WINPEEK_DB_NAME", "winpeek-db2"),
+}
 
 ROLES = ["Developer", "Architect", "Ops", "QA", "PM", "Director", "Boss"]
 
 
-def _ensure_dir():
-    IDENTITIES_PATH.parent.mkdir(parents=True, exist_ok=True)
+def _get_conn():
+    """Create a MySQL connection with dict cursor."""
+    return pymysql.connect(**_DB_CONFIG, cursorclass=DictCursor)
 
 
-def _read_all() -> list[dict]:
-    """Read all identities from JSONL file."""
-    _ensure_dir()
-    if not IDENTITIES_PATH.exists():
-        return []
-    results = []
-    with open(IDENTITIES_PATH, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    results.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-    return results
+def _hash_password(password: str) -> str:
+    """SHA256 hash of password."""
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
-def _append(entry: dict):
-    """Append one identity to JSONL file."""
-    _ensure_dir()
-    with open(IDENTITIES_PATH, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-
-def register(nickname: str, role: str = "Developer", host: str = "local") -> dict | None:
+def register(nickname: str, role: str = "Developer", host: str = "local", password: str = "") -> dict | None:
     """
     Register a new identity. Returns the created identity, or None if nickname taken.
     """
     if role not in ROLES:
         role = "Developer"
 
-    all_ids = _read_all()
-    for entry in all_ids:
-        if entry.get("nickname", "").lower() == nickname.lower():
-            return None  # already exists
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            # Check duplicate nickname
+            cur.execute("SELECT uid FROM users WHERE nickname = %s", (nickname,))
+            if cur.fetchone():
+                return None  # already exists
 
-    uid = 2000 + len(all_ids) + 1
-    identity = {
-        "uid": uid,
-        "nickname": nickname,
-        "role": role,
-        "host": host,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            # Generate next uid (keep in the 2000+ range for MIM users)
+            cur.execute("SELECT COALESCE(MAX(uid), 1999) + 1 AS next_uid FROM users WHERE uid >= 2000")
+            next_uid = cur.fetchone()["next_uid"]
+
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+            pw_hash = _hash_password(password) if password else ""
+            cur.execute(
+                """INSERT INTO users (uid, nickname, role, hostname, created_at, updated_at, is_active, identity_type, status, password_hash)
+                   VALUES (%s, %s, %s, %s, %s, %s, 1, 'mim', 1, %s)""",
+                (next_uid, nickname, role, host, now, now, pw_hash),
+            )
+            conn.commit()
+
+            identity = {
+                "uid": next_uid,
+                "nickname": nickname,
+                "role": role,
+                "host": host,
+                "created_at": now,
+            }
+            logger.info(f"MIM identity registered: uid={next_uid} name={nickname}")
+            return identity
+    except Exception as e:
+        logger.warning(f"MIM register failed: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def login(nickname: str, password: str = "") -> dict | None:
+    """
+    Login by nickname + password. Returns identity if found and password matches.
+    """
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT uid, nickname, role, hostname, created_at, password_hash, title, bio, skills, manager_uid FROM users WHERE nickname = %s",
+                (nickname,),
+            )
+            row = cur.fetchone()
+            if row:
+                stored_hash = row.get("password_hash") or ""
+                # If user has no password set, allow login without password (backward compat)
+                if stored_hash and _hash_password(password) != stored_hash:
+                    return None  # wrong password
+                return _row_to_dict(row)
+            return None
+    finally:
+        conn.close()
+
+
+def _row_to_dict(row: dict) -> dict:
+    """Convert a DB row to the identity dict."""
+    return {
+        "uid": row["uid"],
+        "nickname": row["nickname"],
+        "role": row["role"],
+        "host": row.get("hostname", "local"),
+        "title": row.get("title") or "",
+        "bio": row.get("bio") or "",
+        "skills": row.get("skills") or "",
+        "manager_uid": int(row["manager_uid"]) if row.get("manager_uid") else 0,
+        "created_at": str(row.get("created_at", "")),
     }
-    _append(identity)
-    return identity
-
-
-def login(nickname: str) -> dict | None:
-    """
-    Login by nickname. Returns identity if found.
-    """
-    all_ids = _read_all()
-    for entry in all_ids:
-        if entry.get("nickname", "").lower() == nickname.lower():
-            return entry
-    return None
 
 
 def get_by_uid(uid: int) -> Optional[dict]:
     """Get identity by uid."""
-    for entry in _read_all():
-        if entry.get("uid") == uid:
-            return entry
-    return None
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT uid, nickname, role, hostname, created_at, title, bio, skills, manager_uid FROM users WHERE uid = %s",
+                (uid,),
+            )
+            row = cur.fetchone()
+            if row:
+                return _row_to_dict(row)
+            return None
+    finally:
+        conn.close()
 
 
 def list_all() -> list[dict]:
     """List all registered identities."""
-    return _read_all()
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT uid, nickname, role, hostname, created_at, title, bio, skills, manager_uid FROM users WHERE is_active = 1 OR is_active IS NULL ORDER BY uid"
+            )
+            return [_row_to_dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
