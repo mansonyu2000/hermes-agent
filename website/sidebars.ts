@@ -728,6 +728,7 @@ const sidebars: SidebarsConfig = {
       collapsed: true,
       items: [
         'winpeek/code-review-mim-db-refactor',
+        'winpeek/debug-vite-config-leva-zustand',
       ],
     },
     {
