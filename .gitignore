@@ -3,6 +3,10 @@
 /venv.old/
 /_pycache/
 *.pyc*
+
+# pnpm artifacts — this project uses npm workspaces only
+pnpm-lock.yaml
+pnpm-workspace.yaml
 __pycache__/
 .venv/
 .venv

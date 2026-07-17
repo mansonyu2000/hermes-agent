@@ -3,6 +3,27 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
+// ── Patch leva imports for zustand v5 ──────────────────────────
+const fixLevaZustandPlugin = (): Plugin => ({
+  name: 'fix-leva-zustand',
+  transform(code: string, id: string) {
+    if (!id.includes('leva')) return
+    if (!/\.(m?js|ts)$/.test(id)) return
+    return {
+      code: code
+        .replace(
+          /import\s+create\s+from\s+['"]zustand['"]/,
+          'import { create } from \'zustand\'',
+        )
+        .replace(
+          /import\s+shallow\s+from\s+['"]zustand\/shallow['"]/,
+          'import { shallow } from \'zustand/shallow\'',
+        ),
+      map: null,
+    }
+  },
+})
+
 const BACKEND = process.env.HERMES_DASHBOARD_URL ?? "http://127.0.0.1:9119";
 
 /**
@@ -58,7 +79,7 @@ function hermesDevToken(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), hermesDevToken()],
+  plugins: [react(), tailwindcss(), hermesDevToken(), fixLevaZustandPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -81,6 +102,7 @@ export default defineConfig({
       "three",
       "leva",
       "gsap",
+      "zustand",
     ],
   },
   build: {
