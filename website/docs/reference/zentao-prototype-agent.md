@@ -103,30 +103,19 @@ npx zentao-cli login -s http://pm.test.com -u admin2020 -p Server3314
 npx zentao-cli --format markdown story list --product 4
 ```
 
-### 方式二：轻量 CLI（无需 npm，纯 Python）
+### 方式二：轻量 CLI（pip 安装，跨项目复用）
 
 ```bash
-.venv\Scripts\python.exe tools/zentao_cli.py product list
-.venv\Scripts\python.exe tools/zentao_cli.py story list --product 4
-.venv\Scripts\python.exe tools/zentao_cli.py story create -p 4 -t "标题" --pri 2 --spec "描述"
-```
+# 任何项目只需一行安装
+uv pip install -e D:\mydata\mycode\github\hermes-agent-qoder\tools
 
-Agent 一句话就能操作禅道：
-```bash
-# 查所有产品
-python tools/zentao_cli.py product list
+# 之后直接使用
+python -m zentao_cli product list
+python -m zentao_cli story list --product 4
+python -m zentao_cli story create -p 4 -t "标题" --pri 2 --spec "描述"
 
-# 查 DA 电脑数字人产品的需求
-python tools/zentao_cli.py story list --product 4
-
-# 创建新需求
-python tools/zentao_cli.py story create -p 4 -t "新功能" --pri 2 --spec "功能描述"
-
-# 查项目
-python tools/zentao_cli.py project list
-
-# 查 Bug
-python tools/zentao_cli.py bug list --product 4
+# 或通过可执行文件
+.venv\Scripts\zentao.exe story list --product 4
 ```
 
 ## 结论
