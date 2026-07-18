@@ -727,6 +727,16 @@ const sidebars: SidebarsConfig = {
       label: 'WinPeek',
       collapsed: true,
       items: [
+        {
+          type: 'category',
+          label: 'MIM Design',
+          collapsed: true,
+          items: [
+            'winpeek/mim-design/overview',
+            'winpeek/mim-design/architecture',
+            'winpeek/mim-design/file-map',
+          ],
+        },
         'winpeek/mim-message-center-setup',
         'winpeek/code-review-mim-db-refactor',
         'winpeek/debug-vite-config-leva-zustand',
