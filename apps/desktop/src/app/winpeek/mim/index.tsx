@@ -278,6 +278,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const identRef = useRef<WinPeekIdentity | null>(identity)
   identRef.current = identity
+  const activeContactRef = useRef<Contact | null>(null)
 
   const refreshUsers = useCallback(() => {
     gatewayRequest<any>('winpeek_mim_contacts', {}).then(data => {
@@ -294,6 +295,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
     () => contacts.find(c => c.id === activeContactId) ?? null,
     [contacts, activeContactId]
   )
+  activeContactRef.current = activeContact
 
   const handleLogin = useCallback(async (name: string, password: string): Promise<string | null> => {
     try {
@@ -357,33 +359,43 @@ export function MimView({ onClose }: { onClose: () => void }) {
   // ── Load chat history when contact selected ──
   useEffect(() => {
     if (!activeContact || !identity) { setMessages([]); return }
-    gatewayRequest<any>('winpeek_mim_history', { peer_uid: activeContact.uid }).then(data => {
-      if (data.messages) {
-        setMessages(data.messages.map((m: any) => ({
-          id: `h-${m.from_uid}-${m.msg_ts}-${Math.random()}`,
+    let cancelled = false
+    setMessages([])
+    gatewayRequest<any>('winpeek_mim_history', { peer_uid: activeContact.uid, uid: identity.uid, limit: 50 })
+      .then(data => {
+        if (cancelled || !data?.messages) return
+        setMessages(data.messages.map((m: any, i: number) => ({
+          id: `h-${i}-${m.msg_ts ?? ''}`,
           fromUid: m.from_uid,
-          fromName: m.from_name || '',
+          fromName: m.from_uid === identity.uid ? identity.name : (m.from_name || activeContact.name),
           content: m.content,
-          time: typeof m.msg_ts === 'string' ? m.msg_ts.slice(11, 16) : '',
-          isSelf: String(m.from_uid) === String(identity.uid),
+          time: (m.msg_ts || '').slice(11, 16),
+          isSelf: m.from_uid === identity.uid,
         })))
-      }
-    }).catch(() => {})
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [activeContact, identity, gatewayRequest])
 
   // ── Poll for new messages every 3s ──
   useEffect(() => {
     if (!identity) return
     const interval = setInterval(() => {
-      gatewayRequest<any>('winpeek_mim_poll', {}).then(data => {
+      gatewayRequest<any>('winpeek_mim_poll', { uid: identity.uid }).then(data => {
         if (data.messages?.length > 0) {
-          setMessages(prev => [...prev, ...data.messages.map((m: any) => ({
+          // Only surface messages from the peer currently on screen — other
+          // conversations reload from history (DB) when opened, nothing is lost.
+          const peer = activeContactRef.current
+          const relevant = data.messages.filter((m: any) =>
+            peer && String(m.from_uid) === String(peer.uid) && String(m.from_uid) !== String(identity.uid))
+          if (relevant.length === 0) return
+          setMessages(prev => [...prev, ...relevant.map((m: any) => ({
             id: `m-${Date.now()}-${Math.random()}`,
             fromUid: m.from_uid,
             fromName: m.from_name,
             content: m.content,
             time: m.time?.slice(11, 16) || '',
-            isSelf: String(m.from_uid) === String(identity.uid),
+            isSelf: false,
           }))])
         }
       }).catch(() => {})
@@ -397,7 +409,10 @@ export function MimView({ onClose }: { onClose: () => void }) {
     const text = inputText.trim()
     if (!text || !activeContact || !identity) return
     try {
-      await gatewayRequest('winpeek_mim_send', { to_uid: activeContact.uid, body: text })
+      await gatewayRequest('winpeek_mim_send', {
+        to_uid: activeContact.uid, body: text,
+        uid: identity.uid, from_name: identity.name,
+      })
       // Optimistic: add locally
       setMessages(prev => [...prev, {
         id: `msg-${Date.now()}`, fromUid: identity.uid, fromName: identity.name,

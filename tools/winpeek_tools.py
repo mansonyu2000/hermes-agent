@@ -234,8 +234,98 @@ logger.info("WinPeek RPA tools registered: send + collect_msgs + collect_contact
 # ═══════════════════════════════════════════════════════
 # MIM 工具
 # ═══════════════════════════════════════════════════════
+#
+# 两种运行模式（由 config.yaml 的 winpeek.mim.center_url 决定）：
+#
+#   客户端模式（配置了 center_url）：
+#     本机不连 MySQL/MQTT。所有 MIM RPC 原样转发到中心 hermes serve
+#     （就近原则：主中心 192.168.3.10 / 备中心 192.168.3.44）。
+#     Desktop → 本地 serve → 中心 serve，客户端只有一条对外连接。
+#
+#   中心模式（未配置 center_url）：
+#     走本地 hub（gateway/winpeek_hub → MySQL + MQTT）。
+#     仅 1-2 台消息中心服务器需要数据库与 Broker 凭据。
+#
+# 转发请求带 _mim_forwarded 标记：中心收到已转发的请求直接走本地 hub，
+# 即使中心自己也配了 center_url 也不会二次转发（防递归）。
+
+_MIM_CENTER_UNSET = object()
+_mim_center_cached: object = _MIM_CENTER_UNSET
+
+
+def _mim_center() -> "tuple[str, str] | None":
+    """Return (ws_url, token) of the central MIM server, or None → local-hub mode.
+
+    Read once per process (serve restart picks up config changes).
+    URL comes from config.yaml (non-secret); token from HERMES_MIM_CENTER_TOKEN
+    in ~/.hermes/.env (secret), matching the center's dashboard session token.
+    """
+    global _mim_center_cached
+    if _mim_center_cached is not _MIM_CENTER_UNSET:
+        return _mim_center_cached  # type: ignore[return-value]
+    url = ""
+    try:
+        from hermes_cli.config import load_config
+        mim = (load_config().get("winpeek", {}) or {}).get("mim", {}) or {}
+        url = str(mim.get("center_url") or "").strip()
+    except Exception:
+        url = ""
+    if not url:
+        _mim_center_cached = None
+        return None
+    ws_url = url.replace("https://", "wss://").replace("http://", "ws://").rstrip("/") + "/api/ws"
+    token = os.getenv("HERMES_MIM_CENTER_TOKEN", "").strip()
+    _mim_center_cached = (ws_url, token)
+    return _mim_center_cached  # type: ignore[return-value]
+
+
+def _mim_center_call(method_name: str, args: dict) -> "str | None":
+    """Forward one MIM RPC to the central server over a short-lived WS.
+
+    Returns the handler-style JSON string, or None when no center is
+    configured (caller falls through to the local hub) or when this request
+    was already forwarded once (_mim_forwarded — the center serves it locally).
+    """
+    if args.get("_mim_forwarded"):
+        args.pop("_mim_forwarded", None)
+        return None
+    center = _mim_center()
+    if center is None:
+        return None
+    ws_url, token = center
+    full_url = f"{ws_url}?token={token}" if token else ws_url
+    try:
+        import websocket  # websocket-client (sync)
+        conn = websocket.create_connection(full_url, timeout=10)
+        try:
+            conn.send(json.dumps({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": method_name,
+                "params": {**args, "_mim_forwarded": True},
+            }))
+            deadline = time.time() + 15
+            while time.time() < deadline:
+                frame = json.loads(conn.recv())
+                if frame.get("id") != 1:
+                    continue  # skip gateway.ready & other event frames
+                err = frame.get("error")
+                if err:
+                    msg = err.get("message", "center error") if isinstance(err, dict) else str(err)
+                    return json.dumps({"error": f"MIM center: {msg}"})
+                result = frame.get("result")
+                return result if isinstance(result, str) else json.dumps(result)
+            return json.dumps({"error": "MIM center timeout"})
+        finally:
+            conn.close()
+    except Exception as e:
+        return json.dumps({"error": f"MIM center unreachable ({type(e).__name__}): {e}"})
+
 
 def _handle_mim_login(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_login", args)
+    if forwarded is not None:
+        return forwarded
     nickname = args.get("nickname", "").strip()
     role = args.get("role", "Developer")
     password = args.get("password", "123321")  # default password
@@ -254,6 +344,9 @@ def _handle_mim_login(args: dict) -> str:
 
 
 def _handle_mim_send(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_send", args)
+    if forwarded is not None:
+        return forwarded
     body = args.get("body", "")
     to_uid = args.get("to_uid")
     if not to_uid or not body:
@@ -262,24 +355,33 @@ def _handle_mim_send(args: dict) -> str:
         from gateway.winpeek_hub.chat import send_message, active_uid, active_name
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    uid = active_uid()
+    # Explicit uid (e.g. desktop frontend passes its logged-in identity) wins
+    # over the process-global active session, which may belong to another user.
+    uid = int(args.get("uid") or 0) or active_uid()
     if not uid:
         return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
-    return json.dumps(send_message(uid, active_name() or f"user_{uid}", int(to_uid), body))
+    from_name = args.get("from_name") or (active_name() if uid == active_uid() else "") or f"user_{uid}"
+    return json.dumps(send_message(uid, from_name, int(to_uid), body))
 
 
 def _handle_mim_poll(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_poll", args)
+    if forwarded is not None:
+        return forwarded
     try:
         from gateway.winpeek_hub.chat import poll_messages, active_uid
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    uid = active_uid()
+    uid = int(args.get("uid") or 0) or active_uid()
     if not uid:
         return json.dumps({"messages": []})
     return json.dumps({"messages": poll_messages(uid)})
 
 
 def _handle_mim_contacts(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_contacts", args)
+    if forwarded is not None:
+        return forwarded
     try:
         from gateway.winpeek_hub.chat import get_contacts
     except ImportError:
@@ -363,6 +465,9 @@ logger.info("WinPeek MIM tools registered: login + send + poll + contacts")
 # ── MIM: Online status ──
 
 def _handle_mim_online(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_online", args)
+    if forwarded is not None:
+        return forwarded
     try:
         from gateway.winpeek_hub import hub
         from gateway.winpeek_hub.mqtt_adapter import UID, NAME
@@ -392,6 +497,9 @@ logger.info("WinPeek MIM online tool registered")
 # ── MIM: Message History ──
 
 def _handle_mim_history(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_history", args)
+    if forwarded is not None:
+        return forwarded
     peer_uid = int(args.get("peer_uid", 0))
     limit = int(args.get("limit", 50))
     if not peer_uid:
@@ -400,7 +508,10 @@ def _handle_mim_history(args: dict) -> str:
         from gateway.winpeek_hub.chat import get_history, active_uid
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    return json.dumps({"messages": get_history(active_uid(), peer_uid, limit)})
+    uid = int(args.get("uid") or 0) or active_uid()
+    if not uid:
+        return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
+    return json.dumps({"messages": get_history(uid, peer_uid, limit)})
 
 registry.register(
     name="winpeek_mim_history",
@@ -413,6 +524,7 @@ registry.register(
             "properties": {
                 "peer_uid": {"type": "integer", "description": "The peer agent's uid"},
                 "limit": {"type": "integer", "description": "Max messages (default 50)"},
+                "uid": {"type": "integer", "description": "Own uid (optional; defaults to active session)"},
             },
             "required": ["peer_uid"],
         },
@@ -429,6 +541,9 @@ logger.info("WinPeek MIM tools: +online +history")
 
 
 def _handle_mim_user_info(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_user_info", args)
+    if forwarded is not None:
+        return forwarded
     uid = int(args.get("uid", 0))
     if not uid:
         return json.dumps({"error": "uid required"})
