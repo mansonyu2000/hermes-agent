@@ -734,6 +734,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'winpeek/mim-design/overview',
             'winpeek/mim-design/feature-inventory',
+            'winpeek/mim-design/group-chat-requirements',
             'winpeek/mim-design/file-map',
             'winpeek/mim-design/test-plan',
             'winpeek/mim-design/v1-acceptance-checklist',
