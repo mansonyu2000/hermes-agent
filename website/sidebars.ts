@@ -727,6 +727,7 @@ const sidebars: SidebarsConfig = {
       label: 'WinPeek',
       collapsed: true,
       items: [
+        'winpeek/mim-message-center-setup',
         'winpeek/code-review-mim-db-refactor',
         'winpeek/debug-vite-config-leva-zustand',
       ],
