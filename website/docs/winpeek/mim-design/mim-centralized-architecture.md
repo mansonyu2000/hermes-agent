@@ -1,4 +1,9 @@
-# MIM 中心化架构 + 运行时守护者方案
+---
+sidebar_position: 7
+title: "中心化架构方案（完整版）"
+description: "MIM 中心化架构 + 运行时守护者方案 — 完整设计文档，含 5 大决策、6 大缺口、daemon 设计、swarm 支持"
+---
+
 
 > 状态：待审核（审核人：CC）
 > 起草：Qoder Agent · 2026-07

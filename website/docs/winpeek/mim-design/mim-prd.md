@@ -1,4 +1,9 @@
-# MIM 多平台即时通讯 — 产品需求规格说明书 (PRD)
+---
+sidebar_position: 8
+title: "MIM 产品需求规格说明书 (PRD)"
+description: "MIM 多平台即时通讯产品需求 — 用户、功能、非功能需求"
+---
+
 
 > **版本**: v1.0 · **日期**: 2026-07-12 · **负责人**: Hermes-htubs24  
 > **分支**: `feature/mim-chat`  

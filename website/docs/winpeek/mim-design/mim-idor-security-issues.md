@@ -1,4 +1,9 @@
 ---
+sidebar_position: 12
+title: "安全漏洞：IDOR (uid 参数)"
+description: "转发层 4 个 IDOR 安全漏洞记录 — 待 V1 实现时一并修复"
+---
+
 name: mim-idor-security-issues
 description: QODER 转发层 4 个 IDOR 安全漏洞 — 待修复，勿遗忘
 metadata:
