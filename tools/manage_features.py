@@ -11,7 +11,7 @@ import json, os, sys, argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..'))
 from gateway.winpeek_hub.db import get_conn
 
-JSON_PATH = os.path.join(os.path.dirname(__file__), 'feature-inventory.json')
+JSON_PATH = os.path.join(os.path.dirname(__file__), '..', 'website', 'docs', 'winpeek', 'mim-design', 'feature-inventory.json')
 
 def init():
     """建表 + 导入 JSON 数据"""

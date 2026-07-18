@@ -11,7 +11,7 @@ MIM 功能清单查询工具
 import json, argparse
 
 import os
-with open(os.path.join(os.path.dirname(__file__), 'feature-inventory.json'), encoding='utf-8') as f:
+with open(os.path.join(os.path.dirname(__file__), '..', 'website', 'docs', 'winpeek', 'mim-design', 'feature-inventory.json'), encoding='utf-8') as f:
     data = json.load(f)
 
 parser = argparse.ArgumentParser(description='Query MIM Features')

@@ -106,27 +106,27 @@ npx zentao-cli --format markdown story list --product 4
 ### 方式二：轻量 CLI（无需 npm，纯 Python）
 
 ```bash
-.venv\Scripts\python.exe website/docs/reference/zentao_cli.py product list
-.venv\Scripts\python.exe website/docs/reference/zentao_cli.py story list --product 4
-.venv\Scripts\python.exe website/docs/reference/zentao_cli.py story create -p 4 -t "标题" --pri 2 --spec "描述"
+.venv\Scripts\python.exe tools/zentao_cli.py product list
+.venv\Scripts\python.exe tools/zentao_cli.py story list --product 4
+.venv\Scripts\python.exe tools/zentao_cli.py story create -p 4 -t "标题" --pri 2 --spec "描述"
 ```
 
 Agent 一句话就能操作禅道：
 ```bash
 # 查所有产品
-python zentao_cli.py product list
+python tools/zentao_cli.py product list
 
 # 查 DA 电脑数字人产品的需求
-python zentao_cli.py story list --product 4
+python tools/zentao_cli.py story list --product 4
 
 # 创建新需求
-python zentao_cli.py story create -p 4 -t "新功能" --pri 2 --spec "功能描述"
+python tools/zentao_cli.py story create -p 4 -t "新功能" --pri 2 --spec "功能描述"
 
 # 查项目
-python zentao_cli.py project list
+python tools/zentao_cli.py project list
 
 # 查 Bug
-python zentao_cli.py bug list --product 4
+python tools/zentao_cli.py bug list --product 4
 ```
 
 ## 结论
