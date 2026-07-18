@@ -1,4 +1,9 @@
-# MIM 能力审计：当前实现 vs 应有功能
+---
+sidebar_position: 9
+title: "能力审计：MIM vs Hermes 原生聊天"
+description: "MIM 聊天 UI 与 Hermes 原生 Thread/Composer 组件的逐项功能对比，差距与修复建议"
+---
+
 
 > 日期: 2026-07-18 · 审计人: CC
 > 对照基准: Hermes 原生聊天组件 (`apps/desktop/src/components/assistant-ui/thread/`)

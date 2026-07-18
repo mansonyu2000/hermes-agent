@@ -1,4 +1,9 @@
-# MIM 迁移审计：旧版 winpeek-prod → 新版 hermes-agent-cc 功能遗漏清单
+---
+sidebar_position: 10
+title: "迁移审计：旧版 winpeek-prod → 新版功能遗漏"
+description: "旧版 32 个 JS 模块 vs 新版 8 个 py 模块，群聊/投递确认/画像/事件推送全部丢失的详细盘点"
+---
+
 
 > 审计日期: 2026-07-18 · 审计人: CC
 > 旧版: `D:\mydata\mycode\github\winpeek-prod/server/chat/` (Node.js + SQLite + WebSocket)
