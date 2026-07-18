@@ -16,7 +16,10 @@ binds.
 """
 from __future__ import annotations
 
+import hmac
 import logging
+import os
+import secrets
 from typing import Awaitable, Callable
 
 from fastapi import Request
@@ -273,6 +276,17 @@ async def gated_auth_middleware(
 
     path = request.url.path
     if _path_is_public(path):
+        return await call_next(request)
+
+    # Desktop remote connections (HERMES_DESKTOP_REMOTE_TOKEN) send the
+    # session token as an X-Hermes-Session-Token HTTP header. Accept it as
+    # an alternative auth path so Desktop clients on the LAN can connect
+    # without a browser-based dashboard login.
+    session_token = os.environ.get("HERMES_DASHBOARD_SESSION_TOKEN", "")
+    header_token = request.headers.get("X-Hermes-Session-Token", "")
+    if session_token and header_token and hmac.compare_digest(
+        header_token.encode(), session_token.encode()
+    ):
         return await call_next(request)
 
     at, _rt = read_session_cookies(request)
