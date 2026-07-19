@@ -383,10 +383,11 @@ def _handle_mim_contacts(args: dict) -> str:
     if forwarded is not None:
         return forwarded
     try:
-        from gateway.winpeek_hub.chat import get_contacts
+        from gateway.winpeek_hub.chat import get_contacts, active_uid
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    return json.dumps({"contacts": get_contacts()})
+    uid = int(args.get("uid") or 0) or active_uid()
+    return json.dumps({"contacts": get_contacts(uid)})
 
 
 registry.register(
