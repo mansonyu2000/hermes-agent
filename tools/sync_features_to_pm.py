@@ -18,10 +18,7 @@ sync_features_to_pm.py — 从本地 .md 素材池挑选珍珠，入库到禅道
   python tools/sync_features_to_pm.py --product 4 --project 6              # 正式入库
 """
 
-import json
-import os
 import re
-import subprocess as sp
 import sys
 from pathlib import Path
 
