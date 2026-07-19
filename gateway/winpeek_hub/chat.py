@@ -158,12 +158,41 @@ def get_history(uid: int, peer_uid: int, limit: int = 50) -> list[dict]:
 # ── Contacts ────────────────────────────────────
 
 def get_contacts() -> list[dict]:
-    """Get all users as contacts with real online status from hub."""
+    """Get all users as contacts with real online status + last message info from hub."""
     try:
         from gateway.winpeek_hub import identity, hub
         users = identity.list_all()
+        # Last message preview per user (latest chat row for each uid)
+        conn = get_conn()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT t.from_uid, t.to_uid, t.content, t.created_at
+                    FROM chat t
+                    INNER JOIN (
+                        SELECT MAX(id) AS max_id
+                        FROM chat
+                        WHERE gid IS NULL
+                        GROUP BY CASE WHEN from_uid < to_uid
+                            THEN CONCAT(from_uid,'-',to_uid)
+                            ELSE CONCAT(to_uid,'-',from_uid) END
+                    ) m ON t.id = m.max_id
+                """)
+                previews = {}
+                for row in cur.fetchall():
+                    fu = row["from_uid"]
+                    tu = row["to_uid"]
+                    previews[fu] = previews.get(fu) or (row["content"], row["created_at"])
+                    previews[tu] = previews.get(tu) or (row["content"], row["created_at"])
+            conn.close()
+        else:
+            previews = {}
         for u in users:
-            u["online"] = hub.is_online(u["uid"])
+            uid = u["uid"]
+            u["online"] = hub.is_online(uid)
+            p = previews.get(uid)
+            u["last_message"] = p[0] if p else ""
+            u["last_msg_ts"] = p[1] if p else ""
         return users
     except Exception:
         return []

@@ -364,8 +364,9 @@ export function MimView({ onClose }: { onClose: () => void }) {
           uid: c.uid,
           role: c.role,
           online: c.online !== false,
-          lastMessage: '',
-          unread: 0,
+          lastMessage: c.last_message || '',
+          lastTime: c.last_msg_ts || '',
+          unread: c.unread_count || 0,
         })))
       }
     }).catch(() => {})
@@ -585,11 +586,15 @@ export function MimView({ onClose }: { onClose: () => void }) {
                           title="查看资料"
                         >ℹ</button>
                       )}
-                      {contact.lastTime && <span className="text-[0.6rem] text-(--ui-text-tertiary)">{contact.lastTime}</span>}
+                      {contact.lastTime && <span className="text-[0.6rem] text-(--ui-text-tertiary)">{formatMessageTimestamp(contact.lastTime, t.assistant.thread)}</span>}
                     </div>
                   </div>
                   <div className="mt-0.5 flex items-center justify-between">
-                    <span className="truncate text-xs text-(--ui-text-tertiary)}">{contact.lastMessage ?? '暂无消息'}</span>
+                    {contact.lastMessage && (
+                      <span className="truncate text-xs text-(--ui-text-tertiary)}">
+                        {contact.lastMessage.slice(0, 30)}{contact.lastMessage.length > 30 ? '...' : ''}
+                      </span>
+                    )}
                     {(contact.unread || 0) > 0 && (
                       <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[0.6rem] font-medium text-destructive-foreground">
                         {contact.unread > 99 ? '99+' : contact.unread}
