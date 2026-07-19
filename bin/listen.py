@@ -1,13 +1,16 @@
 """listen — Agent MIM 消息接收器 (自动识人)
 
-启动后持续轮询 MIM 消息，有新消息直接打印到终端。
+启动后通过 MQTT 独立收信, 不受前端轮询影响。
 
 用法:
-  python bin/listen.py          # 一次轮询, 打印未读后退出
-  python bin/listen.py --watch  # 持续监听, 每3s轮询, Ctrl+C 退出
+  python bin/listen.py          # 持续监听, Ctrl+C 退出
+  python bin/listen.py --once   # 收一条消息后退出
+
+消息通过 MQTT publish/subscribe 分发 — 每个 Agent 订阅自己的
+comms/say/{uid} 和 comms/group/{gid} topic — 独立收件, 不与前端共享队列.
 
 身份自动识别 — say.py 同款多源推断算法。
-不需要环境变量。
+不需要环境变量.
 """
 
 import json
@@ -21,6 +24,12 @@ try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
+
+try:
+    import paho.mqtt.client as mqtt
+except ImportError:
+    print("[listen] 需要 paho-mqtt: pip install paho-mqtt", file=sys.stderr)
+    sys.exit(1)
 
 # ── Identity auto-discovery (same algorithm as say.py) ──────
 
@@ -68,7 +77,6 @@ def _find_identity() -> tuple[int, str]:
             try:
                 if conf.suffix == ".jsonl":
                     for line in conf.read_text(encoding="utf-8").strip().split("\n"):
-                        d = _read_json(Path("/dev/null"))
                         try:
                             d = json.loads(line)
                         except json.JSONDecodeError:
@@ -105,67 +113,66 @@ def _find_identity() -> tuple[int, str]:
 
     return 0, ""
 
-# ── Poll ──────────────────────────────────────────────────
+# ── MQTT Listener ─────────────────────────────────────────
 
-def poll(uid: int, seen: set[str]) -> list[dict]:
-    """Poll for new messages. Returns only unseen ones."""
+def _on_connect(client, userdata, flags, reason_code, _properties):
+    if reason_code == 0:
+        uid = userdata['uid']
+        # say.py publishes to comms/say/{uid} — this is the primary peer-to-peer channel
+        client.subscribe(f"comms/say/{uid}", qos=1)
+        # Some deployments bridge say → inbox, subscribe inbox too for compatibility
+        client.subscribe(f"comms/inbox/{uid}", qos=1)
+        client.subscribe("comms/group/#", qos=1)
+        print(f"[listen] ✅ 已连接 MQTT broker, 监听 say/inbox/group 频道 (uid={uid})", file=sys.stderr, flush=True)
+    else:
+        print(f"[listen] ❌ MQTT 连接失败 code={reason_code}", file=sys.stderr, flush=True)
+
+def _on_message(client, userdata, msg):
     try:
-        from gateway.winpeek_hub.chat import poll_messages
-        msgs = poll_messages(uid)
-        new = []
-        for m in msgs:
-            mid = f"{m.get('from_uid')}-{m.get('content','')}-{m.get('time','')}"
-            if mid not in seen:
-                seen.add(mid)
-                new.append(m)
-        return new
-    except Exception as e:
-        print(f"[listen] poll error: {e}", file=sys.stderr)
-        return []
+        payload = json.loads(msg.payload.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        return
+    from_uid = payload.get("from_uid") or payload.get("from_node", "?")
+    from_name = payload.get("from") or payload.get("from_name", "?")
+    body = payload.get("body") or payload.get("content", "")
+    gid = payload.get("gid")
+    location = f"群{gid}" if gid else f"uid={from_uid}"
+    print(f"\n● {from_name}({location}) said: {body}\n", flush=True)
 
 
 def main():
-    watch = "--watch" in sys.argv
     uid, name = _find_identity()
     if not uid:
-        print("[listen] ⚠️ 未找到身份, 请设置 WINPEEK_UID 或创建 .winpeek-identity.json", file=sys.stderr)
+        print("[listen] ⚠️ 未找到身份, 退出", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[listen] ✅ 身份: {name} (uid={uid})", file=sys.stderr)
+    once = "--once" in sys.argv
+    broker = os.environ.get("MQTT_HOST", "192.168.3.23")
+    port = int(os.environ.get("MQTT_PORT", "1883"))
 
-    seen: set[str] = set()
-    running = True
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    client.user_data_set({"uid": uid, "name": name})
+    client.on_connect = _on_connect
+    client.on_message = _on_message
 
-    def _stop(*_):
-        nonlocal running
-        running = False
-    signal.signal(signal.SIGINT, _stop)
-    signal.signal(signal.SIGTERM, _stop)
+    print(f"[listen] 🆔 {name} (uid={uid}) broker={broker}", file=sys.stderr, flush=True)
+    client.connect(broker, port, 60)
 
+    if once:
+        client.loop_start()
+        time.sleep(5)
+        client.loop_stop()
+        client.disconnect()
+        return
+
+    print("[listen] 🔄 持续监听中... (Ctrl+C 退出)", file=sys.stderr, flush=True)
     try:
-        msgs = poll(uid, seen)
-        for m in msgs:
-            from_name = m.get("from_name", "?")
-            content = m.get("content", "")
-            print(f"\n● {from_name}({m.get('from_uid','?')}) said: {content}\n", flush=True)
-
-        if not watch:
-            if not msgs:
-                print("[listen] 没有新消息", file=sys.stderr)
-            return
-
-        print(f"[listen] 🔄 持续监听中... (每3秒, Ctrl+C 退出)", file=sys.stderr)
-        while running:
-            time.sleep(3)
-            msgs = poll(uid, seen)
-            for m in msgs:
-                from_name = m.get("from_name", "?")
-                content = m.get("content", "")
-                print(f"\n● {from_name}({m.get('from_uid','?')}) said: {content}\n", flush=True)
-
+        client.loop_forever()
     except KeyboardInterrupt:
         pass
-    print("\n[listen] 已退出", file=sys.stderr)
+    finally:
+        client.disconnect()
+        print("\n[listen] 已退出", file=sys.stderr)
 
 
 if __name__ == "__main__":
