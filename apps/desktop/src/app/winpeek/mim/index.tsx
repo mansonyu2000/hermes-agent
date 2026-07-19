@@ -604,7 +604,6 @@ export function MimView({ onClose }: { onClose: () => void }) {
                     <div className="mt-1 flex items-center justify-end gap-1 text-[0.55rem] text-(--ui-text-quaternary)">
                       <CopyButton appearance="icon" className="size-3.5" text={msg.content} />
                       <span>{formatMessageTimestamp(msg.msgTs || msg.time, { today: t => t, yesterday: t => `昨天 ${t}` })}</span>
-                      <span>{formatMessageTimestamp(msg.msgTs || msg.time, { today: t => t, yesterday: t => `昨天 ${t}` })}</span>
                     </div>
                   </div>
                 </div>
