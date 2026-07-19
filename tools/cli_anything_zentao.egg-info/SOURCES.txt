@@ -1,8 +1,0 @@
-pyproject.toml
-cli_anything_zentao.egg-info/PKG-INFO
-cli_anything_zentao.egg-info/SOURCES.txt
-cli_anything_zentao.egg-info/dependency_links.txt
-cli_anything_zentao.egg-info/entry_points.txt
-cli_anything_zentao.egg-info/requires.txt
-cli_anything_zentao.egg-info/top_level.txt
-zentao_cli/__init__.py

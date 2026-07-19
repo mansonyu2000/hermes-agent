@@ -116,20 +116,7 @@ def zen2story(f: dict, product: int, project: int, dry: bool = False) -> dict:
         if "error" in result:
             return {"id": f["id"], "ok": False, "output": result.get("error", "unknown error")}
         sid = result.get("id")
-        msg = {"id": f["id"], "ok": bool(sid), "zentao_id": sid, "output": str(result)[:200]}
-        # Also link to project if specified (same path as story_create does)
-        if project and sid:
-            try:
-                import pymysql
-                conn = pymysql.connect(host='127.0.0.1', user='root', password='Server123', database='zentao')
-                with conn.cursor() as cur:
-                    cur.execute("INSERT IGNORE INTO zt_projectstory (project,product,story,version) VALUES (%s,%s,%s,1)",
-                               (project, product, sid))
-                conn.commit()
-                conn.close()
-                msg["project"] = project
-            except Exception as e:
-                msg["project_warn"] = str(e)[:100]
+        msg = {"id": f["id"], "ok": bool(sid), "zentao_id": sid}
         return msg
     except Exception as e:
         return {"id": f["id"], "ok": False, "reason": str(e)}
