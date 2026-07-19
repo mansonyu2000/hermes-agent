@@ -158,10 +158,13 @@ def get_history(uid: int, peer_uid: int, limit: int = 50) -> list[dict]:
 # ── Contacts ────────────────────────────────────
 
 def get_contacts() -> list[dict]:
-    """Get all users as contacts (identity.list_all equivalent)."""
+    """Get all users as contacts with real online status from hub."""
     try:
-        from gateway.winpeek_hub import identity
-        return identity.list_all()
+        from gateway.winpeek_hub import identity, hub
+        users = identity.list_all()
+        for u in users:
+            u["online"] = hub.is_online(u["uid"])
+        return users
     except Exception:
         return []
 

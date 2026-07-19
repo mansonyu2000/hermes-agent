@@ -357,7 +357,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
           name: c.nickname,
           uid: c.uid,
           role: c.role,
-          online: true,
+          online: c.online !== false,
           lastMessage: '',
           unread: 0,
         })))
@@ -486,7 +486,12 @@ export function MimView({ onClose }: { onClose: () => void }) {
   }
 
   // ── Chat view ──
-  const sortedContacts = [...contacts].sort((a, b) => (b.unread || 0) - (a.unread || 0))
+  const sortedContacts = [...contacts].sort((a, b) => {
+    // online first, then by unread, then by name
+    if (a.online !== b.online) return a.online ? -1 : 1
+    if (a.unread !== b.unread) return (b.unread || 0) - (a.unread || 0)
+    return a.name.localeCompare(b.name)
+  })
 
   return (
     <MasterDetail>
@@ -518,16 +523,19 @@ export function MimView({ onClose }: { onClose: () => void }) {
                 role="button"
                 tabIndex={0}
               >
-                <div className="relative shrink-0">
+                <div className={cn('relative shrink-0', !contact.online && 'opacity-60')}>
                   <div className={cn('flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold',
                     contact.uid === 0 ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-(--ui-accent)/15 text-(--ui-accent)')}>
                     {contact.uid === 0 ? '群' : contact.name.charAt(0)}
                   </div>
-                  {contact.online && <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-(--ui-bg-surface) bg-emerald-500" />}
+                  <span className={cn(
+                    'absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-(--ui-bg-surface)',
+                    contact.online ? 'bg-emerald-500' : 'bg-gray-400'
+                  )} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between">
-                    <span className="truncate text-sm font-medium text-foreground">{contact.name}</span>
+                    <span className={cn('truncate text-sm font-medium', contact.online ? 'text-foreground' : 'text-(--ui-text-quaternary)')}>{contact.name}</span>
                     <div className="flex items-center gap-1 shrink-0">
                       {contact.uid !== identity?.uid && (
                         <button
