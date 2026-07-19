@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { Streamdown } from 'streamdown'
+
+import { formatMessageTimestamp } from '@/components/assistant-ui/thread/timestamp'
+import { CopyButton } from '@/components/ui/copy-button'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { notifyError } from '@/store/notifications'
 
 import { useGatewayRequest } from '../../gateway/hooks/use-gateway-request'
 import { DetailColumn, ListColumn, MasterDetail } from '../../master-detail'
@@ -41,6 +46,7 @@ interface ChatMessage {
   fromName: string
   content: string
   time: string
+  msgTs?: string
   isSelf: boolean
 }
 
@@ -276,6 +282,9 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const chatListRef = useRef<HTMLDivElement>(null)
+  const [userScrolledUp, setUserScrolledUp] = useState(false)
+  const [isComposing, setIsComposing] = useState(false)
   const identRef = useRef<WinPeekIdentity | null>(identity)
   identRef.current = identity
   const activeContactRef = useRef<Contact | null>(null)
@@ -369,6 +378,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
           fromUid: m.from_uid,
           fromName: m.from_uid === identity.uid ? identity.name : (m.from_name || activeContact.name),
           content: m.content,
+          msgTs: m.msg_ts || undefined,
           time: (m.msg_ts || '').slice(11, 16),
           isSelf: m.from_uid === identity.uid,
         })))
@@ -394,6 +404,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
             fromUid: m.from_uid,
             fromName: m.from_name,
             content: m.content,
+            msgTs: m.time || undefined,
             time: m.time?.slice(11, 16) || '',
             isSelf: false,
           }))])
@@ -403,7 +414,23 @@ export function MimView({ onClose }: { onClose: () => void }) {
     return () => clearInterval(interval)
   }, [identity, gatewayRequest])
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  // ── Auto-scroll: follows new messages unless user has scrolled up ──
+  useEffect(() => {
+    if (!userScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages, userScrolledUp])
+
+  const handleChatScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    const d = el.scrollHeight - el.scrollTop - el.clientHeight
+    setUserScrolledUp(d > 60)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    setUserScrolledUp(false)
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
@@ -417,16 +444,19 @@ export function MimView({ onClose }: { onClose: () => void }) {
       setMessages(prev => [...prev, {
         id: `msg-${Date.now()}`, fromUid: identity.uid, fromName: identity.name,
         content: text,
+        msgTs: new Date().toISOString(),
         time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
         isSelf: true,
       }])
-    } catch { /* message appears in poll next cycle anyway */ }
+    } catch (e) {
+      notifyError(e, '消息发送失败，请检查网络连接')
+    }
     setInputText('')
   }, [inputText, activeContact, identity, gatewayRequest])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
-  }, [handleSend])
+    if (e.key === 'Enter' && !e.shiftKey && !isComposing) { e.preventDefault(); handleSend() }
+  }, [handleSend, isComposing])
 
   // ── Not logged in ──
   if (!identity) {
@@ -541,17 +571,34 @@ export function MimView({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             </header>
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+            <div className="flex-1 space-y-3 overflow-y-auto p-4" onScroll={handleChatScroll} ref={chatListRef}>
               {messages.map(msg => (
-                <div key={msg.id} className={cn('flex', msg.isSelf ? 'justify-end' : 'justify-start')}>
-                  <div className={cn('max-w-[70%] rounded-xl px-3 py-2 text-sm',
+                <div key={msg.id} className={cn('group/cell flex', msg.isSelf ? 'justify-end' : 'justify-start')}>
+                  <div className={cn('relative max-w-[70%] rounded-xl px-3 py-2 text-sm',
                     msg.isSelf ? 'bg-(--ui-accent) text-(--ui-accent-foreground) rounded-br-md' : 'bg-(--ui-bg-quaternary) text-foreground rounded-bl-md')}>
                     {!msg.isSelf && <div className="mb-0.5 text-[0.6rem] font-medium text-(--ui-text-tertiary)}">{msg.fromName}</div>}
-                    <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-                    <div className={cn('mt-1 text-right text-[0.55rem]', msg.isSelf ? 'text-(--ui-accent-foreground)/60' : 'text-(--ui-text-quaternary)')}>{msg.time}</div>
+                    <div className="[&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/10 [&_pre]:p-2 [&_pre]:text-[0.75rem] [&_code]:rounded [&_code]:bg-black/10 [&_code]:px-1 [&_code]:text-[0.8em] [&_p]:mb-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
+                      <Streamdown>{msg.content}</Streamdown>
+                    </div>
+                    <div className={cn('mt-1 flex items-center gap-1 text-right text-[0.55rem]', msg.isSelf ? 'text-(--ui-accent-foreground)/60' : 'text-(--ui-text-quaternary)')}>
+                      <span>{formatMessageTimestamp(msg.msgTs || msg.time, { today: t => t, yesterday: t => `昨天 ${t}` })}</span>
+                    </div>
+                    <CopyButton
+                      appearance="icon"
+                      className="absolute top-1 right-1 opacity-0 group-hover/cell:opacity-100 transition-opacity"
+                      text={msg.content}
+                    />
                   </div>
                 </div>
               ))}
+              {userScrolledUp && (
+                <div className="sticky bottom-0 flex justify-center pb-1">
+                  <button
+                    className="rounded-full border border-(--ui-stroke-tertiary) bg-(--ui-bg-surface) px-3 py-1 text-xs text-(--ui-text-secondary) shadow-sm hover:bg-(--ui-control-hover-background)"
+                    onClick={scrollToBottom}
+                  >↓ 最新消息</button>
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
             <div className="border-t border-(--ui-stroke-tertiary) p-3">
@@ -559,6 +606,8 @@ export function MimView({ onClose }: { onClose: () => void }) {
                 <textarea
                   className="min-h-[2.25rem] flex-1 resize-none rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quaternary) px-3 py-1.5 text-sm text-foreground placeholder:text-(--ui-text-tertiary) focus:border-(--ui-accent) focus:outline-none"
                   onChange={e => setInputText(e.target.value)}
+                  onCompositionEnd={() => setIsComposing(false)}
+                  onCompositionStart={() => setIsComposing(true)}
                   onKeyDown={handleKeyDown}
                   placeholder="输入消息..."
                   rows={1}
