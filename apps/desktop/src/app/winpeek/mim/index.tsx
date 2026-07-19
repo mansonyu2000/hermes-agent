@@ -618,31 +618,50 @@ export function MimView({ onClose }: { onClose: () => void }) {
               )}
               <div ref={messagesEndRef} />
             </div>
-            <div className="border-t border-(--ui-stroke-tertiary) px-4 pb-3 pt-2.5">
-              <div className="flex items-end gap-2.5 rounded-2xl border border-border/65 bg-(--composer-fill,var(--ui-bg-surface)) p-2 shadow-sm backdrop-blur-[0.75rem] backdrop-saturate-[1.12] transition-colors duration-150">
-                <textarea
-                  ref={textareaRef}
-                  className="min-h-[2.25rem] max-h-40 flex-1 resize-none bg-transparent px-2 py-1 text-sm text-foreground placeholder:text-(--ui-text-tertiary) focus:outline-none"
-                  onChange={e => setInputText(e.target.value)}
-                  onCompositionEnd={() => setIsComposing(false)}
-                  onCompositionStart={() => setIsComposing(true)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="输入消息..."
-                  rows={1}
-                  value={inputText}
-                />
-                <button
-                  className={cn(
-                    'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors',
-                    inputText.trim()
-                      ? 'bg-(--ui-accent) text-(--ui-accent-foreground) hover:opacity-90'
-                      : 'bg-(--ui-bg-quaternary) text-(--ui-text-quaternary) cursor-not-allowed'
-                  )}
-                  disabled={!inputText.trim()}
-                  onClick={handleSend}
-                >
-                  <Codicon name="send" size={16} />
-                </button>
+            {/* ── Composer: Hermes-native style glass dock ── */}
+            <div className="relative px-(--composer-surface-pad-x,1rem) pb-[var(--composer-shell-pad-block-end,0.75rem)] pt-2">
+              <div className="group/composer z-30 overflow-visible rounded-2xl" data-slot="composer-root">
+                <div className="relative data-[slot=composer-surface]:border data-[slot=composer-surface]:border-border/65 rounded-2xl" data-slot="composer-surface">
+                  {/* Glass backdrop layer */}
+                  <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 rounded-[inherit] bg-(--composer-fill,var(--ui-bg-surface)) backdrop-blur-[0.75rem] backdrop-saturate-[1.12]" />
+                  {/* Composer body */}
+                  <div className="relative z-1 flex min-h-0 w-full flex-col gap-(--composer-row-gap,0.375rem) overflow-hidden rounded-[inherit] px-(--composer-surface-pad-x,0.75rem) py-(--composer-surface-pad-y,0.625rem) transition-opacity duration-200 ease-out opacity-100" data-slot="composer-fade">
+                    {/* Input row: textarea + send button */}
+                    <div className="grid w-full grid-cols-[1fr_auto] items-end gap-(--composer-control-gap,0.375rem) [grid-template-areas:'input_controls']">
+                      <div className="min-w-0 [grid-area:input]">
+                        <textarea
+                          ref={textareaRef}
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          className="min-h-[--composer-input-min-height,2rem] max-h-[--composer-input-max-height,10rem] w-full cursor-text resize-none overflow-y-auto whitespace-pre-wrap break-words bg-transparent pb-1 pt-1 leading-normal text-foreground outline-none placeholder:text-muted-foreground/60"
+                          onChange={e => setInputText(e.target.value)}
+                          onCompositionEnd={() => setIsComposing(false)}
+                          onCompositionStart={() => setIsComposing(true)}
+                          onKeyDown={handleKeyDown}
+                          placeholder="输入消息..."
+                          rows={1}
+                          value={inputText}
+                        />
+                      </div>
+                      <div className="flex items-center justify-end [grid-area:controls]">
+                        <button
+                          aria-label="发送"
+                          className={cn(
+                            'size-(--composer-control-primary-size,2rem) shrink-0 rounded-full p-0 transition-colors',
+                            inputText.trim()
+                              ? 'bg-foreground text-background hover:bg-foreground/90'
+                              : 'bg-foreground/30 text-background cursor-not-allowed opacity-100'
+                          )}
+                          disabled={!inputText.trim()}
+                          onClick={handleSend}
+                          type="button"
+                        >
+                          <Codicon name="arrow-up" size="0.875rem" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
