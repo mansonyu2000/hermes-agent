@@ -120,10 +120,8 @@ def _on_connect(client, userdata, flags, reason_code, _properties):
         uid = userdata['uid']
         # say.py publishes to comms/say/{uid} — this is the primary peer-to-peer channel
         client.subscribe(f"comms/say/{uid}", qos=1)
-        # Some deployments bridge say → inbox, subscribe inbox too for compatibility
         client.subscribe(f"comms/inbox/{uid}", qos=1)
-        client.subscribe("comms/group/#", qos=1)
-        print(f"[listen] ✅ 已连接 MQTT broker, 监听 say/inbox/group 频道 (uid={uid})", file=sys.stderr, flush=True)
+        print(f"[listen] ✅ 已连接 MQTT broker, 监听 say/inbox 频道 (uid={uid})", file=sys.stderr, flush=True)
     else:
         print(f"[listen] ❌ MQTT 连接失败 code={reason_code}", file=sys.stderr, flush=True)
 
