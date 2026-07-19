@@ -285,6 +285,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const chatListRef = useRef<HTMLDivElement>(null)
   const [userScrolledUp, setUserScrolledUp] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const identRef = useRef<WinPeekIdentity | null>(identity)
   identRef.current = identity
   const activeContactRef = useRef<Contact | null>(null)
@@ -431,6 +432,14 @@ export function MimView({ onClose }: { onClose: () => void }) {
     setUserScrolledUp(false)
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
+
+  // ── Auto-resize textarea ──────────────────────────────────
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+  }, [inputText])
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
@@ -609,10 +618,11 @@ export function MimView({ onClose }: { onClose: () => void }) {
               )}
               <div ref={messagesEndRef} />
             </div>
-            <div className="border-t border-(--ui-stroke-tertiary) p-3">
-              <div className="flex items-end gap-2">
+            <div className="border-t border-(--ui-stroke-tertiary) px-4 pb-3 pt-2.5">
+              <div className="flex items-end gap-2.5 rounded-2xl border border-border/65 bg-(--composer-fill,var(--ui-bg-surface)) p-2 shadow-sm backdrop-blur-[0.75rem] backdrop-saturate-[1.12] transition-colors duration-150">
                 <textarea
-                  className="min-h-[2.25rem] flex-1 resize-none rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quaternary) px-3 py-1.5 text-sm text-foreground placeholder:text-(--ui-text-tertiary) focus:border-(--ui-accent) focus:outline-none"
+                  ref={textareaRef}
+                  className="min-h-[2.25rem] max-h-40 flex-1 resize-none bg-transparent px-2 py-1 text-sm text-foreground placeholder:text-(--ui-text-tertiary) focus:outline-none"
                   onChange={e => setInputText(e.target.value)}
                   onCompositionEnd={() => setIsComposing(false)}
                   onCompositionStart={() => setIsComposing(true)}
@@ -621,9 +631,18 @@ export function MimView({ onClose }: { onClose: () => void }) {
                   rows={1}
                   value={inputText}
                 />
-                <Button className="shrink-0" disabled={!inputText.trim()} onClick={handleSend} size="sm">
-                  <Codicon className="mr-1 size-3.5" name="send" />发送
-                </Button>
+                <button
+                  className={cn(
+                    'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors',
+                    inputText.trim()
+                      ? 'bg-(--ui-accent) text-(--ui-accent-foreground) hover:opacity-90'
+                      : 'bg-(--ui-bg-quaternary) text-(--ui-text-quaternary) cursor-not-allowed'
+                  )}
+                  disabled={!inputText.trim()}
+                  onClick={handleSend}
+                >
+                  <Codicon name="send" size={16} />
+                </button>
               </div>
             </div>
           </div>
