@@ -288,6 +288,9 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const [userScrolledUp, setUserScrolledUp] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [ttsEnabled, setTtsEnabled] = useState(false)
+  const prevMessagesLen = useRef(messages.length)
   const identRef = useRef<WinPeekIdentity | null>(identity)
   identRef.current = identity
   const activeContactRef = useRef<Contact | null>(null)
@@ -435,6 +438,33 @@ export function MimView({ onClose }: { onClose: () => void }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
+  // ── File picker ──────────────────────────────────────────
+  const handleFilePick = useCallback(() => fileInputRef.current?.click(), [])
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = reader.result as string
+      setInputText(prev => prev ? prev + '\n' + text : text)
+      textareaRef.current?.focus()
+    }
+    reader.readAsText(file)
+    e.target.value = '' // reset so same file can be picked again
+  }, [])
+  // ── TTS: auto-read incoming messages ─────────────────────
+  useEffect(() => {
+    if (!ttsEnabled) return
+    const newMsgs = messages.slice(prevMessagesLen.current)
+    prevMessagesLen.current = messages.length
+    for (const m of newMsgs) {
+      if (!m.isSelf && m.content) {
+        const u = new SpeechSynthesisUtterance(m.content.replace(/\*\*|```[\s\S]*?```|`/g, '').slice(0, 500))
+        u.lang = 'zh-CN'; u.rate = 1.1
+        speechSynthesis.cancel(); speechSynthesis.speak(u)
+      }
+    }
+  }, [messages, ttsEnabled])
   // ── Auto-resize textarea ──────────────────────────────────
   useEffect(() => {
     const el = textareaRef.current
@@ -626,27 +656,32 @@ export function MimView({ onClose }: { onClose: () => void }) {
                 <div className="data-[slot=composer-surface]:border data-[slot=composer-surface]:border-border/65 relative rounded-2xl" data-slot="composer-surface">
                   <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 rounded-[inherit] bg-(--composer-fill,var(--ui-bg-surface)) backdrop-blur-[0.75rem] backdrop-saturate-[1.12]" />
                   <div className="relative z-1 flex min-h-0 w-full flex-col gap-(--composer-row-gap,0.375rem) overflow-hidden rounded-[inherit] px-(--composer-surface-pad-x,0.75rem) py-(--composer-surface-pad-y,0.625rem) transition-opacity duration-200 ease-out opacity-100" data-slot="composer-fade">
-                    {/* Control buttons row: [+] [Mic] [Speaker] */}
+                    {/* Control buttons: [+] [Mic] [Speaker] */}
                     <div className="flex items-center gap-(--composer-control-gap,0.25rem)">
+                      <input ref={fileInputRef} accept=".txt,.md,.json,.py,.js,.ts,.tsx,.css,.html,.yaml,.yml,.log,.csv" className="hidden" onChange={handleFileChange} type="file" />
                       <button
                         aria-label="附件"
                         className="size-(--composer-control-size,1.75rem) shrink-0 rounded-md text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground grid place-items-center"
-                        title="附件 (V1.5)"
+                        onClick={handleFilePick}
+                        title="选择文件发送"
                         type="button"
                       ><Codicon name="add" size={14} /></button>
                       <button
                         aria-label="语音输入"
-                        className="size-(--composer-control-size,1.75rem) shrink-0 rounded-md text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground grid place-items-center"
-                        title="语音输入 (V1.5)"
+                        className="size-(--composer-control-size,1.75rem) shrink-0 rounded-md text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground grid place-items-center opacity-40 cursor-not-allowed"
+                        title="语音输入 (需要 MediaRecorder 支持)"
+                        disabled
                         type="button"
                       ><Codicon name="mic" size={14} /></button>
                       <button
-                        aria-label="TTS朗读"
-                        className="size-(--composer-control-size,1.75rem) shrink-0 rounded-md text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground grid place-items-center"
-                        title="TTS朗读 (V1.5)"
+                        aria-label={ttsEnabled ? '关闭朗读' : '朗读消息'}
+                        aria-pressed={ttsEnabled}
+                        className="size-(--composer-control-size,1.75rem) shrink-0 rounded-md text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground grid place-items-center aria-pressed:text-(--ui-accent) aria-pressed:bg-(--ui-accent)/10"
+                        onClick={() => { setTtsEnabled(v => !v); prevMessagesLen.current = messages.length }}
+                        title={ttsEnabled ? '关闭朗读收到的新消息' : '自动朗读收到的新消息'}
                         type="button"
                       ><Codicon name="megaphone" size={14} /></button>
-                      <div className="ml-auto text-[0.65rem] text-(--ui-text-quaternary)">MIM</div>
+                      <div className="ml-auto text-[0.65rem] text-(--ui-text-quaternary)">MIM {ttsEnabled && '🔊'}</div>
                     </div>
                     {/* Input row: textarea + send button */}
                     <div className="grid w-full grid-cols-[1fr_auto] items-end gap-(--composer-control-gap,0.375rem) [grid-template-areas:'input_controls']">
