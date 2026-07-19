@@ -296,12 +296,12 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const activeContactRef = useRef<Contact | null>(null)
 
   const refreshUsers = useCallback(() => {
-    gatewayRequest<any>('winpeek_mim_contacts', {}).then(data => {
+    gatewayRequest<any>('winpeek_mim_contacts', identity ? { uid: identity.uid } : {}).then(data => {
       if (data.contacts) {
         setExistingUsers(data.contacts.filter((c: any) => c.uid > 0))
       }
     }).catch(() => {})
-  }, [gatewayRequest])
+  }, [gatewayRequest, identity])
 
   // ── Load existing users for login page ──
   useEffect(() => { refreshUsers() }, [refreshUsers])
@@ -356,7 +356,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
   // ── Load contacts via winpeek_mim_contacts ──
   useEffect(() => {
     if (!identity) return
-    gatewayRequest<any>('winpeek_mim_contacts', {}).then(data => {
+    gatewayRequest<any>('winpeek_mim_contacts', { uid: identity.uid }).then(data => {
       if (data.contacts) {
         setContacts(data.contacts.map((c: any) => ({
           id: String(c.uid),
