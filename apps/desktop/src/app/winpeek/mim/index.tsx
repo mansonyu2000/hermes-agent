@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { notifyError } from '@/store/notifications'
 
@@ -271,6 +272,7 @@ function ContactProfilePanel({ uid, gatewayRequest, onBack }: { uid: number; gat
 /* ── Main View ───────────────────────────────── */
 
 export function MimView({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n()
   const { requestGateway: gatewayRequest } = useGatewayRequest()
   const [identity, setIdentity] = useState<WinPeekIdentity | null>(loadSavedIdentity)
   const [showProfile, setShowProfile] = useState(false)
@@ -603,7 +605,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
                     </div>
                     <div className="mt-1 flex items-center justify-end gap-1 text-[0.55rem] text-(--ui-text-quaternary)">
                       <CopyButton appearance="icon" className="size-3.5" text={msg.content} />
-                      <span>{formatMessageTimestamp(msg.msgTs || msg.time, { today: t => t, yesterday: t => `昨天 ${t}` })}</span>
+                      <span>{formatMessageTimestamp(msg.msgTs || msg.time, t.assistant.thread)}</span>
                     </div>
                   </div>
                 </div>
