@@ -601,7 +601,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
               {messages.map(msg => (
                 <div key={msg.id} className={cn('group/cell flex', msg.isSelf ? 'justify-end' : 'justify-start')}>
                   <div
-                    className={cn('relative max-w-[70%] rounded-2xl px-3 py-2 text-sm',
+                    className={cn('max-w-[70%] rounded-2xl px-3 py-2 text-sm',
                       msg.isSelf
                         ? 'bg-(--dt-user-bubble) text-foreground border border-border/50'
                         : 'bg-(--ui-bg-quaternary) text-foreground')}
@@ -611,15 +611,11 @@ export function MimView({ onClose }: { onClose: () => void }) {
                     <div className="[&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/10 [&_pre]:p-2 [&_pre]:text-[0.75rem] [&_code]:rounded [&_code]:bg-black/10 [&_code]:px-1 [&_code]:text-[0.8em] [&_p]:mb-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
                       <Streamdown>{msg.content}</Streamdown>
                     </div>
-                    <div className={cn('mt-1 flex items-center gap-1 text-right text-[0.55rem] text-(--ui-text-quaternary)')}>
+                    <div className="mt-1 flex items-center justify-end gap-1 text-[0.55rem] text-(--ui-text-quaternary)">
+                      <CopyButton appearance="tool-row" text={msg.content} />
                       <span>{formatMessageTimestamp(msg.msgTs || msg.time, { today: t => t, yesterday: t => `昨天 ${t}` })}</span>
-                      {editingMsgId === msg.id && <span className="text-(--ui-accent)">编辑中...</span>}
+                      {editingMsgId === msg.id && <span className="text-(--ui-accent) ml-1">编辑中...</span>}
                     </div>
-                    <CopyButton
-                      appearance="icon"
-                      className="absolute top-1 right-1 opacity-0 group-hover/cell:opacity-100 transition-opacity"
-                      text={msg.content}
-                    />
                   </div>
                 </div>
               ))}
@@ -633,14 +629,34 @@ export function MimView({ onClose }: { onClose: () => void }) {
               )}
               <div ref={messagesEndRef} />
             </div>
-            {/* ── Composer: Hermes-native style glass dock ── */}
+            {/* ── Composer: Hermes-native glass dock with controls ── */}
             <div className="relative px-(--composer-surface-pad-x,1rem) pb-[var(--composer-shell-pad-block-end,0.75rem)] pt-2">
               <div className="group/composer z-30 overflow-visible rounded-2xl" data-slot="composer-root">
-                <div className="relative data-[slot=composer-surface]:border data-[slot=composer-surface]:border-border/65 rounded-2xl" data-slot="composer-surface">
-                  {/* Glass backdrop layer */}
+                <div className="data-[slot=composer-surface]:border data-[slot=composer-surface]:border-border/65 relative rounded-2xl" data-slot="composer-surface">
                   <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 rounded-[inherit] bg-(--composer-fill,var(--ui-bg-surface)) backdrop-blur-[0.75rem] backdrop-saturate-[1.12]" />
-                  {/* Composer body */}
                   <div className="relative z-1 flex min-h-0 w-full flex-col gap-(--composer-row-gap,0.375rem) overflow-hidden rounded-[inherit] px-(--composer-surface-pad-x,0.75rem) py-(--composer-surface-pad-y,0.625rem) transition-opacity duration-200 ease-out opacity-100" data-slot="composer-fade">
+                    {/* Control buttons row: [+] [Mic] [Speaker] */}
+                    <div className="flex items-center gap-(--composer-control-gap,0.25rem)">
+                      <button
+                        aria-label="附件"
+                        className="size-(--composer-control-size,1.75rem) shrink-0 rounded-md text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground grid place-items-center"
+                        title="附件 (V1.5)"
+                        type="button"
+                      ><Codicon name="add" size={14} /></button>
+                      <button
+                        aria-label="语音输入"
+                        className="size-(--composer-control-size,1.75rem) shrink-0 rounded-md text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground grid place-items-center"
+                        title="语音输入 (V1.5)"
+                        type="button"
+                      ><Codicon name="mic" size={14} /></button>
+                      <button
+                        aria-label="TTS朗读"
+                        className="size-(--composer-control-size,1.75rem) shrink-0 rounded-md text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground grid place-items-center"
+                        title="TTS朗读 (V1.5)"
+                        type="button"
+                      ><Codicon name="megaphone" size={14} /></button>
+                      <div className="ml-auto text-[0.65rem] text-(--ui-text-quaternary)">MIM</div>
+                    </div>
                     {/* Input row: textarea + send button */}
                     <div className="grid w-full grid-cols-[1fr_auto] items-end gap-(--composer-control-gap,0.375rem) [grid-template-areas:'input_controls']">
                       <div className="min-w-0 [grid-area:input]">
