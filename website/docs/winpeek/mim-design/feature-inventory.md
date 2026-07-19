@@ -85,6 +85,8 @@
 
 ## 四、群聊
 
+> 详细设计见 [群聊需求分析](group-chat-requirements.md)
+
 | # | 功能 | 子功能 | 依赖 | 状态 | 决策 |
 |---|------|--------|------|:--:|------|
 | F4.1 | 群表 DDL | `m_groups` 表(gid/title/description/owner_id/admins), `m_group_members` 表, `m_group_tags` 表, `chat` 表加 `gid` 列 | — | ❌ | V1.5 |

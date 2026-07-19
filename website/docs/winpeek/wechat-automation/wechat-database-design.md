@@ -1,3 +1,9 @@
+---
+sidebar_position: 5
+title: "WeChat RPA 数据库设计"
+description: "微信自动化完整数据库设计：13 张表、数据链路、V1/V2 分期"
+---
+
 # 微信自动化 — 数据库设计
 
 ## 设计原则

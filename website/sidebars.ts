@@ -2,6 +2,7 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
 const sidebars: SidebarsConfig = {
   docs: [
+    'README',
     'user-stories',
     {
       type: 'category',
@@ -727,25 +728,46 @@ const sidebars: SidebarsConfig = {
       label: 'WinPeek',
       collapsed: true,
       items: [
+        'README',
+        'winpeek/mim-message-center-setup',
+        'winpeek/code-review-mim-db-refactor',
+        'winpeek/debug-vite-config-leva-zustand',
         {
           type: 'category',
           label: 'MIM Design',
           collapsed: true,
           items: [
             'winpeek/mim-design/overview',
-            'winpeek/mim-design/feature-inventory',
-            'winpeek/mim-design/group-chat-requirements',
+            'winpeek/mim-design/mim-prd',
+            'winpeek/mim-design/mim-centralized-architecture',
+            'winpeek/mim-design/mim-v1-expert-team-implementation',
             'winpeek/mim-design/file-map',
+            'winpeek/mim-design/ui-interaction-spec',
             'winpeek/mim-design/test-plan',
             'winpeek/mim-design/v1-acceptance-checklist',
-            'winpeek/mim-design/mim-centralized-architecture',
-            'winpeek/mim-design/mim-prd',
+            'winpeek/mim-design/feature-inventory',
             'winpeek/mim-design/mim-idor-security-issues',
+            'winpeek/mim-design/group-chat-requirements',
           ],
         },
-        'winpeek/mim-message-center-setup',
-        'winpeek/code-review-mim-db-refactor',
-        'winpeek/debug-vite-config-leva-zustand',
+        {
+          type: 'category',
+          label: 'WeChat RPA',
+          collapsed: true,
+          items: [
+            'winpeek/wechat-automation/README',
+            'winpeek/wechat-automation/wechat-prd',
+            'winpeek/wechat-automation/wechat-crm-design',
+            'winpeek/wechat-automation/wechat-automation-menu',
+            'winpeek/wechat-automation/wechat-database-design',
+            'winpeek/wechat-automation/wechat-code-architecture',
+            'winpeek/wechat-automation/wechat-background-philosophy',
+            'winpeek/wechat-automation/wechat-mcp-tools',
+            'winpeek/wechat-automation/wechat-uia-reference',
+            'winpeek/wechat-automation/wechat-rpa-navigation',
+            'winpeek/wechat-automation/wechat-development-standards',
+          ],
+        },
       ],
     },
     {

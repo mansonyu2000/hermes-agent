@@ -1,3 +1,9 @@
+---
+sidebar_position: 3
+title: "WeChat CRM 页面功能设计"
+description: "微信营销管理系统的完整 UI/UX 设计：布局、导航、组件、交互流程"
+---
+
 # 微信营销管理系统 — 页面功能设计
 
 ## 整体布局
