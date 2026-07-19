@@ -286,6 +286,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const [userScrolledUp, setUserScrolledUp] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null)
   const identRef = useRef<WinPeekIdentity | null>(identity)
   identRef.current = identity
   const activeContactRef = useRef<Contact | null>(null)
@@ -444,24 +445,32 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
     if (!text || !activeContact || !identity) return
+    const eid = editingMsgId
     try {
+      if (eid) {
+        // Edit-resend: frontend replaces content, backend INSERTs new row
+        setMessages(prev => prev.map(m => m.id === eid ? { ...m, content: text } : m))
+        setEditingMsgId(null)
+      }
       await gatewayRequest('winpeek_mim_send', {
         to_uid: activeContact.uid, body: text,
         uid: identity.uid, from_name: identity.name,
       })
-      // Optimistic: add locally
-      setMessages(prev => [...prev, {
-        id: `msg-${Date.now()}`, fromUid: identity.uid, fromName: identity.name,
-        content: text,
-        msgTs: new Date().toISOString(),
-        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-        isSelf: true,
-      }])
+      if (!eid) {
+        // New message: add optimistic bubble
+        setMessages(prev => [...prev, {
+          id: `msg-${Date.now()}`, fromUid: identity.uid, fromName: identity.name,
+          content: text,
+          msgTs: new Date().toISOString(),
+          time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          isSelf: true,
+        }])
+      }
     } catch (e) {
       notifyError(e, '消息发送失败，请检查网络连接')
     }
     setInputText('')
-  }, [inputText, activeContact, identity, gatewayRequest])
+  }, [inputText, activeContact, identity, gatewayRequest, editingMsgId])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !isComposing) { e.preventDefault(); handleSend() }
@@ -591,14 +600,20 @@ export function MimView({ onClose }: { onClose: () => void }) {
             <div className="flex-1 space-y-3 overflow-y-auto p-4" onScroll={handleChatScroll} ref={chatListRef}>
               {messages.map(msg => (
                 <div key={msg.id} className={cn('group/cell flex', msg.isSelf ? 'justify-end' : 'justify-start')}>
-                  <div className={cn('relative max-w-[70%] rounded-xl px-3 py-2 text-sm',
-                    msg.isSelf ? 'bg-(--ui-accent) text-(--ui-accent-foreground) rounded-br-md' : 'bg-(--ui-bg-quaternary) text-foreground rounded-bl-md')}>
+                  <div
+                    className={cn('relative max-w-[70%] rounded-2xl px-3 py-2 text-sm',
+                      msg.isSelf
+                        ? 'bg-(--dt-user-bubble) text-foreground border border-border/50'
+                        : 'bg-(--ui-bg-quaternary) text-foreground')}
+                    onClick={() => { if (msg.isSelf) { setInputText(msg.content); setEditingMsgId(msg.id); textareaRef.current?.focus() } }}
+                  >
                     {!msg.isSelf && <div className="mb-0.5 text-[0.6rem] font-medium text-(--ui-text-tertiary)}">{msg.fromName}</div>}
                     <div className="[&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/10 [&_pre]:p-2 [&_pre]:text-[0.75rem] [&_code]:rounded [&_code]:bg-black/10 [&_code]:px-1 [&_code]:text-[0.8em] [&_p]:mb-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
                       <Streamdown>{msg.content}</Streamdown>
                     </div>
-                    <div className={cn('mt-1 flex items-center gap-1 text-right text-[0.55rem]', msg.isSelf ? 'text-(--ui-accent-foreground)/60' : 'text-(--ui-text-quaternary)')}>
+                    <div className={cn('mt-1 flex items-center gap-1 text-right text-[0.55rem] text-(--ui-text-quaternary)')}>
                       <span>{formatMessageTimestamp(msg.msgTs || msg.time, { today: t => t, yesterday: t => `昨天 ${t}` })}</span>
+                      {editingMsgId === msg.id && <span className="text-(--ui-accent)">编辑中...</span>}
                     </div>
                     <CopyButton
                       appearance="icon"
