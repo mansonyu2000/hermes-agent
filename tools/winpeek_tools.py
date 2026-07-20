@@ -1889,7 +1889,11 @@ def _handle_mim_set_master(args: dict) -> str:
     if not uid or not master_uid:
         return json.dumps({"error": "uid and master_uid required"})
     try:
+        from gateway.winpeek_hub.chat import active_uid
         from gateway.winpeek_hub.db import get_conn
+        caller = active_uid()
+        if caller and caller != uid:
+            return json.dumps({"error": "Can only set your own master_uid"})
         conn = get_conn()
         if not conn:
             return json.dumps({"error": "DB unavailable"})
