@@ -3,6 +3,7 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { Button } from '@/components/ui/button'
@@ -215,6 +216,50 @@ interface ChatSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onNewSessionInWorkspace: (path: null | string) => void
   onManageCronJob: (jobId: string) => void
   onTriggerCronJob: (jobId: string) => void
+}
+
+/* ── WinPeek identity badge (sidebar) ───────────── */
+
+function WinPeekSidebarBadge() {
+  const [ident, setIdent] = useState<{ name: string; role: string; uid: number } | null>(null)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('mim-identity')
+      if (raw) setIdent(JSON.parse(raw))
+    } catch {}
+  }, [])
+
+  // Listen for storage changes (e.g. login from MIM page)
+  useEffect(() => {
+    const onStorage = () => {
+      try {
+        const raw = localStorage.getItem('mim-identity')
+        setIdent(raw ? JSON.parse(raw) : null)
+      } catch {}
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  if (!ident) return null
+
+  return (
+    <div className="shrink-0 px-2.5 pb-1">
+      <button
+        className="flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-[0.75rem] text-(--ui-text-tertiary) transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground"
+        onClick={() => navigate('/mim')}
+        title={`WinPeek: ${ident.name} · #${ident.uid}`}
+      >
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] bg-(--ui-accent)/15 text-[0.55rem] font-semibold text-(--ui-accent)">
+          {ident.name.charAt(0)}
+        </div>
+        <span className="truncate">{ident.name}</span>
+        <span className="ml-auto text-[0.6rem] text-(--ui-text-quaternary)">{ident.role}</span>
+      </button>
+    </div>
+  )
 }
 
 export function ChatSidebar({
@@ -1400,6 +1445,9 @@ export function ChatSidebar({
         )}
 
         {contentVisible && !showSessionSections && <SidebarBlankState onNewProject={openProjectCreate} />}
+
+        {/* WinPeek identity badge — read from localStorage, mirrors MIM login */}
+        <WinPeekSidebarBadge />
 
         {contentVisible && (
           <div className="shrink-0 px-0.5 pb-1 pt-0.5">
