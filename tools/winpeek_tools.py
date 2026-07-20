@@ -1890,3 +1890,96 @@ for rpc_name, desc, params, handler in [
     )
 
 logger.info("WinPeek approval tools registered: person_approve + machine_approve + pending_list")
+
+# ── REGISTRATION WIZARD ──
+
+
+def _handle_squad_search(args: dict) -> str:
+    q = (args.get("q") or "").strip()
+    if not q: return json.dumps({"squads": []})
+    try:
+        from gateway.winpeek_hub.organization import search_squads
+        return json.dumps({"squads": search_squads(q)})
+    except ImportError: return json.dumps({"error": "Not loaded"})
+
+
+def _handle_register_with_squad(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.organization import register_with_squad
+        uid = active_uid()
+        if not uid: return json.dumps({"error": "not logged in"})
+        return json.dumps(register_with_squad(
+            uid=uid,
+            is_new_squad=bool(args.get("is_new_squad")),
+            squad_id=int(args.get("squad_id", 0)),
+            squad_name=(args.get("squad_name") or "").strip(),
+            squad_desc=(args.get("squad_desc") or "").strip(),
+            person_name=(args.get("person_name") or "").strip(),
+            email=(args.get("email") or "").strip(),
+            phone=(args.get("phone") or "").strip(),
+            hostname=(args.get("hostname") or "").strip(),
+            invite_code=(args.get("invite_code") or "").strip(),
+        ))
+    except ImportError: return json.dumps({"error": "Not loaded"})
+
+
+registry.register(
+    name="winpeek_squad_search", toolset="winpeek_rpa",
+    schema={"name": "winpeek_squad_search", "description": "按名称搜索组织",
+            "parameters": {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]}},
+    handler=lambda args, **kw: _handle_squad_search(args), check_fn=lambda: True, requires_env=[],
+    description="搜索组织",
+)
+registry.register(
+    name="winpeek_register_with_squad", toolset="winpeek_rpa",
+    schema={"name": "winpeek_register_with_squad",
+            "description": "一键注册：创建/加入 squad → person → machine → winpeek_account",
+            "parameters": {"type": "object", "properties": {
+                "is_new_squad": {"type": "boolean"}, "squad_id": {"type": "integer"},
+                "squad_name": {"type": "string"}, "squad_desc": {"type": "string"},
+                "person_name": {"type": "string"}, "email": {"type": "string"},
+                "phone": {"type": "string"}, "hostname": {"type": "string"},
+                "invite_code": {"type": "string"},
+            }, "required": ["is_new_squad"]}},
+    handler=lambda args, **kw: _handle_register_with_squad(args), check_fn=lambda: True, requires_env=[],
+    description="一键组织注册",
+)
+
+logger.info("WinPeek registration tools: search + register_with_squad")
+
+# ── INVITE CODE ──
+
+
+def _handle_get_invite_code(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.db import get_conn
+        uid = active_uid()
+        if not uid: return json.dumps({"error": "not logged in"})
+        conn = get_conn()
+        if not conn: return json.dumps({"error": "DB unavailable"})
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT s.invite_code, s.name, s.id
+                FROM squads s
+                INNER JOIN winpeek_accounts wa ON s.owner_person_id = wa.person_id
+                WHERE wa.uid = %s
+                ORDER BY s.id DESC LIMIT 5
+            """, (uid,))
+            codes = [{"squad_id": r["id"], "name": r["name"], "invite_code": r["invite_code"]}
+                     for r in cur.fetchall()]
+        conn.close()
+        return json.dumps({"invite_codes": codes})
+    except ImportError: return json.dumps({"error": "Not loaded"})
+
+
+registry.register(
+    name="winpeek_my_invite_codes", toolset="winpeek_rpa",
+    schema={"name": "winpeek_my_invite_codes", "description": "获取我拥有的组织的邀请码",
+            "parameters": {"type": "object", "properties": {}}},
+    handler=lambda args, **kw: _handle_get_invite_code(args), check_fn=lambda: True, requires_env=[],
+    description="我的组织邀请码",
+)
+
+logger.info("WinPeek invite_code tool registered")

@@ -20,6 +20,9 @@ Relations:
 
 import json as _json
 import logging
+import random
+import socket
+import string
 from datetime import datetime
 from typing import Any
 
@@ -118,7 +121,7 @@ def ensure_tables():
             })
 
             # ── squads.owner_person_id ──
-            _ensure_cols(cur, "squads", {"owner_person_id": "INT"})
+            _ensure_cols(cur, "squads", {"owner_person_id": "INT", "invite_code": "VARCHAR(8)"})
 
             # ── winpeek_accounts: person ↔ users.uid ──
             cur.execute("""
@@ -659,22 +662,15 @@ def upsert_agent(name: str, requester_uid: int = 0, **fields) -> dict:
 
 
 def _is_squad_admin(uid: int, squad_id: int, cur) -> bool:
-    """Check if uid is the squad owner or admin."""
+    """Check if uid is the squad owner (via owner_person_id → winpeek_accounts)."""
     cur.execute("SELECT owner_person_id FROM squads WHERE id = %s", (squad_id,))
     s = cur.fetchone()
     if not s:
         return False
     oid = s.get("owner_person_id")
-    if oid:
-        cur.execute("SELECT 1 FROM winpeek_accounts WHERE person_id = %s AND uid = %s", (oid, uid))
-        if cur.fetchone():
-            return True
-    # fallback: persons with the same uid
-    cur.execute("""
-        SELECT 1 FROM persons p
-        INNER JOIN winpeek_accounts wa ON p.id = wa.person_id
-        WHERE p.squad_id = %s AND wa.uid = %s
-    """, (squad_id, uid))
+    if not oid:
+        return False
+    cur.execute("SELECT 1 FROM winpeek_accounts WHERE person_id = %s AND uid = %s", (oid, uid))
     return bool(cur.fetchone())
 
 
@@ -745,23 +741,182 @@ def approve_machine(machine_id: int, action: str, requester_uid: int) -> dict:
 
 
 def get_pending(squad_id: int = 0, requester_uid: int = 0) -> dict:
-    """Get all pending persons and machines (optionally filtered by squad)."""
+    """Get pending persons/machines. Scoped to squads the requester belongs to."""
     conn = get_conn()
     if conn is None: return {"persons": [], "machines": []}
     try:
+        allowed = _get_user_squad_ids(requester_uid) if requester_uid else set()
+        if requester_uid and not allowed:
+            return {"persons": [], "machines": []}  # no squads → nothing to approve
+
         with conn.cursor() as cur:
-            sp = "SELECT p.*, s.name AS squad_name FROM persons p LEFT JOIN squads s ON p.squad_id = s.id WHERE p.approval_status = 'pending'"
-            sm = "SELECT m.*, s.name AS squad_name FROM machines m LEFT JOIN squads s ON m.squad_id = s.id WHERE m.approval_status = 'pending'"
-            params = []
             if squad_id:
-                sp += " AND p.squad_id = %s"
-                sm += " AND m.squad_id = %s"
-                params = [squad_id]
-            cur.execute(sp, params)
-            persons = [_row(r) for r in cur.fetchall()]
-            cur.execute(sm, params)
-            machines = [_row(r) for r in cur.fetchall()]
+                if requester_uid and squad_id not in allowed:
+                    return {"persons": [], "machines": []}
+                squad_list = [squad_id]
+            elif requester_uid:
+                squad_list = list(allowed)
+            else:
+                squad_list = []
+
+            if squad_list:
+                placeholders = ",".join(["%s"] * len(squad_list))
+                sp = f"SELECT p.*, s.name AS squad_name FROM persons p LEFT JOIN squads s ON p.squad_id = s.id WHERE p.approval_status = 'pending' AND p.squad_id IN ({placeholders})"
+                sm = f"SELECT m.*, s.name AS squad_name FROM machines m LEFT JOIN squads s ON m.squad_id = s.id WHERE m.approval_status = 'pending' AND m.squad_id IN ({placeholders})"
+                cur.execute(sp, squad_list)
+                persons = [_row(r) for r in cur.fetchall()]
+                cur.execute(sm, squad_list)
+                machines = [_row(r) for r in cur.fetchall()]
+            else:
+                persons, machines = [], []
         return {"persons": persons, "machines": machines}
+    finally:
+        conn.close()
+
+
+def search_squads(q: str, max_results: int = 10) -> list[dict]:
+    """Search squads by name (fuzzy match)."""
+    conn = get_conn()
+    if conn is None: return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM squads WHERE name LIKE %s ORDER BY name LIMIT %s",
+                (f"%{q}%", max_results))
+            return [_row(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def register_with_squad(uid: int, squad_id: int, is_new_squad: bool = False,
+                        squad_name: str = "", squad_desc: str = "",
+                        person_name: str = "", email: str = "",
+                        phone: str = "", hostname: str = "",
+                        invite_code: str = "") -> dict:
+    """Complete one-call registration.
+
+    - is_new_squad: creates squad, person=owner, auto-approved
+    - else: join existing squad, person=pending
+    """
+    if not uid:
+        return {"ok": False, "error": "uid required"}
+
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    now = _now()
+
+    try:
+        with conn.cursor() as cur:
+            # ── Step 1: squad ──
+            if is_new_squad:
+                if not squad_name:
+                    return {"ok": False, "error": "squad_name required for new squad"}
+                cur.execute("SELECT id FROM squads WHERE name = %s", (squad_name,))
+                exist = cur.fetchone()
+                if exist:
+                    return {"ok": False, "error": f"Squad '{squad_name}' already exists"}
+                # Generate 4-digit invite code
+                code = ''
+                for _ in range(10):
+                    code = ''.join(random.choices(string.digits, k=4))
+                    cur.execute("SELECT 1 FROM squads WHERE invite_code = %s", (code,))
+                    if not cur.fetchone():
+                        break
+                cur.execute(
+                    "INSERT INTO squads (name, description, invite_code, created_at, updated_at) VALUES (%s, %s, %s, %s, %s)",
+                    (squad_name, squad_desc, code, now, now))
+                sqid = cur.lastrowid
+            else:
+                sqid = 0
+                if not squad_id:
+                    if invite_code:
+                        cur.execute("SELECT id FROM squads WHERE invite_code = %s", (invite_code,))
+                        row = cur.fetchone()
+                        if row:
+                            sqid = row["id"]
+                    if not sqid:  # still not found
+                        return {"ok": False, "error": "squad_id or valid invite_code required"}
+                else:
+                    cur.execute("SELECT id FROM squads WHERE id = %s", (squad_id,))
+                    if not cur.fetchone():
+                        return {"ok": False, "error": "Squad not found"}
+                    sqid = squad_id
+
+            # ── Step 2: person name ──
+            name = person_name
+            if not name:
+                cur.execute("SELECT nickname FROM users WHERE uid = %s", (uid,))
+                u = cur.fetchone()
+                name = u["nickname"] if u else f"user_{uid}"
+
+            # Determine approval: owner→approved, invite_code match→approved, else→pending
+            if is_new_squad:
+                approval = "approved"
+            elif invite_code:
+                cur.execute(
+                    "SELECT invite_code FROM squads WHERE id = %s AND invite_code = %s",
+                    (sqid, invite_code))
+                approval = "approved" if cur.fetchone() else "pending"
+            else:
+                approval = "pending"
+
+            cur.execute(
+                "SELECT id FROM persons WHERE name = %s AND squad_id = %s",
+                (name, sqid))
+            p = cur.fetchone()
+            if p:
+                cur.execute(
+                    "UPDATE persons SET email=%s, phone=%s, approval_status=%s WHERE id=%s",
+                    (email, phone, approval, p["id"]))
+                pid = p["id"]
+            else:
+                cur.execute(
+                    "INSERT INTO persons (name, squad_id, email, phone, notes, approval_status) VALUES (%s, %s, %s, %s, '', %s)",
+                    (name, sqid, email, phone, approval))
+                pid = cur.lastrowid
+
+            # ── Step 3: winpeek_account ──
+            cur.execute(
+                "INSERT INTO winpeek_accounts (person_id, uid, is_main) VALUES (%s, %s, 1) "
+                "ON DUPLICATE KEY UPDATE is_main = 1", (pid, uid))
+
+            # ── Step 4: machine ──
+            hn = hostname or socket.gethostname()  # type: ignore
+            cur.execute("SELECT id FROM machines WHERE hostname = %s", (hn,))
+            m = cur.fetchone()
+            if m:
+                cur.execute(
+                    "UPDATE machines SET squad_id=%s, person_id=%s, winpeek_uid=%s, approval_status=%s WHERE id=%s",
+                    (sqid, pid, uid, approval, m["id"]))
+                mid = m["id"]
+            else:
+                cur.execute(
+                    "INSERT INTO machines (hostname, squad_id, person_id, winpeek_uid, device_type, approval_status) "
+                    "VALUES (%s, %s, %s, %s, 'pc', %s)",
+                    (hn, sqid, pid, uid, approval))
+                mid = cur.lastrowid
+
+            # ── Step 5: if owner, set squad.owner_person_id ──
+            if is_new_squad:
+                cur.execute("UPDATE squads SET owner_person_id = %s WHERE id = %s", (pid, sqid))
+
+            # Read back invite_code
+            cur.execute("SELECT invite_code FROM squads WHERE id = %s", (sqid,))
+            srow = cur.fetchone()
+            inv_code = srow["invite_code"] if srow else ""
+
+            conn.commit()
+
+        return {
+            "ok": True,
+            "squad_id": sqid,
+            "person_id": pid,
+            "machine_id": mid,
+            "approval_status": approval,
+            "invite_code": inv_code,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
     finally:
         conn.close()
 

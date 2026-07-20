@@ -14766,3 +14766,27 @@ def _(rid, params: dict) -> dict:
     result = _handle_pending_list(params)
     try: data = json.loads(result); return _ok(rid, data)
     except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_squad_search")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_squad_search
+    result = _handle_squad_search(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_register_with_squad")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_register_with_squad
+    result = _handle_register_with_squad(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_my_invite_codes")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_get_invite_code
+    result = _handle_get_invite_code(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})

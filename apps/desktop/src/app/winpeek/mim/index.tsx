@@ -14,6 +14,7 @@ import { notifyError } from '@/store/notifications'
 
 import { useGatewayRequest } from '../../gateway/hooks/use-gateway-request'
 import { DetailColumn, ListColumn, MasterDetail } from '../../master-detail'
+import { ApprovalPanel, RegistrationWizard } from '../register'
 
 /* ── Types ───────────────────────────────────── */
 
@@ -533,6 +534,8 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const [groupTitle, setGroupTitle] = useState('')
   const [groupMemberUids, setGroupMemberUids] = useState<number[]>([])
   const [activeTab, setActiveTab] = useState<'messages' | 'contacts'>('messages')
+  const [needRegistration, setNeedRegistration] = useState(false)
+  const [orgChecked, setOrgChecked] = useState(false)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['friends', 'groups']))
   const [showGroupSettings, setShowGroupSettings] = useState(false)
   const [groupDetail, setGroupDetail] = useState<GroupDetail | null>(null)
@@ -566,6 +569,9 @@ export function MimView({ onClose }: { onClose: () => void }) {
         saveIdentity(id)
         setIdentity(id)
         refreshUsers()
+        const d2: any = await gatewayRequest('winpeek_org_status', {}).catch(() => ({}))
+        setNeedRegistration(!d2?.linked)
+        setOrgChecked(true)
         return null
       }
       return data.error || '登录失败，请检查用户名和密码'
@@ -583,6 +589,9 @@ export function MimView({ onClose }: { onClose: () => void }) {
         saveIdentity(id)
         setIdentity(id)
         refreshUsers()
+        const d2: any = await gatewayRequest('winpeek_org_status', {}).catch(() => ({}))
+        setNeedRegistration(!d2?.linked)
+        setOrgChecked(true)
         return null
       }
       return data.error || '注册失败，请重试'
@@ -865,6 +874,18 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !isComposing) { e.preventDefault(); handleSend() }
   }, [handleSend, isComposing])
+
+  // ── Registration check ──
+  if (identity && orgChecked && needRegistration) {
+    return (
+      <MasterDetail>
+        <RegistrationWizard
+          identity={{ uid: identity.uid, name: identity.name, role: identity.role }}
+          onDone={() => { setNeedRegistration(false); setOrgChecked(false) }}
+        />
+      </MasterDetail>
+    )
+  }
 
   // ── Not logged in ──
   if (!identity) {
