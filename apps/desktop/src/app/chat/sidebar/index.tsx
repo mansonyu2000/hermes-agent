@@ -1400,15 +1400,16 @@ export function ChatSidebar({
 
         {contentVisible && !showSessionSections && <SidebarBlankState onNewProject={openProjectCreate} />}
 
-        {/* Peeka account popup — bottom-left identity + system config + account switching */}
-        <WinPeekAccountPopup />
-
         {contentVisible && (
           <div className="shrink-0 px-0.5 pb-1 pt-0.5">
             <ProfileRail />
           </div>
         )}
       </SidebarContent>
+
+      {/* Peeka account popup — always visible, pinned outside scrollable content */}
+      <WinPeekAccountPopup />
+
       <ProjectDialog />
     </Sidebar>
   )

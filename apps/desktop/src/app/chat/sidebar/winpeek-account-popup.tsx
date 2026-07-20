@@ -100,7 +100,7 @@ export function WinPeekAccountPopup() {
   )
 
   return (
-    <div className="shrink-0">
+    <div className="shrink-0 border-t border-(--ui-stroke-quaternary) px-2.5 pb-1 pt-1">
       <button
         ref={trigRef}
         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.75rem] transition-colors hover:bg-(--ui-control-hover-background)"
