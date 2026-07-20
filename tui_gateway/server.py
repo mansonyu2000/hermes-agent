@@ -14520,3 +14520,249 @@ def _(rid, params: dict) -> dict:
         return _ok(rid, data)
     except Exception:
         return _ok(rid, {"result": result})
+
+
+@method("winpeek_software_list")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_software_list
+    result = _handle_software_list(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_software_upsert")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_software_upsert
+    result = _handle_software_upsert(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_account_list")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_account_list
+    result = _handle_account_list(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_account_upsert")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_account_upsert
+    result = _handle_account_upsert(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_account_set_active")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_account_set_active
+    result = _handle_account_set_active(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_account_delete")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_account_delete
+    result = _handle_account_delete(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_hwinfo")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_hwinfo
+    result = _handle_hwinfo(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_scan_sync")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_scan_sync
+    result = _handle_scan_sync(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_software_by_category")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_software_by_category
+    result = _handle_software_by_category(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_squad_list")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_squad_list
+    result = _handle_squad_list(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_squad_upsert")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_squad_upsert
+    result = _handle_squad_upsert(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_person_list")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_person_list
+    result = _handle_person_list(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_person_upsert")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_person_upsert
+    result = _handle_person_upsert(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_machine_list")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_machine_list
+    result = _handle_machine_list(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_machine_detail")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_machine_detail
+    result = _handle_machine_detail(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_scan_register")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_scan_register
+    result = _handle_scan_register(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_org_tree")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_org_tree
+    result = _handle_org_tree(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_org_status")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_org_status
+    result = _handle_org_status(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_join_squad")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_join_squad
+    result = _handle_join_squad(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_agent_list")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_agent_list
+    result = _handle_agent_list(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_agent_upsert")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_agent_upsert
+    result = _handle_agent_upsert(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_person_approve")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_person_approve
+    result = _handle_person_approve(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_machine_approve")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_machine_approve
+    result = _handle_machine_approve(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_pending_list")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_pending_list
+    result = _handle_pending_list(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})

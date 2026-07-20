@@ -343,6 +343,14 @@ def _handle_mim_login(args: dict) -> str:
     # Register + heartbeat so this user appears online in contacts
     hub.register_node(result["uid"], result["nickname"], result.get("role", role))
     hub.heartbeat(result["uid"])
+    # Auto-register machine in org tree (lightweight — hostname only, no full scan)
+    try:
+        from gateway.winpeek_hub.organization import upsert_machine
+        import socket
+        hostname = socket.gethostname()
+        upsert_machine(hostname, device_type="pc", winpeek_uid=result["uid"])
+    except Exception:
+        pass
     return json.dumps({"ok": True, "identity": result})
 
 
@@ -1313,3 +1321,572 @@ registry.register(
 )
 
 logger.info("WinPeek MIM tools: +group_leave")
+
+# ═══════════════════════════════════════════════════════
+#  SOFTWARE & ACCOUNT MANAGEMENT
+# ═══════════════════════════════════════════════════════
+
+
+def _handle_software_list(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.software import list_softwares
+        return json.dumps({"softwares": list_softwares()})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+def _handle_software_upsert(args: dict) -> str:
+    name = (args.get("name") or "").strip()
+    if not name:
+        return json.dumps({"error": "name required"})
+    try:
+        from gateway.winpeek_hub.software import upsert_software
+        allow = ["install_path", "exe_path", "launch_args", "description",
+                 "company", "version", "latest_version", "registry_info", "icon_path",
+                 "category", "platform", "last_launched_at", "exit_normal"]
+        fields = {k: args[k] for k in allow if k in args}
+        return json.dumps(upsert_software(name, **fields))
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+def _handle_account_list(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.software import list_accounts
+        uid = int(args.get("uid", 0))
+        software_id = int(args.get("software_id", 0))
+        return json.dumps({"accounts": list_accounts(uid=uid, software_id=software_id)})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+def _handle_account_upsert(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.software import upsert_account
+        allow = ["id", "software_id", "uid", "wxid", "nickname",
+                 "auth_type", "auth_value", "priority", "meta", "is_active"]
+        fields = {k: args[k] for k in allow if k in args}
+        return json.dumps(upsert_account(**fields))
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+def _handle_account_set_active(args: dict) -> str:
+    account_id = int(args.get("account_id", 0))
+    uid = int(args.get("uid", 0))
+    if not account_id or not uid:
+        return json.dumps({"error": "account_id and uid required"})
+    try:
+        from gateway.winpeek_hub.software import set_active_account
+        return json.dumps(set_active_account(account_id, uid))
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+def _handle_account_delete(args: dict) -> str:
+    account_id = int(args.get("account_id", 0))
+    if not account_id:
+        return json.dumps({"error": "account_id required"})
+    try:
+        from gateway.winpeek_hub.software import delete_account
+        return json.dumps(delete_account(account_id))
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+# ── Register ──
+
+registry.register(
+    name="winpeek_software_list",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_software_list",
+        "description": "列出本机已注册的所有软件",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_software_list(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="WinPeek 软件清单",
+)
+
+registry.register(
+    name="winpeek_software_upsert",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_software_upsert",
+        "description": "注册或更新一个软件信息（name 为唯一键）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "软件名称"},
+                "install_path": {"type": "string", "description": "安装路径"},
+                "exe_path": {"type": "string", "description": "启动路径"},
+                "launch_args": {"type": "string", "description": "启动参数"},
+                "description": {"type": "string"},
+                "company": {"type": "string"},
+                "version": {"type": "string"},
+                "latest_version": {"type": "string"},
+                "registry_info": {"type": "string", "description": "JSON 注册表信息"},
+                "category": {"type": "string"},
+                "platform": {"type": "string", "description": "wechat/douyin/dingtalk/feishu/..."},
+                "last_launched_at": {"type": "string"},
+                "exit_normal": {"type": "integer"},
+            },
+            "required": ["name"],
+        },
+    },
+    handler=lambda args, **kw: _handle_software_upsert(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="WinPeek 软件注册",
+)
+
+registry.register(
+    name="winpeek_account_list",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_account_list",
+        "description": "列出软件账号，可按 uid 或 software_id 过滤",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "Hermes 用户 uid"},
+                "software_id": {"type": "integer", "description": "软件 id"},
+            },
+        },
+    },
+    handler=lambda args, **kw: _handle_account_list(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="WinPeek 软件账号列表",
+)
+
+registry.register(
+    name="winpeek_account_upsert",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_account_upsert",
+        "description": "注册或更新一个软件账号（传 id=更新）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer", "description": "账号 id（更新时传入）"},
+                "software_id": {"type": "integer"},
+                "uid": {"type": "integer", "description": "归属用户 uid"},
+                "wxid": {"type": "string", "description": "平台账号 ID"},
+                "nickname": {"type": "string", "description": "账号昵称/标签"},
+                "auth_type": {"type": "string", "description": "token/cookie/apikey/qrcode"},
+                "auth_value": {"type": "string", "description": "授权凭证"},
+                "priority": {"type": "integer", "description": "同软件多账号优先级"},
+                "meta": {"type": "object", "description": "扩展字段"},
+                "is_active": {"type": "integer", "description": "当前激活=1"},
+            },
+            "required": [],
+        },
+    },
+    handler=lambda args, **kw: _handle_account_upsert(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="WinPeek 软件账号注册",
+)
+
+registry.register(
+    name="winpeek_account_set_active",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_account_set_active",
+        "description": "切换激活的软件账号（同软件其他账号自动失效）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "integer"},
+                "uid": {"type": "integer"},
+            },
+            "required": ["account_id", "uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_account_set_active(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="WinPeek 软件账号切换",
+)
+
+registry.register(
+    name="winpeek_account_delete",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_account_delete",
+        "description": "删除一个软件账号",
+        "parameters": {
+            "type": "object",
+            "properties": {"account_id": {"type": "integer"}},
+            "required": ["account_id"],
+        },
+    },
+    handler=lambda args, **kw: _handle_account_delete(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="WinPeek 删除软件账号",
+)
+
+logger.info("WinPeek software tools registered: 软件清单 + 账号管理")
+
+# ═══════════════════════════════════════════════════════
+#  SCANNER: 本地软件/硬件扫描
+# ═══════════════════════════════════════════════════════
+
+
+def _handle_hwinfo(args: dict) -> str:
+    """返回硬件信息（CPU/内存/磁盘/GPU/OS）"""
+    try:
+        from gateway.winpeek_hub.scanner import get_hardware_info
+        return json.dumps({"ok": True, "hardware": get_hardware_info()})
+    except ImportError:
+        return json.dumps({"error": "Scanner not loaded"})
+
+
+def _handle_scan_sync(args: dict) -> str:
+    """扫描本地软件 → 入库，返回同步报告"""
+    try:
+        from gateway.winpeek_hub.scanner import scan_and_sync
+        return json.dumps(scan_and_sync())
+    except ImportError:
+        return json.dumps({"error": "Scanner not loaded"})
+
+
+def _handle_software_by_category(args: dict) -> str:
+    """按分类返回软件列表"""
+    try:
+        from gateway.winpeek_hub.software import list_softwares
+        softs = list_softwares()
+        by_cat: dict[str, list] = {}
+        for s in softs:
+            cat = s.get("category") or "其它"
+            by_cat.setdefault(cat, []).append(s)
+        # sort categories: 社交/商城/金融/政务 first, then alphabetically
+        priority = ["社交", "商城", "金融", "政务", "编程", "办公", "图形", "磁盘", "影音", "安全"]
+        ordered = {}
+        for cat in priority:
+            if cat in by_cat:
+                ordered[cat] = by_cat.pop(cat)
+        for cat in sorted(by_cat):
+            ordered[cat] = by_cat[cat]
+        return json.dumps({"ok": True, "categories": ordered})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+registry.register(
+    name="winpeek_hwinfo",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_hwinfo",
+        "description": "获取本机硬件信息：CPU/内存/磁盘/GPU/OS",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_hwinfo(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="WinPeek 本机硬件信息",
+)
+
+registry.register(
+    name="winpeek_scan_sync",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_scan_sync",
+        "description": "扫描本机已安装软件并同步到数据库，返回同步报告",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_scan_sync(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="WinPeek 软件扫描同步",
+)
+
+registry.register(
+    name="winpeek_software_by_category",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_software_by_category",
+        "description": "按分类获取软件清单",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_software_by_category(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="WinPeek 软件分类清单",
+)
+
+logger.info("WinPeek scanner tools registered: hwinfo + scan_sync + by_category")
+
+# ═══════════════════════════════════════════════════════
+#  ORGANIZATION: squad → person → machine
+# ═══════════════════════════════════════════════════════
+
+
+def _handle_squad_list(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.organization import list_squads
+        return json.dumps({"squads": list_squads()})
+    except ImportError:
+        return json.dumps({"error": "Not loaded"})
+
+
+def _handle_squad_upsert(args: dict) -> str:
+    name = (args.get("name") or "").strip()
+    if not name:
+        return json.dumps({"error": "name required"})
+    try:
+        from gateway.winpeek_hub.organization import upsert_squad
+        allow = ["description", "meta"]
+        return json.dumps(upsert_squad(name, **{k: args[k] for k in allow if k in args}))
+    except ImportError:
+        return json.dumps({"error": "Not loaded"})
+
+
+def _handle_person_list(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.organization import list_persons
+        squad_id = int(args.get("squad_id", 0))
+        return json.dumps({"persons": list_persons(squad_id)})
+    except ImportError:
+        return json.dumps({"error": "Not loaded"})
+
+
+def _handle_person_upsert(args: dict) -> str:
+    name = (args.get("name") or "").strip()
+    if not name:
+        return json.dumps({"error": "name required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.organization import upsert_person
+        uid = active_uid()
+        if not uid:
+            return json.dumps({"error": "not logged in"})
+        allow = ["id", "squad_id", "email", "phone", "notes", "meta"]
+        return json.dumps(upsert_person(name, requester_uid=uid,
+                          **{k: args[k] for k in allow if k in args}))
+    except ImportError:
+        return json.dumps({"error": "Not loaded"})
+
+
+def _handle_machine_list(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.organization import list_machines
+        person_id = int(args.get("person_id", 0))
+        return json.dumps({"machines": list_machines(person_id)})
+    except ImportError:
+        return json.dumps({"error": "Not loaded"})
+
+
+def _handle_machine_detail(args: dict) -> str:
+    machine_id = int(args.get("machine_id", 0))
+    if not machine_id:
+        return json.dumps({"error": "machine_id required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.organization import get_machine_detail
+        uid = active_uid()
+        if not uid:
+            return json.dumps({"error": "not logged in"})
+        d = get_machine_detail(machine_id, requester_uid=uid)
+        return json.dumps({"machine": d} if d else {"error": "not found"})
+    except ImportError:
+        return json.dumps({"error": "Not loaded"})
+
+
+def _handle_scan_register(args: dict) -> str:
+    """全自动：注册本机 + 扫描硬件 + 同步软件，一次调用"""
+    try:
+        from gateway.winpeek_hub.organization import scan_and_register_machine
+        from gateway.winpeek_hub.chat import active_uid
+        # Use only server-side active_uid, never caller-supplied uid
+        uid = active_uid()
+        if not uid:
+            return json.dumps({"error": "not logged in"})
+        hostname = (args.get("hostname") or "").strip()
+        return json.dumps(scan_and_register_machine(uid, hostname))
+    except ImportError:
+        return json.dumps({"error": "Not loaded"})
+
+
+def _handle_org_tree(args: dict) -> str:
+    """完整组织树：squads → persons → machines → software 数"""
+    try:
+        from gateway.winpeek_hub.organization import get_org_tree
+        return json.dumps(get_org_tree())
+    except ImportError:
+        return json.dumps({"error": "Not loaded"})
+
+
+# ── Register ──
+
+for rpc_name, desc, params, handler in [
+    ("winpeek_squad_list", "列出所有 squad", {}, _handle_squad_list),
+    ("winpeek_squad_upsert", "创建/更新 squad", {"name": {"type": "string"}, "description": {"type": "string"}}, _handle_squad_upsert),
+    ("winpeek_person_list", "列出人员（可按 squad_id 过滤）", {"squad_id": {"type": "integer", "default": 0}}, _handle_person_list),
+    ("winpeek_person_upsert", "创建/更新人员", {"id": {"type": "integer"}, "name": {"type": "string"}, "squad_id": {"type": "integer"}, "email": {"type": "string"}, "phone": {"type": "string"}}, _handle_person_upsert),
+    ("winpeek_machine_list", "列出电脑（可按 person_id 过滤）", {"person_id": {"type": "integer", "default": 0}}, _handle_machine_list),
+    ("winpeek_machine_detail", "电脑详情 + 软件清单", {"machine_id": {"type": "integer"}}, _handle_machine_detail),
+    ("winpeek_scan_register", "一键扫描注册：硬件 + 软件全入库", {"uid": {"type": "integer"}, "hostname": {"type": "string"}}, _handle_scan_register),
+    ("winpeek_org_tree", "完整组织树", {}, _handle_org_tree),
+]:
+    registry.register(
+        name=rpc_name,
+        toolset="winpeek_rpa",
+        schema={"name": rpc_name, "description": desc,
+                "parameters": {"type": "object", "properties": params,
+                               "required": [k for k, v in params.items()
+                                            if v.get("default") is None and k not in ("id",)][:5] or []}},
+        handler=lambda args, h=handler, **kw: h(args),
+        check_fn=lambda: True,
+        requires_env=[],
+        description=desc,
+    )
+
+logger.info("WinPeek org tools registered: squad + person + machine + org_tree")
+
+# ── ORG: join squad ──
+
+
+def _handle_org_status(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.organization import get_org_status
+        uid = active_uid()
+        if not uid: return json.dumps({"error": "not logged in"})
+        return json.dumps(get_org_status(uid))
+    except ImportError: return json.dumps({"error": "Not loaded"})
+
+
+def _handle_join_squad(args: dict) -> str:
+    squad_id = int(args.get("squad_id", 0))
+    if not squad_id: return json.dumps({"error": "squad_id required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.organization import join_squad, get_org_status
+        uid = active_uid()
+        if not uid: return json.dumps({"error": "not logged in"})
+        status = get_org_status(uid)
+        if not status.get("machine_id"):
+            return json.dumps({"error": "no machine registered — restart app"})
+        return json.dumps(join_squad(status["machine_id"], squad_id, uid))
+    except ImportError: return json.dumps({"error": "Not loaded"})
+
+
+registry.register(
+    name="winpeek_org_status", toolset="winpeek_rpa",
+    schema={"name": "winpeek_org_status", "description": "查询当前用户的组织归属状态，返回可选 squad 列表",
+            "parameters": {"type": "object", "properties": {}}},
+    handler=lambda args, **kw: _handle_org_status(args), check_fn=lambda: True, requires_env=[],
+    description="WinPeek 组织归属状态",
+)
+registry.register(
+    name="winpeek_join_squad", toolset="winpeek_rpa",
+    schema={"name": "winpeek_join_squad", "description": "选择加入一个 squad（自动创建 person 关联）",
+            "parameters": {"type": "object", "properties": {"squad_id": {"type": "integer"}}, "required": ["squad_id"]}},
+    handler=lambda args, **kw: _handle_join_squad(args), check_fn=lambda: True, requires_env=[],
+    description="WinPeek 加入组织",
+)
+
+logger.info("WinPeek org tools: +org_status +join_squad")
+
+# ── AGENT & ACCOUNT RPCs ──
+
+
+def _handle_agent_list(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.organization import list_agents
+        uid = active_uid()
+        return json.dumps({"agents": list_agents(
+            squad_id=int(args.get("squad_id", 0)),
+            machine_id=int(args.get("machine_id", 0)),
+            requester_uid=uid,
+        )})
+    except ImportError: return json.dumps({"error": "Not loaded"})
+
+
+def _handle_agent_upsert(args: dict) -> str:
+    name = (args.get("name") or "").strip()
+    if not name: return json.dumps({"error": "name required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.organization import upsert_agent
+        uid = active_uid()
+        if not uid: return json.dumps({"error": "not logged in"})
+        allow = ["id", "agent_type", "uid", "person_id", "squad_id", "machine_id", "role", "status", "config_json"]
+        return json.dumps(upsert_agent(name, requester_uid=uid, **{k: args[k] for k in allow if k in args}))
+    except ImportError: return json.dumps({"error": "Not loaded"})
+
+
+for rpc_name, desc, params, handler in [
+    ("winpeek_agent_list", "列出AI Agent", {"squad_id": {"type": "integer"}, "machine_id": {"type": "integer"}}, _handle_agent_list),
+    ("winpeek_agent_upsert", "注册/更新 AI Agent", {"name": {"type": "string"}, "agent_type": {"type": "string"}, "machine_id": {"type": "integer"}}, _handle_agent_upsert),
+]:
+    registry.register(
+        name=rpc_name, toolset="winpeek_rpa",
+        schema={"name": rpc_name, "description": desc,
+                "parameters": {"type": "object", "properties": params,
+                               "required": [k for k, v in params.items() if v.get("default") is None and k not in ("id", "squad_id", "machine_id")]}},
+        handler=lambda args, h=handler, **kw: h(args), check_fn=lambda: True, requires_env=[], description=desc,
+    )
+
+logger.info("WinPeek agent tools registered: list + upsert")
+
+# ── APPROVAL RPCs ──
+
+
+def _handle_person_approve(args: dict) -> str:
+    pid = int(args.get("person_id", 0))
+    action = (args.get("action") or "").strip()
+    if not pid or action not in ("approved", "rejected"):
+        return json.dumps({"error": "person_id and action (approved/rejected) required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.organization import approve_person
+        uid = active_uid()
+        if not uid: return json.dumps({"error": "not logged in"})
+        return json.dumps(approve_person(pid, action, uid))
+    except ImportError: return json.dumps({"error": "Not loaded"})
+
+
+def _handle_machine_approve(args: dict) -> str:
+    mid = int(args.get("machine_id", 0))
+    action = (args.get("action") or "").strip()
+    if not mid or action not in ("approved", "rejected"):
+        return json.dumps({"error": "machine_id and action (approved/rejected) required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.organization import approve_machine
+        uid = active_uid()
+        if not uid: return json.dumps({"error": "not logged in"})
+        return json.dumps(approve_machine(mid, action, uid))
+    except ImportError: return json.dumps({"error": "Not loaded"})
+
+
+def _handle_pending_list(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.organization import get_pending
+        squad_id = int(args.get("squad_id", 0))
+        return json.dumps(get_pending(squad_id, requester_uid=active_uid()))
+    except ImportError: return json.dumps({"error": "Not loaded"})
+
+
+for rpc_name, desc, params, handler in [
+    ("winpeek_person_approve", "审批人员注册", {"person_id": {"type": "integer"}, "action": {"type": "string"}}, _handle_person_approve),
+    ("winpeek_machine_approve", "审批设备注册", {"machine_id": {"type": "integer"}, "action": {"type": "string"}}, _handle_machine_approve),
+    ("winpeek_pending_list", "待审批列表", {"squad_id": {"type": "integer"}}, _handle_pending_list),
+]:
+    registry.register(
+        name=rpc_name, toolset="winpeek_rpa",
+        schema={"name": rpc_name, "description": desc,
+                "parameters": {"type": "object", "properties": params,
+                               "required": [k for k in params if k not in ("squad_id",)]}},
+        handler=lambda args, h=handler, **kw: h(args), check_fn=lambda: True, requires_env=[], description=desc,
+    )
+
+logger.info("WinPeek approval tools registered: person_approve + machine_approve + pending_list")

@@ -74,6 +74,8 @@ def ensure_tables():
             _ensure_cols(cur, "persons", {
                 "email": "VARCHAR(128)", "phone": "VARCHAR(32)",
                 "notes": "TEXT", "meta": "TEXT",
+                "approval_status": "VARCHAR(16) DEFAULT 'pending'",
+                "approved_by": "INT", "approved_at": "DATETIME",
                 "updated_at": "DATETIME DEFAULT NOW() ON UPDATE NOW()",
             })
 
@@ -110,8 +112,13 @@ def ensure_tables():
                 "disks_json": "TEXT", "ip_address": "VARCHAR(64)",
                 "mac_address": "VARCHAR(64)", "meta": "TEXT",
                 "winpeek_uid": "INT",
+                "approval_status": "VARCHAR(16) DEFAULT 'pending'",
+                "approved_by": "INT", "approved_at": "DATETIME",
                 "updated_at": "DATETIME DEFAULT NOW() ON UPDATE NOW()",
             })
+
+            # ── squads.owner_person_id ──
+            _ensure_cols(cur, "squads", {"owner_person_id": "INT"})
 
             # ── winpeek_accounts: person ↔ users.uid ──
             cur.execute("""
@@ -172,6 +179,42 @@ def _ensure_cols(cur, table: str, cols: dict[str, str]):
             cur.execute(f"ALTER TABLE `{table}` ADD COLUMN `{col}` {col_type}")
         except Exception:
             pass
+
+
+def _get_user_squad_ids(uid: int) -> set[int]:
+    """Get all squad IDs a user belongs to (via machines.squad_id or persons.squad_id)."""
+    if not uid:
+        return set()
+    conn = get_conn()
+    if conn is None:
+        return set()
+    ids: set[int] = set()
+    try:
+        with conn.cursor() as cur:
+            # via machine registration
+            cur.execute(
+                "SELECT DISTINCT squad_id FROM machines WHERE winpeek_uid = %s AND squad_id IS NOT NULL",
+                (uid,))
+            for r in cur.fetchall():
+                ids.add(r["squad_id"])
+            # via person link
+            cur.execute("""
+                SELECT DISTINCT p.squad_id FROM persons p
+                INNER JOIN winpeek_accounts wa ON p.id = wa.person_id
+                WHERE wa.uid = %s AND p.squad_id IS NOT NULL
+            """, (uid,))
+            for r in cur.fetchall():
+                ids.add(r["squad_id"])
+    finally:
+        conn.close()
+    return ids
+
+
+def _can_access_squad(uid: int, squad_id: int) -> bool:
+    """Check if uid belongs to a squad (or is 0=unlinked)."""
+    if not uid or not squad_id:
+        return True  # allow unlinked users (backward compat)
+    return squad_id in _get_user_squad_ids(uid)
 
 
 # ═══════════════════════════════════════════════════════
@@ -262,8 +305,13 @@ def upsert_person(name: str, requester_uid: int = 0, **fields) -> dict:
         with conn.cursor() as cur:
             pid = fields.get("id")
             if pid:
-                cur.execute("SELECT id FROM persons WHERE id = %s", (pid,))
-                if cur.fetchone():
+                cur.execute("SELECT id, squad_id FROM persons WHERE id = %s", (pid,))
+                existing = cur.fetchone()
+                if existing:
+                    # Auth: requester must be in same squad
+                    if requester_uid and existing.get("squad_id"):
+                        if not _can_access_squad(requester_uid, existing["squad_id"]):
+                            return {"ok": False, "error": "Permission denied"}
                     sets = ", ".join(f"`{k}` = %s" for k in vals)
                     cur.execute(f"UPDATE persons SET {sets}, updated_at = %s WHERE id = %s",
                                 list(vals.values()) + [now, pid])
@@ -363,6 +411,12 @@ def get_machine_detail(machine_id: int, requester_uid: int = 0) -> dict | None:
             """, (machine_id,))
             r = cur.fetchone()
             if not r: return None
+            # Auth: requester must be machine owner or same squad
+            msid = r.get("squad_id")
+            mowner = r.get("winpeek_uid")
+            if requester_uid and msid and mowner and requester_uid != mowner:
+                if not _can_access_squad(requester_uid, msid):
+                    return None
             data = _row(r)
             # load software on this machine
             cur.execute(
@@ -396,8 +450,10 @@ def get_org_status(winpeek_uid: int) -> dict:
         conn.close()
 
 
-def join_squad(machine_id: int, squad_id: int, winpeek_uid: int) -> dict:
-    """Link a machine to a squad. Auto-create person if needed."""
+def join_squad(machine_id: int, squad_id: int, winpeek_uid: int,
+               is_owner: bool = False) -> dict:
+    """Link a machine to a squad. Auto-create person.
+    is_owner=True → auto-approved; else → pending."""
     conn = get_conn()
     if conn is None: return {"ok": False, "error": "DB unavailable"}
     try:
@@ -406,22 +462,35 @@ def join_squad(machine_id: int, squad_id: int, winpeek_uid: int) -> dict:
                         (machine_id, winpeek_uid))
             if not cur.fetchone():
                 return {"ok": False, "error": "Machine not found"}
-            cur.execute("UPDATE machines SET squad_id = %s WHERE id = %s",
-                        (squad_id, machine_id))
 
-            # Auto-create person if not exists for this winpeek_uid
+            approval = "approved" if is_owner else "pending"
+
             cur.execute("SELECT nickname FROM users WHERE uid = %s", (winpeek_uid,))
             u = cur.fetchone()
             name = u["nickname"] if u else f"user_{winpeek_uid}"
-            cur.execute("SELECT id FROM persons WHERE name = %s", (name,))
+            cur.execute("SELECT id FROM persons WHERE name = %s AND squad_id = %s", (name, squad_id))
             p = cur.fetchone()
+            pid = None
             if not p:
-                cur.execute("INSERT INTO persons (name, squad_id) VALUES (%s, %s)", (name, squad_id))
+                cur.execute("INSERT INTO persons (name, squad_id, approval_status) VALUES (%s, %s, %s)",
+                            (name, squad_id, approval))
+                pid = cur.lastrowid
             else:
-                cur.execute("UPDATE persons SET squad_id = %s WHERE id = %s", (squad_id, p["id"]))
+                cur.execute("UPDATE persons SET squad_id = %s, approval_status = %s WHERE id = %s",
+                            (squad_id, approval, p["id"]))
+                pid = p["id"]
+
+            cur.execute("UPDATE machines SET squad_id = %s, person_id = %s, approval_status = %s WHERE id = %s",
+                        (squad_id, pid, approval, machine_id))
+
+            cur.execute("INSERT INTO winpeek_accounts (person_id, uid, is_main) VALUES (%s, %s, 1) "
+                        "ON DUPLICATE KEY UPDATE is_main = 1", (pid, winpeek_uid))
+
+            if is_owner:
+                cur.execute("UPDATE squads SET owner_person_id = %s WHERE id = %s", (pid, squad_id))
 
             conn.commit()
-        return {"ok": True, "squad_id": squad_id}
+        return {"ok": True, "squad_id": squad_id, "person_id": pid, "approval_status": approval}
     except Exception as e:
         return {"ok": False, "error": str(e)}
     finally:
@@ -525,11 +594,15 @@ def list_accounts_for_person(person_id: int) -> list[dict]:
 # ═══════════════════════════════════════════════════════
 
 
-def list_agents(squad_id: int = 0, machine_id: int = 0) -> list[dict]:
+def list_agents(squad_id: int = 0, machine_id: int = 0, requester_uid: int = 0) -> list[dict]:
     conn = get_conn()
     if conn is None: return []
     try:
         with conn.cursor() as cur:
+            # Auth: scope to squads the requester belongs to
+            if requester_uid and squad_id:
+                if not _can_access_squad(requester_uid, squad_id):
+                    return []
             sql = "SELECT * FROM ai_agents WHERE 1=1"
             params = []
             if squad_id: sql += " AND squad_id = %s"; params.append(squad_id)
@@ -541,10 +614,15 @@ def list_agents(squad_id: int = 0, machine_id: int = 0) -> list[dict]:
         conn.close()
 
 
-def upsert_agent(name: str, **fields) -> dict:
+def upsert_agent(name: str, requester_uid: int = 0, **fields) -> dict:
     ensure_tables()
     conn = get_conn()
     if conn is None: return {"ok": False, "error": "DB unavailable"}
+    # Auth: requester must belong to target squad
+    tsid = int(fields.get("squad_id") or 0)
+    if requester_uid and tsid:
+        if not _can_access_squad(requester_uid, tsid):
+            return {"ok": False, "error": "Permission denied"}
     allowed = {"agent_type", "uid", "person_id", "squad_id", "machine_id",
                "role", "status", "config_json"}
     vals = {"name": name}
@@ -571,6 +649,119 @@ def upsert_agent(name: str, **fields) -> dict:
         return {"ok": True, "id": cur.lastrowid}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════
+#  APPROVAL
+# ═══════════════════════════════════════════════════════
+
+
+def _is_squad_admin(uid: int, squad_id: int, cur) -> bool:
+    """Check if uid is the squad owner or admin."""
+    cur.execute("SELECT owner_person_id FROM squads WHERE id = %s", (squad_id,))
+    s = cur.fetchone()
+    if not s:
+        return False
+    oid = s.get("owner_person_id")
+    if oid:
+        cur.execute("SELECT 1 FROM winpeek_accounts WHERE person_id = %s AND uid = %s", (oid, uid))
+        if cur.fetchone():
+            return True
+    # fallback: persons with the same uid
+    cur.execute("""
+        SELECT 1 FROM persons p
+        INNER JOIN winpeek_accounts wa ON p.id = wa.person_id
+        WHERE p.squad_id = %s AND wa.uid = %s
+    """, (squad_id, uid))
+    return bool(cur.fetchone())
+
+
+def approve_person(person_id: int, action: str, requester_uid: int) -> dict:
+    """Approve or reject a person registration. Only squad admin can do this."""
+    if action not in ("approved", "rejected"):
+        return {"ok": False, "error": "action must be 'approved' or 'rejected'"}
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT squad_id FROM persons WHERE id = %s", (person_id,))
+            p = cur.fetchone()
+            if not p:
+                return {"ok": False, "error": "Person not found"}
+            if not _is_squad_admin(requester_uid, p["squad_id"], cur):
+                return {"ok": False, "error": "Permission denied — must be squad admin"}
+            now = _now()
+            cur.execute(
+                "UPDATE persons SET approval_status = %s, approved_by = %s, approved_at = %s WHERE id = %s",
+                (action, requester_uid, now, person_id))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def approve_machine(machine_id: int, action: str, requester_uid: int) -> dict:
+    """Approve or reject a device registration. Only squad admin can do this."""
+    if action not in ("approved", "rejected"):
+        return {"ok": False, "error": "action must be 'approved' or 'rejected'"}
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT squad_id, person_id FROM machines WHERE id = %s", (machine_id,))
+            m = cur.fetchone()
+            if not m:
+                return {"ok": False, "error": "Machine not found"}
+
+            # Auth: squad admin OR the machine owner
+            is_authorized = False
+            if requester_uid == (m.get("winpeek_uid") or 0):
+                is_authorized = True
+            elif m.get("squad_id") and _is_squad_admin(requester_uid, m["squad_id"], cur):
+                is_authorized = True
+            if not is_authorized:
+                return {"ok": False, "error": "Permission denied"}
+
+            now = _now()
+            cur.execute(
+                "UPDATE machines SET approval_status = %s, approved_by = %s, approved_at = %s WHERE id = %s",
+                (action, requester_uid, now, machine_id))
+
+            # auto-approve linked person
+            if action == "approved" and m.get("person_id"):
+                cur.execute(
+                    "UPDATE persons SET approval_status = 'approved', approved_by = %s, approved_at = %s WHERE id = %s",
+                    (requester_uid, now, m["person_id"]))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def get_pending(squad_id: int = 0, requester_uid: int = 0) -> dict:
+    """Get all pending persons and machines (optionally filtered by squad)."""
+    conn = get_conn()
+    if conn is None: return {"persons": [], "machines": []}
+    try:
+        with conn.cursor() as cur:
+            sp = "SELECT p.*, s.name AS squad_name FROM persons p LEFT JOIN squads s ON p.squad_id = s.id WHERE p.approval_status = 'pending'"
+            sm = "SELECT m.*, s.name AS squad_name FROM machines m LEFT JOIN squads s ON m.squad_id = s.id WHERE m.approval_status = 'pending'"
+            params = []
+            if squad_id:
+                sp += " AND p.squad_id = %s"
+                sm += " AND m.squad_id = %s"
+                params = [squad_id]
+            cur.execute(sp, params)
+            persons = [_row(r) for r in cur.fetchall()]
+            cur.execute(sm, params)
+            machines = [_row(r) for r in cur.fetchall()]
+        return {"persons": persons, "machines": machines}
     finally:
         conn.close()
 
