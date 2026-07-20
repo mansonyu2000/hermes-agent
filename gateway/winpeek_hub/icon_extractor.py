@@ -79,13 +79,19 @@ def _extract_icon_from_exe(exe_path: str) -> Optional[bytes]:
         return None
 
 
+def _safe_filename(name: str) -> str:
+    """Strip all path separators and unsafe chars. Keeps alphanumeric + underscore."""
+    import re
+    safe = re.sub(r'[^a-zA-Z0-9_.-]', '_', name.lower())[:64]
+    return safe.strip('_.') or 'unnamed'
+
+
 def cache_icon(software_name: str, exe_path: str = "") -> Optional[str]:
     """Extract icon from exe and save to cache. Returns web-relative path."""
     if not exe_path or not os.path.isfile(exe_path):
         return None
 
-    safe_name = software_name.lower().replace(" ", "_").replace("/", "_")[:64]
-    png_path = ICON_CACHE / f"{safe_name}.png"
+    png_path = ICON_CACHE / f"{_safe_filename(software_name)}.png"
 
     # Skip if already cached
     if png_path.exists():
@@ -105,6 +111,5 @@ def cache_icon(software_name: str, exe_path: str = "") -> Optional[str]:
 
 def get_icon_url(software_name: str) -> str:
     """Get the URL path for a cached icon, or empty string."""
-    safe = software_name.lower().replace(" ", "_").replace("/", "_")[:64]
-    p = ICON_CACHE / f"{safe}.png"
-    return f"soft-icons/{safe}.png" if p.exists() else ""
+    p = ICON_CACHE / f"{_safe_filename(software_name)}.png"
+    return f"soft-icons/{_safe_filename(software_name)}.png" if p.exists() else ""
