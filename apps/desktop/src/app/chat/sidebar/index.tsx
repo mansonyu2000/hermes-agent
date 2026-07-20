@@ -222,7 +222,9 @@ function PeekaPopup() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false); const [sub, setSub] = useState(false)
   const [ident, setIdent] = useState<any>(null); const ref = useRef<HTMLDivElement>(null); const btn = useRef<HTMLButtonElement>(null)
-  const sync = useCallback(() => { try { setIdent(JSON.parse(localStorage.getItem('mim-identity')||'')) } catch {} }, [])
+  const sync = useCallback(() => {
+    try { setIdent(JSON.parse(localStorage.getItem('peeka-identity')||'')) } catch {}
+  }, [])
   useEffect(() => { sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [sync])
   useEffect(() => { if(!open) return; const f=(e:MouseEvent)=>{const t=e.target as Node;if(ref.current&&!ref.current.contains(t)&&btn.current&&!btn.current.contains(t)){setOpen(false);setSub(false)}};document.addEventListener('mousedown',f);return ()=>document.removeEventListener('mousedown',f)},[open])
 
@@ -244,7 +246,7 @@ function PeekaPopup() {
         <Row c='⚙' t='设置' /><Row c='★' t='收藏夹' /><Row c='🔌' t='API 服务' /><Row c='⬆' t='检查更新' /><Row c='?' t='帮助与反馈' />
         <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} /><Row c='✦' t='专业能力升级' />
         <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} /><button style={{...s,padding:'8px 16px',fontSize:12,color:'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>setSub(v=>!v)}><span style={{fontSize:14,width:20,textAlign:'center'}}>⇄</span><span style={{flex:1}}>切换账号</span></button>
-        <Row c='⤻' t='退出登录' r onClick={()=>{localStorage.removeItem('mim-identity');setIdent(null);setOpen(false)}} />
+        <Row c='⤻' t='退出登录' r onClick={()=>{localStorage.removeItem('peeka-identity');setIdent(null);setOpen(false)}} />
         {sub && <div style={{margin:'4px 12px 8px',padding:6,borderRadius:12,background:'#f3f4f6',border:'1px solid #e5e7eb'}}>
           <div style={{...s,cursor:'default',padding:'6px 8px',borderRadius:8,gap:10}}><span style={{width:26,height:26,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{ident.name[0]}</span><span style={{flex:1,fontSize:12,color:'#111827'}}>{ident.name}</span><span style={{color:'#7c3aed',fontSize:14}}>✓</span></div>
           <div style={{...s,padding:'6px 8px',borderRadius:8,gap:10,fontSize:12,color:'#9ca3af',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#e5e7eb'} onMouseLeave={e=>e.currentTarget.style.background=''}>
