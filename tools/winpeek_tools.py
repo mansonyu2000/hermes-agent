@@ -579,3 +579,395 @@ registry.register(
 )
 
 logger.info("WinPeek MIM tools: +user_info")
+
+# ── Portrait: 画像分析工具 ──────────────────────────
+
+def _portrait_calc_metrics(chats, friend):
+    """从聊天记录计算5维评分"""
+    total = len(chats)
+    if total == 0:
+        return {"familiarity": 10, "trust": 30, "curiosity": 10, "initiative": 20, "risk": 5}
+
+    from_me = sum(1 for m in chats if m.get("is_from_me"))
+    from_other = total - from_me
+    long_msgs = sum(1 for m in chats if m.get("content") and len(str(m.get("content", ""))) > 50)
+    long_ratio = long_msgs / max(total, 1)
+
+    msg_dates = set()
+    for m in chats:
+        ts = m.get("msg_ts")
+        if ts:
+            msg_dates.add(str(ts)[:10] if isinstance(ts, str) else ts.strftime("%Y-%m-%d"))
+    active_days = max(len(msg_dates), 1)
+
+    from datetime import datetime
+    first_met = friend.get("first_met")
+    days_known = 365
+    if first_met:
+        try:
+            days_known = max((datetime.now() - datetime.strptime(str(first_met)[:10], "%Y-%m-%d")).days, 30)
+        except Exception:
+            pass
+
+    familiarity = min(100, int(min(active_days / max(days_known, 30), 1) * 50 + min(total / 50, 1) * 30 + (20 if active_days > 3 else 0)))
+    trust = min(100, int((from_other / max(total, 1)) * 60 + long_ratio * 40))
+    curiosity = min(100, int(long_ratio * 70 + 20))
+    initiative = min(100, int((from_me / max(total, 1)) * 80 + 10))
+
+    st = friend.get("source_type") or ""
+    risk_map = {"card_share": 25, "phone_search": 20, "group_chat": 30, "wxid_search": 35, "qr_scan": 40}
+    risk = risk_map.get(st, 15)
+
+    return {"familiarity": familiarity, "trust": trust, "curiosity": curiosity, "initiative": initiative, "risk": risk}
+
+
+def _portrait_calc_stage(friend):
+    from datetime import datetime
+    first_met = friend.get("first_met")
+    if not first_met:
+        return "初识", 0
+    try:
+        days = (datetime.now() - datetime.strptime(str(first_met)[:10], "%Y-%m-%d")).days
+    except Exception:
+        return "初识", 0
+    if days <= 7:       return "初识", 0
+    elif days <= 30:    return "熟悉", 1
+    elif days <= 90:    return "稳定", 2
+    else:               return "长期", 3
+
+
+def _handle_wechat_accounts(args: dict) -> str:
+    """列出数据库中可用的微信账户（采集过的wxid）"""
+    import pymysql, os
+    try:
+        conn = pymysql.connect(
+            host=os.environ.get("DB_HOST", "192.168.3.23"),
+            user=os.environ.get("DB_USER", "winpeek"),
+            password=os.environ.get("DB_PASS", "Server33"),
+            database=os.environ.get("DB_NAME", "winpeek-db2"),
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor)
+    except Exception as e:
+        return json.dumps({"error": f"MySQL: {e}"})
+
+    try:
+        cur = conn.cursor()
+        # 找 self 账号：from_uid 频率最高且跨越多个 to_uid
+        cur.execute("""
+        SELECT from_uid as wxid, COUNT(DISTINCT to_uid) as contacts, COUNT(*) as msgs
+        FROM wechat_chat WHERE gid IS NULL AND is_date_sep=0 AND from_uid IS NOT NULL AND to_uid IS NOT NULL
+        GROUP BY from_uid HAVING contacts >= 2 ORDER BY msgs DESC LIMIT 10
+        """)
+        accounts = []
+        for row in cur.fetchall():
+            wxid = row["wxid"]
+            # 尝试在 wechat_friend 中找
+            cur2 = conn.cursor()
+            cur2.execute("SELECT nickname, avatar_url FROM wechat_friend WHERE nickname=%s OR alias=%s LIMIT 1", (wxid, wxid))
+            f = cur2.fetchone()
+            accounts.append({
+                "wxid": wxid,
+                "nickname": f["nickname"] if f else wxid,
+                "avatar": f.get("avatar_url", "") if f else "",
+                "contacts": row["contacts"],
+                "messages": row["msgs"],
+            })
+        return json.dumps({"ok": True, "accounts": accounts})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+    finally:
+        conn.close()
+
+
+def _handle_portrait_list(args: dict) -> str:
+    """返回画像列表（排序：谁该联系）"""
+    import pymysql
+    import os
+    limit = int(args.get("limit", 50))
+    mode = args.get("mode", "contact")  # contact | cooling | all
+    wxid = args.get("wxid", "").strip()  # 指定微信账户
+
+    try:
+        conn = pymysql.connect(
+            host=os.environ.get("DB_HOST", "192.168.3.23"),
+            user=os.environ.get("DB_USER", "winpeek"),
+            password=os.environ.get("DB_PASS", "Server33"),
+            database=os.environ.get("DB_NAME", "winpeek-db2"),
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor)
+    except Exception as e:
+        return json.dumps({"error": f"MySQL连接失败: {e}"})
+
+    try:
+        cur = conn.cursor()
+        # 获取有聊天记录的好友（可选 wxid 过滤）
+        wxid_filter = ""
+        wxid_params = []
+        if wxid:
+            wxid_filter = """
+              AND (f.nickname IN (SELECT DISTINCT to_uid FROM wechat_chat WHERE gid IS NULL AND is_date_sep=0 AND from_uid=%s)
+                OR f.nickname IN (SELECT DISTINCT from_uid FROM wechat_chat WHERE gid IS NULL AND is_date_sep=0 AND to_uid=%s)
+                OR f.alias IN (SELECT DISTINCT to_uid FROM wechat_chat WHERE gid IS NULL AND is_date_sep=0 AND from_uid=%s)
+                OR f.alias IN (SELECT DISTINCT from_uid FROM wechat_chat WHERE gid IS NULL AND is_date_sep=0 AND to_uid=%s))
+            """
+            wxid_params = [wxid, wxid, wxid, wxid]
+
+        cur.execute(f"""
+        SELECT f.id, f.wxid, f.nickname, f.alias, f.region, f.source, f.source_type,
+               f.tags, f.avatar_url, f.first_met, f.signature
+        FROM wechat_friend f
+        WHERE f.is_friend = 1 AND f.nickname IS NOT NULL
+          AND (f.nickname IN (SELECT DISTINCT from_uid FROM wechat_chat WHERE gid IS NULL AND is_date_sep=0 AND from_uid IS NOT NULL)
+            OR f.nickname IN (SELECT DISTINCT to_uid FROM wechat_chat WHERE gid IS NULL AND is_date_sep=0 AND to_uid IS NOT NULL)
+            OR f.alias IN (SELECT DISTINCT from_uid FROM wechat_chat WHERE gid IS NULL AND is_date_sep=0 AND from_uid IS NOT NULL)
+            OR f.alias IN (SELECT DISTINCT to_uid FROM wechat_chat WHERE gid IS NULL AND is_date_sep=0 AND to_uid IS NOT NULL))
+          {wxid_filter}
+        ORDER BY f.id
+        """, wxid_params)
+        friends = cur.fetchall()
+
+        results = []
+        for f in friends:
+            # 获取聊天记录
+            nickname = f["nickname"] or ""
+            alias = f["alias"] or ""
+            params = []
+            conds = []
+            for name in (nickname, alias):
+                if name:
+                    conds.append("(from_uid = %s OR to_uid = %s)")
+                    params.extend([name, name])
+            if conds:
+                cur.execute(
+                    f"SELECT id, content, is_from_me, msg_type, msg_ts FROM wechat_chat "
+                    f"WHERE ({' OR '.join(conds)}) AND gid IS NULL AND is_date_sep = 0 ORDER BY msg_ts ASC",
+                    params)
+                chats = cur.fetchall()
+            else:
+                chats = []
+
+            if not chats:
+                continue
+
+            metrics = _portrait_calc_metrics(chats, f)
+            stage, stage_idx = _portrait_calc_stage(f)
+
+            # 标签
+            source_tag_map = {"card_share": "名片分享", "phone_search": "手机号", "wxid_search": "微信号",
+                              "group_chat": "群聊", "qr_scan": "扫一扫"}
+            tags = []
+            if f.get("tags"):
+                tags.extend([t.strip() for t in str(f["tags"]).split(",") if t.strip()][:2])
+            st = f.get("source_type") or ""
+            tag = source_tag_map.get(st)
+            if tag and tag not in tags:
+                tags.insert(0, tag)
+
+            # 最后消息时间
+            last_ts = chats[-1].get("msg_ts") if chats else None
+            last_time = ""
+            days_since = 999
+            if last_ts:
+                from datetime import datetime
+                last_str = str(last_ts)[:19] if last_ts else ""
+                try:
+                    last_dt = datetime.strptime(last_str, "%Y-%m-%d %H:%M:%S")
+                    days_since = (datetime.now() - last_dt).days
+                    last_time = last_dt.strftime("%m-%d %H:%M")
+                except Exception:
+                    pass
+
+            # 优先度 = 亲密度 + 是否为商业用户
+            priority = metrics["familiarity"] * 0.5 + metrics["trust"] * 0.2 - max(0, days_since - 30) * 0.3
+
+            category = "normal"
+            if days_since > 30 and metrics["familiarity"] > 40:
+                category = "need_contact"
+            if metrics.get("risk", 0) > 30 and days_since > 14:
+                category = "biz_follow"
+
+            results.append({
+                "id": str(f["id"]),
+                "wxid": f["wxid"],
+                "name": f["nickname"],
+                "alias": f.get("alias") or "",
+                "title": f.get("signature") or f.get("alias") or "",
+                "region": f.get("region") or "",
+                "stage": stage,
+                "stage_idx": stage_idx,
+                "tags": tags,
+                "avatar": f.get("avatar_url") or "",
+                "metrics": metrics,
+                "events_count": len(chats),
+                "last_time": last_time,
+                "days_since": days_since,
+                "priority": round(priority, 1),
+                "category": category,
+                "source_type": st,
+            })
+
+        # 排序
+        if mode == "cooling":
+            results.sort(key=lambda r: (-r["days_since"], -r["metrics"]["familiarity"]))
+        else:
+            results.sort(key=lambda r: (-r["priority"]))
+
+        return json.dumps({"ok": True, "count": len(results), "items": results[:limit]})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+    finally:
+        conn.close()
+
+
+def _handle_portrait_detail(args: dict) -> str:
+    """返回单个好友的画像详情"""
+    import pymysql
+    import os
+    friend_id = args.get("friend_id") or args.get("wxid")
+    if not friend_id:
+        return json.dumps({"error": "friend_id or wxid required"})
+
+    try:
+        conn = pymysql.connect(
+            host=os.environ.get("DB_HOST", "192.168.3.23"),
+            user=os.environ.get("DB_USER", "winpeek"),
+            password=os.environ.get("DB_PASS", "Server33"),
+            database=os.environ.get("DB_NAME", "winpeek-db2"),
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor)
+    except Exception as e:
+        return json.dumps({"error": f"MySQL连接失败: {e}"})
+
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM wechat_friend WHERE id = %s OR wxid = %s LIMIT 1",
+            (friend_id, str(friend_id)))
+        f = cur.fetchone()
+        if not f:
+            return json.dumps({"error": "friend not found"})
+
+        nickname = f["nickname"] or ""
+        alias = f["alias"] or ""
+        params = []
+        conds = []
+        for name in (nickname, alias):
+            if name:
+                conds.append("(from_uid = %s OR to_uid = %s)")
+                params.extend([name, name])
+        if conds:
+            cur.execute(
+                f"SELECT id, content, is_from_me, msg_type, msg_ts FROM wechat_chat "
+                f"WHERE ({' OR '.join(conds)}) AND gid IS NULL AND is_date_sep = 0 ORDER BY msg_ts ASC",
+                params)
+            chats = cur.fetchall()
+        else:
+            chats = []
+
+        metrics = _portrait_calc_metrics(chats, f)
+        stage, stage_idx = _portrait_calc_stage(f)
+
+        # 事件聚合
+        events = []
+        batch_size = max(1, len(chats) // min(8, max(1, len(chats))))
+        batch_size = min(batch_size, 100)
+        for i in range(0, len(chats), batch_size):
+            batch = chats[i:i+batch_size]
+            if not batch:
+                continue
+            ts = batch[0].get("msg_ts")
+            date_str = str(ts)[:10] if ts else "时间待补"
+            samples = [m for m in batch if m.get("content") and len(str(m.get("content", ""))) > 5][:3]
+            sample_text = "；".join(str(m.get("content", ""))[:40] for m in samples)
+            detail_lines = [f"[{'我' if m.get('is_from_me') else 'TA'}] {str(m.get('content', ''))[:120]}" for m in batch[:12]]
+            events.append({
+                "date": date_str,
+                "title": f"对话记录 #{i//batch_size + 1}",
+                "summary": sample_text[:80] or f"共{len(batch)}条消息",
+                "detail": "\n".join(detail_lines),
+                "stage": min(stage_idx, 3),
+            })
+
+        return json.dumps({
+            "ok": True,
+            "profile": {
+                "id": str(f["id"]),
+                "wxid": f["wxid"],
+                "name": f["nickname"],
+                "alias": f.get("alias") or "",
+                "region": f.get("region") or "",
+                "source": f.get("source") or "",
+                "source_type": f.get("source_type") or "",
+                "signature": f.get("signature") or "",
+                "avatar": f.get("avatar_url") or "",
+                "first_met": str(f.get("first_met", ""))[:10] if f.get("first_met") else "",
+                "stage": stage,
+                "stage_idx": stage_idx,
+                "metrics": metrics,
+                "events": events[:15],
+                "events_count": len(chats),
+            }
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+    finally:
+        conn.close()
+
+
+# ── 注册 ──
+
+registry.register(
+    name="winpeek_wechat_accounts",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_wechat_accounts",
+        "description": "列出数据库中已采集的微信账户",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_wechat_accounts(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="列出可用微信账户",
+)
+
+registry.register(
+    name="winpeek_portrait_list",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_portrait_list",
+        "description": "获取微信好友画像列表（按沟通优先级排序）。mode: contact(谁该联系) / cooling(降温预警) / all(全部)",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "返回数量，默认50"},
+                "mode": {"type": "string", "description": "排序模式: contact/cooling/all"},
+            },
+        },
+    },
+    handler=lambda args, **kw: _handle_portrait_list(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="微信好友画像列表",
+)
+
+registry.register(
+    name="winpeek_portrait_detail",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_portrait_detail",
+        "description": "获取单个微信好友的完整画像（含5维评分+事件时间线）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "friend_id": {"type": "string", "description": "好友id或wxid"},
+            },
+            "required": ["friend_id"],
+        },
+    },
+    handler=lambda args, **kw: _handle_portrait_detail(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="微信好友完整画像",
+)
+
+logger.info("WinPeek Portrait tools registered: list + detail")
