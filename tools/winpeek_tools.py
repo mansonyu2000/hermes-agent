@@ -1330,7 +1330,25 @@ logger.info("WinPeek MIM tools: +group_leave")
 def _handle_software_list(args: dict) -> str:
     try:
         from gateway.winpeek_hub.software import list_softwares
-        return json.dumps({"softwares": list_softwares()})
+        from gateway.winpeek_hub.icon_extractor import get_icon_url, ensure_cache_dir
+        import base64 as _b64, os as _os
+        softs = list_softwares()
+        cache = ensure_cache_dir()
+        for s in softs:
+            png_path = None
+            if s.get("icon_path"):
+                png_path = cache / _os.path.basename(s["icon_path"])
+            elif s.get("exe_path"):
+                url = get_icon_url(s["name"])
+                if url:
+                    png_path = cache / url.split("/")[-1]
+            if png_path and png_path.exists():
+                try:
+                    data = png_path.read_bytes()
+                    s["icon_data"] = "data:image/png;base64," + _b64.b64encode(data).decode()
+                except Exception:
+                    pass
+        return json.dumps({"softwares": softs})
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
 

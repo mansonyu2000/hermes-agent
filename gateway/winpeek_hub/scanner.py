@@ -286,7 +286,7 @@ def scan_software() -> dict:
     """Scan and upsert all detected software. Returns summary counts."""
     ensure_tables()
     reg_entries = _scan_registry_uninstall()
-    created = updated = 0
+    created = updated = icons_extracted = 0
     seen = set()
     for e in reg_entries:
         name = e["name"].strip()
@@ -298,11 +298,24 @@ def scan_software() -> dict:
         if (not exe_path or exe_path.endswith(".ico")) and install_path:
             exe_path = _find_exe_in_dir(install_path, name_hint=name)
         cat = _guess_category(name)
+
+        # Extract and cache icon
+        icon_path = ""
+        if exe_path:
+            try:
+                from .icon_extractor import cache_icon
+                ip = cache_icon(name, exe_path)
+                if ip:
+                    icon_path = ip
+                    icons_extracted += 1
+            except Exception:
+                pass
+
         result = upsert_software(
             name,
             install_path=install_path or "",
             exe_path=exe_path or "",
-            icon_path=e.get("display_icon") or "",
+            icon_path=icon_path,
             company=e.get("publisher") or "",
             version=e.get("display_version") or "",
             category=cat,
@@ -313,7 +326,8 @@ def scan_software() -> dict:
             else:
                 updated += 1
     return {"ok": True, "scanned": len(reg_entries), "synced": len(seen),
-            "created": created, "updated": updated}
+            "created": created, "updated": updated,
+            "icons_extracted": icons_extracted}
 
 
 # ═══════════════════════════════════════════════════════
