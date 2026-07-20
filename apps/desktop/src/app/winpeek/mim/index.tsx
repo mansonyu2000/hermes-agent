@@ -599,10 +599,8 @@ export function MimView({ onClose }: { onClose: () => void }) {
         const d2: any = await gatewayRequest('winpeek_org_status', {}).catch(() => ({}))
         setNeedRegistration(!d2?.linked)
         setOrgChecked(true)
-        if (d2?.linked) {
-          localStorage.setItem('peeka-identity', JSON.stringify({ name: data.identity.nickname, role: data.identity.role, uid: data.identity.uid }))
-          window.dispatchEvent(new Event('storage'))
-        }
+        setNeedRegistration(!d2?.linked)
+        setOrgChecked(true)
         return null
       }
       return data.error || '登录失败，请检查用户名和密码'
@@ -623,10 +621,6 @@ export function MimView({ onClose }: { onClose: () => void }) {
         const d2: any = await gatewayRequest('winpeek_org_status', {}).catch(() => ({}))
         setNeedRegistration(!d2?.linked)
         setOrgChecked(true)
-        if (d2?.linked) {
-          localStorage.setItem('peeka-identity', JSON.stringify({ name: data.identity.nickname, role: data.identity.role, uid: data.identity.uid }))
-          window.dispatchEvent(new Event('storage'))
-        }
         return null
       }
       return data.error || '注册失败，请重试'
@@ -916,11 +910,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
       <MasterDetail>
         <RegistrationWizard
           identity={{ uid: identity.uid, name: identity.name, role: identity.role }}
-          onDone={() => {
-            setNeedRegistration(false); setOrgChecked(false)
-            localStorage.setItem('peeka-identity', JSON.stringify({ name: identity.name, role: identity.role, uid: identity.uid }))
-            window.dispatchEvent(new Event('storage'))
-          }}
+          onDone={() => { setNeedRegistration(false); setOrgChecked(false) }}
         />
       </MasterDetail>
     )

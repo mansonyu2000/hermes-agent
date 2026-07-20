@@ -3,7 +3,6 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { Button } from '@/components/ui/button'
@@ -60,7 +59,7 @@ import {
   toggleSidebarMessagingOpen,
   unpinSession
 } from '@/store/layout'
-import { $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
+import { $activeGatewayProfile, $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey, setActiveProfile } from '@/store/profile'
 import {
   $activeProjectId,
   $projects,
@@ -217,43 +216,48 @@ interface ChatSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onTriggerCronJob: (jobId: string) => void
 }
 
-/* Peeka account popup — self-contained, no external deps */
+/* Peeka account popup — uses Hermes built-in profiles as identity */
 function PeekaPopup() {
-  const navigate = useNavigate()
+  const profiles = useStore($profiles)
+  const activeProfile = useStore($activeGatewayProfile)
   const [open, setOpen] = useState(false); const [sub, setSub] = useState(false)
-  const [ident, setIdent] = useState<any>(null); const ref = useRef<HTMLDivElement>(null); const btn = useRef<HTMLButtonElement>(null)
-  const sync = useCallback(() => {
-    try { setIdent(JSON.parse(localStorage.getItem('peeka-identity')||'')) } catch {}
-  }, [])
-  useEffect(() => { sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [sync])
+  const ref = useRef<HTMLDivElement>(null); const btn = useRef<HTMLButtonElement>(null)
+
+  // Peeka identity = Hermes active profile (always available — default profile exists)
+  const profileNames = profiles.map(p => p.name)
+  const activeName = activeProfile || profileNames[0] || 'Peeka'
+  const letter = activeName.replace(/[^a-z0-9]/gi, '').charAt(0)?.toUpperCase() || 'P'
+  const isDefault = !profileNames.length || activeName === 'default'
+
   useEffect(() => { if(!open) return; const f=(e:MouseEvent)=>{const t=e.target as Node;if(ref.current&&!ref.current.contains(t)&&btn.current&&!btn.current.contains(t)){setOpen(false);setSub(false)}};document.addEventListener('mousedown',f);return ()=>document.removeEventListener('mousedown',f)},[open])
 
-  const s = {display:'flex',alignItems:'center',gap:8,border:'none',background:'none',cursor:'pointer',width:'100%',textAlign:'left' as const}
-  const Row = (p:{c:string;t:string;onClick?:()=>void;r?:boolean}) => <button style={{...s,padding:'8px 16px',fontSize:12,color:p.r?'#ef4444':'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{p.onClick?.();setOpen(false)}}><span style={{fontSize:14,width:20,textAlign:'center'}}>{p.c}</span><span style={{flex:1}}>{p.t}</span></button>
+  const st = {display:'flex' as const,alignItems:'center' as const,gap:8,border:'none',background:'none',cursor:'pointer',width:'100%',textAlign:'left' as const}
+  const Row = (p:{c:string;t:string;onClick?:()=>void;r?:boolean}) => <button style={{...st,padding:'8px 16px',fontSize:12,color:p.r?'#ef4444':'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{p.onClick?.();if(p.t!=='切换账号')setOpen(false)}}><span style={{fontSize:14,width:20,textAlign:'center'}}>{p.c}</span><span style={{flex:1}}>{p.t}</span></button>
 
   return <div style={{flexShrink:0,borderTop:'1px solid #e5e7eb',padding:'2px 8px 4px'}}>
-    <button ref={btn} style={{...s,padding:'6px 8px',borderRadius:6,fontSize:12,fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>setOpen(v=>!v)}>
-      <span style={{width:24,height:24,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{ident?ident.name[0]:'P'}</span>
-      <span style={{flex:1,fontWeight:500,color:'#111827',fontSize:12}}>{ident?ident.name:'Peeka'}</span>
+    <button ref={btn} style={{...st,padding:'6px 8px',borderRadius:6,fontSize:12,fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>setOpen(v=>!v)}>
+      <span style={{width:24,height:24,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{letter}</span>
+      <span style={{flex:1,fontWeight:500,color:'#111827',fontSize:12}}>{activeName}</span>
+      <span style={{fontSize:10,color:'#9ca3af'}}>{open?'▼':'▶'}</span>
     </button>
-    {open && <div ref={ref} style={{position:'fixed',zIndex:99999,bottom:42,left:6,width:260,background:'#fff',borderRadius:16,border:'1px solid #d1d5db',boxShadow:'0 20px 60px rgba(0,0,0,.3)',padding:'6px 0',maxHeight:'calc(100vh - 120px)',overflowY:'auto'}}>
-      {ident ? <>
+    {open && <div ref={ref} style={{position:'fixed',zIndex:99999,bottom:44,left:6,width:260,background:'#fff',borderRadius:16,border:'1px solid #d1d5db',boxShadow:'0 20px 60px rgba(0,0,0,.28)',padding:'6px 0',maxHeight:'calc(100vh - 120px)',overflowY:'auto'}}>
+      <>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px'}}>
-          <span style={{width:36,height:36,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:700}}>{ident.name[0]}</span>
-          <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:600,color:'#111827'}}>{ident.name}</div><div style={{fontSize:10,color:'#9ca3af'}}>{ident.role} #{ident.uid}</div></div>
+          <span style={{width:36,height:36,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:700}}>{letter}</span>
+          <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:600,color:'#111827'}}>{activeName}</div><div style={{fontSize:10,color:'#9ca3af'}}>Peeka {isDefault?'· default profile':''}</div></div>
         </div>
         <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} />
         <Row c='⚙' t='设置' /><Row c='★' t='收藏夹' /><Row c='🔌' t='API 服务' /><Row c='⬆' t='检查更新' /><Row c='?' t='帮助与反馈' />
         <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} /><Row c='✦' t='专业能力升级' />
-        <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} /><button style={{...s,padding:'8px 16px',fontSize:12,color:'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>setSub(v=>!v)}><span style={{fontSize:14,width:20,textAlign:'center'}}>⇄</span><span style={{flex:1}}>切换账号</span></button>
-        <Row c='⤻' t='退出登录' r onClick={()=>{localStorage.removeItem('peeka-identity');setIdent(null);setOpen(false)}} />
+        <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} />
+        <button style={{...st,padding:'8px 16px',fontSize:12,color:'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>setSub(v=>!v)}><span style={{fontSize:14,width:20,textAlign:'center'}}>⇄</span><span style={{flex:1}}>切换账号</span><span style={{fontSize:10,color:'#9ca3af'}}>{sub?'▼':'▶'}</span></button>
         {sub && <div style={{margin:'4px 12px 8px',padding:6,borderRadius:12,background:'#f3f4f6',border:'1px solid #e5e7eb'}}>
-          <div style={{...s,cursor:'default',padding:'6px 8px',borderRadius:8,gap:10}}><span style={{width:26,height:26,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{ident.name[0]}</span><span style={{flex:1,fontSize:12,color:'#111827'}}>{ident.name}</span><span style={{color:'#7c3aed',fontSize:14}}>✓</span></div>
-          <div style={{...s,padding:'6px 8px',borderRadius:8,gap:10,fontSize:12,color:'#9ca3af',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#e5e7eb'} onMouseLeave={e=>e.currentTarget.style.background=''}>
-            <span style={{width:26,height:26,borderRadius:'50%',border:'1px dashed #d1d5db',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:300}}>+</span><span>添加账号</span>
+          {profileNames.map(n => <div key={n} style={{...st,cursor: n===activeName?'default':'pointer',padding:'6px 8px',borderRadius:8,gap:10}} onClick={()=>{if(n!==activeName){setActiveProfile(n);window.location.reload()}setSub(false);setOpen(false)}}><span style={{width:26,height:26,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{n.replace(/[^a-z0-9]/gi,'').charAt(0)?.toUpperCase()||'?'}</span><span style={{flex:1,fontSize:12,color:'#111827'}}>{n}</span>{n===activeName && <span style={{color:'#7c3aed',fontSize:14}}>✓</span>}</div>)}
+          <div style={{...st,padding:'6px 8px',borderRadius:8,gap:10,fontSize:12,color:'#9ca3af',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#e5e7eb'} onMouseLeave={e=>e.currentTarget.style.background=''}>
+            <span style={{width:26,height:26,borderRadius:'50%',border:'1px dashed #d1d5db',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:300}}>+</span><span>添加 Peeka 账号</span>
           </div>
         </div>}
-      </> : <button style={{...s,padding:'8px 16px',fontSize:12,color:'#7c3aed',fontWeight:600,fontFamily:'inherit'}} onClick={()=>{setOpen(false);navigate('/mim')}}><span style={{fontSize:16,width:20}}>👤</span>登录 Peeka 账号</button>}
+      </>
     </div>}
   </div>
 }
