@@ -88,6 +88,7 @@ Hermes profiles (SOUL.md, model, provider…)
 ```
 
 | F1.7 | daemon 自动发现本机 agent | 15种类型, 双通道检测(config_dir + path_cmd), 幂等(已注册不重复) | F7.3 | ⚠️ | V1 — 包C |
+| **F1.9** | **Profile 切换时 uid 同步** | SOUL.md 内可能写死旧 uid, 切换 profile 后 Agent 仍以为自己是旧 uid。需要做切换时自动更新 SOUL.md 中的 uid 引用。 | F1.4, F1.8 | ❌ | 暂时不做 — 已知问题，等场景明确后再修 |
 
 ---
 
