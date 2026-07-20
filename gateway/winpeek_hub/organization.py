@@ -20,9 +20,8 @@ Relations:
 
 import json as _json
 import logging
-import random
+import secrets
 import socket
-import string
 from datetime import datetime
 from typing import Any
 
@@ -781,7 +780,8 @@ def search_squads(q: str, max_results: int = 10) -> list[dict]:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM squads WHERE name LIKE %s ORDER BY name LIMIT %s",
+                "SELECT id, name, description, owner_person_id, created_at, updated_at "
+                "FROM squads WHERE name LIKE %s ORDER BY name LIMIT %s",
                 (f"%{q}%", max_results))
             return [_row(r) for r in cur.fetchall()]
     finally:
@@ -818,7 +818,7 @@ def register_with_squad(uid: int, squad_id: int, is_new_squad: bool = False,
                 # Generate 4-digit invite code
                 code = ''
                 for _ in range(10):
-                    code = ''.join(random.choices(string.digits, k=4))
+                    code = f"{secrets.randbelow(10000):04d}"
                     cur.execute("SELECT 1 FROM squads WHERE invite_code = %s", (code,))
                     if not cur.fetchone():
                         break
