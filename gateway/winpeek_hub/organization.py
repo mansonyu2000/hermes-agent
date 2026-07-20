@@ -811,11 +811,16 @@ def register_with_squad(uid: int, squad_id: int, is_new_squad: bool = False,
                         squad_name: str = "", squad_desc: str = "",
                         person_name: str = "", email: str = "",
                         phone: str = "", hostname: str = "",
-                        invite_code: str = "") -> dict:
+                        invite_code: str = "",
+                        industry: str = "", address: str = "",
+                        website: str = "", contact_email: str = "",
+                        contact_phone: str = "", legal_person: str = "",
+                        ) -> dict:
     """Complete one-call registration.
 
     - is_new_squad: creates squad, person=owner, auto-approved
     - else: join existing squad, person=pending
+    - org profile fields (industry/address/website/...) passed to upsert_squad
     """
     if not uid:
         return {"ok": False, "error": "uid required"}
@@ -841,9 +846,17 @@ def register_with_squad(uid: int, squad_id: int, is_new_squad: bool = False,
                     cur.execute("SELECT 1 FROM squads WHERE invite_code = %s", (code,))
                     if not cur.fetchone():
                         break
+                org_fields = {"industry": industry, "address": address,
+                    "website": website, "contact_email": contact_email,
+                    "contact_phone": contact_phone, "legal_person": legal_person}
+                org_cols = [k for k, v in org_fields.items() if v]
+                org_vals = [org_fields[k] for k in org_cols]
+                cols = ["name", "description", "invite_code"] + org_cols + ["created_at", "updated_at"]
+                vals = [squad_name, squad_desc, code] + org_vals + [now, now]
+                ph = ", ".join("%s" for _ in vals)
                 cur.execute(
-                    "INSERT INTO squads (name, description, invite_code, created_at, updated_at) VALUES (%s, %s, %s, %s, %s)",
-                    (squad_name, squad_desc, code, now, now))
+                    f"INSERT INTO squads ({', '.join(cols)}) VALUES ({ph})",
+                    vals)
                 sqid = cur.lastrowid
             else:
                 sqid = 0

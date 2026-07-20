@@ -1941,6 +1941,12 @@ def _handle_register_with_squad(args: dict) -> str:
             phone=(args.get("phone") or "").strip(),
             hostname=(args.get("hostname") or "").strip(),
             invite_code=(args.get("invite_code") or "").strip(),
+            industry=(args.get("industry") or "").strip(),
+            address=(args.get("address") or "").strip(),
+            website=(args.get("website") or "").strip(),
+            contact_email=(args.get("contact_email") or "").strip(),
+            contact_phone=(args.get("contact_phone") or "").strip(),
+            legal_person=(args.get("legal_person") or "").strip(),
         ))
     except ImportError: return json.dumps({"error": "Not loaded"})
 

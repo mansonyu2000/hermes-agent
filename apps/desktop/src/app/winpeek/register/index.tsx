@@ -36,6 +36,13 @@ export function RegistrationWizard({
   // Create form
   const [squadName, setSquadName] = useState('')
   const [squadDesc, setSquadDesc] = useState('')
+  const [squadIndustry, setSquadIndustry] = useState('')
+  const [squadAddr, setSquadAddr] = useState('')
+  const [squadWeb, setSquadWeb] = useState('')
+  const [squadEmail, setSquadEmail] = useState('')
+  const [squadPhone, setSquadPhone] = useState('')
+  const [squadLegal, setSquadLegal] = useState('')
+  const [showMoreFields, setShowMoreFields] = useState(false)
 
   // Join form
   const [searchQ, setSearchQ] = useState('')
@@ -72,6 +79,9 @@ export function RegistrationWizard({
       const d: any = await rq('winpeek_register_with_squad', {
         is_new_squad: true, squad_name: squadName.trim(), squad_desc: squadDesc.trim(),
         person_name: identity.name, hostname: '',
+        industry: squadIndustry.trim(), address: squadAddr.trim(),
+        website: squadWeb.trim(), contact_email: squadEmail.trim(),
+        contact_phone: squadPhone.trim(), legal_person: squadLegal.trim(),
       })
       if (d?.ok) {
         if (d.invite_code) setCreatedCode(d.invite_code)
@@ -134,10 +144,51 @@ export function RegistrationWizard({
                 placeholder="例: 深圳市互动时代科技有限公司" value={squadName} />
             </div>
             <div>
-              <label className="text-xs text-(--ui-text-secondary)">简介</label>
+              <label className="text-xs text-(--ui-text-secondary)">简介 (可选)</label>
               <Input className="mt-1" onChange={e => setSquadDesc(e.target.value)}
                 placeholder="简短描述" value={squadDesc} />
             </div>
+            <button type="button" className="w-full text-center text-[0.6rem] text-(--ui-text-quaternary) hover:text-(--ui-accent)" onClick={() => setShowMoreFields(!showMoreFields)}>
+              {showMoreFields ? '收起更多字段' : '+ 更多组织信息（行业、地址、网站、联系方式）'}
+            </button>
+            {showMoreFields && (
+              <div className="space-y-3 rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-surface) p-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[0.6rem] text-(--ui-text-quaternary)">行业</label>
+                    <Input className="mt-0.5 h-7 text-xs" onChange={e => setSquadIndustry(e.target.value)}
+                      placeholder="信息技术/金融/教育..." value={squadIndustry} />
+                  </div>
+                  <div>
+                    <label className="text-[0.6rem] text-(--ui-text-quaternary)">法人代表</label>
+                    <Input className="mt-0.5 h-7 text-xs" onChange={e => setSquadLegal(e.target.value)}
+                      placeholder="姓名" value={squadLegal} />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[0.6rem] text-(--ui-text-quaternary)">注册地址</label>
+                  <Input className="mt-0.5 h-7 text-xs" onChange={e => setSquadAddr(e.target.value)}
+                    placeholder="省市地址" value={squadAddr} />
+                </div>
+                <div>
+                  <label className="text-[0.6rem] text-(--ui-text-quaternary)">网站</label>
+                  <Input className="mt-0.5 h-7 text-xs" onChange={e => setSquadWeb(e.target.value)}
+                    placeholder="https://..." value={squadWeb} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[0.6rem] text-(--ui-text-quaternary)">联系邮箱</label>
+                    <Input className="mt-0.5 h-7 text-xs" onChange={e => setSquadEmail(e.target.value)}
+                      placeholder="contact@..." value={squadEmail} />
+                  </div>
+                  <div>
+                    <label className="text-[0.6rem] text-(--ui-text-quaternary)">联系电话</label>
+                    <Input className="mt-0.5 h-7 text-xs" onChange={e => setSquadPhone(e.target.value)}
+                      placeholder="区号-号码" value={squadPhone} />
+                  </div>
+                </div>
+              </div>
+            )}
             <Button className="w-full" disabled={!squadName.trim() || submitting}
               onClick={handleCreate} size="sm">
               {submitting ? '创建中...' : `创建并加入 · ${squadName ? squadName.slice(0, 12) : ''}`}
