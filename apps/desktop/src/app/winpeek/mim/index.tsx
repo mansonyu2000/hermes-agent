@@ -205,7 +205,16 @@ function LoginPanel({ existingUsers, onLogin, onRegister }: {
 /* ── Profile Panel (self) ────────────────────── */
 
 function ProfilePanel({ identity, onLogout, onBack }: { identity: WinPeekIdentity; onLogout: () => void; onBack?: () => void }) {
+  const { requestGateway: rq } = useGatewayRequest()
+  const [squad, setSquad] = useState<any>(null)
   const skills = identity.skills ? identity.skills.split(',').filter(Boolean) : []
+
+  useEffect(() => {
+    rq('winpeek_org_status', {}).then((d: any) => {
+      if (d?.linked && d?.squad) setSquad(d.squad)
+    }).catch(() => {})
+  }, [rq])
+
   return (
     <div className="p-4 space-y-4">
       {onBack && (
@@ -218,6 +227,24 @@ function ProfilePanel({ identity, onLogout, onBack }: { identity: WinPeekIdentit
         <h3 className="text-base font-semibold text-foreground">{identity.name}</h3>
         <p className="text-xs text-(--ui-text-tertiary)">{identity.title || identity.role} · #{identity.uid}</p>
       </div>
+      {/* Organization card */}
+      {squad && (
+        <div className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-surface) p-3">
+          <div className="mb-2 text-[0.6rem] font-medium text-(--ui-text-quaternary) uppercase">组织</div>
+          <div className="text-sm font-semibold text-foreground">{squad.name}</div>
+          {squad.description && <div className="mt-0.5 text-xs text-(--ui-text-tertiary)">{squad.description}</div>}
+          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            {squad.industry && <div><span className="text-(--ui-text-quaternary)">行业</span> <span>{squad.industry}</span></div>}
+            {squad.address && <div><span className="text-(--ui-text-quaternary)">地址</span> <span>{squad.address}</span></div>}
+            {squad.legal_person && <div><span className="text-(--ui-text-quaternary)">法人</span> <span>{squad.legal_person}</span></div>}
+            {squad.contact_phone && <div><span className="text-(--ui-text-quaternary)">电话</span> <span>{squad.contact_phone}</span></div>}
+            {squad.website && <div><span className="text-(--ui-text-quaternary)">网站</span> <span className="truncate">{squad.website}</span></div>}
+            {squad.contact_email && <div><span className="text-(--ui-text-quaternary)">邮箱</span> <span className="truncate">{squad.contact_email}</span></div>}
+            {squad.founded_at && <div><span className="text-(--ui-text-quaternary)">成立</span> <span>{squad.founded_at}</span></div>}
+            {squad.created_at && <div><span className="text-(--ui-text-quaternary)">注册</span> <span>{String(squad.created_at).slice(0, 10)}</span></div>}
+          </div>
+        </div>
+      )}
       <div className="space-y-2 rounded-lg border border-(--ui-stroke-tertiary) p-3 text-xs">
         <div className="flex justify-between"><span className="text-(--ui-text-secondary)">角色</span><span>{identity.role}</span></div>
         {identity.title && <div className="flex justify-between"><span className="text-(--ui-text-secondary)">职位</span><span>{identity.title}</span></div>}
