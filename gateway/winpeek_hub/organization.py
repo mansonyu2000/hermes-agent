@@ -123,7 +123,13 @@ def ensure_tables():
             })
 
             # ── squads.owner_person_id ──
-            _ensure_cols(cur, "squads", {"owner_person_id": "INT", "invite_code": "VARCHAR(8)"})
+            _ensure_cols(cur, "squads", {"owner_person_id": "INT", "invite_code": "VARCHAR(8)",
+                # Organization profile fields
+                "address": "TEXT", "industry": "VARCHAR(64)",
+                "founded_at": "VARCHAR(16)", "legal_person": "VARCHAR(64)",
+                "contact_phone": "VARCHAR(32)", "website": "VARCHAR(256)",
+                "contact_email": "VARCHAR(128)", "managed_by_uid": "INT",
+            })
 
             # ── winpeek_accounts: person ↔ users.uid ──
             cur.execute("""
@@ -241,7 +247,8 @@ def upsert_squad(name: str, **fields) -> dict:
     ensure_tables()
     conn = get_conn()
     if conn is None: return {"ok": False, "error": "DB unavailable"}
-    allowed = {"description", "meta"}
+    allowed = {"description", "meta", "address", "industry", "founded_at",
+               "legal_person", "contact_phone", "website", "contact_email", "managed_by_uid"}
     vals = {"name": name}
     for k in allowed:
         if k in fields and fields[k] is not None:
