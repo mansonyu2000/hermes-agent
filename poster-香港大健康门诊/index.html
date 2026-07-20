@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>香港大健康门诊 - 宣传海报</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@100;300;400;500;700;900&family=Noto+Serif+SC:wght@400;600;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: #1a1a2e;
+    font-family: 'Noto Sans SC', -apple-system, sans-serif;
+    padding: 40px;
+  }
+
+  .poster {
+    width: 800px;
+    height: 1130px;
+    position: relative;
+    background: linear-gradient(160deg, #0a1628 0%, #1a2a4a 40%, #1e3a5f 70%, #0d2137 100%);
+    overflow: hidden;
+    box-shadow: 0 20px 80px rgba(0,0,0,0.6);
+    border-radius: 4px;
+  }
+
+  /* Decorative background elements */
+  .bg-circle-1 {
+    position: absolute;
+    width: 600px;
+    height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(42, 157, 143, 0.12) 0%, transparent 70%);
+    top: -200px;
+    right: -150px;
+  }
+  .bg-circle-2 {
+    position: absolute;
+    width: 450px;
+    height: 450px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(38, 139, 210, 0.08) 0%, transparent 70%);
+    bottom: -100px;
+    left: -100px;
+  }
+  .bg-circle-3 {
+    position: absolute;
+    width: 300px;
+    height: 300px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 193, 7, 0.06) 0%, transparent 70%);
+    bottom: 300px;
+    right: -80px;
+  }
+
+  /* Decorative grid lines */
+  .grid-overlay {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Top accent stripe */
+  .top-stripe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 6px;
+    background: linear-gradient(90deg, #2a9d8f, #268bd2, #e9c46a);
+    z-index: 10;
+  }
+
+  /* Header section */
+  .header {
+    position: relative;
+    z-index: 5;
+    padding: 60px 60px 0;
+    text-align: center;
+  }
+
+  .hk-badge {
+    display: inline-block;
+    background: rgba(42, 157, 143, 0.15);
+    border: 1px solid rgba(42, 157, 143, 0.3);
+    color: #2a9d8f;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 4px;
+    padding: 6px 20px;
+    border-radius: 20px;
+    margin-bottom: 20px;
+    text-transform: uppercase;
+  }
+
+  .clinic-name {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 52px;
+    font-weight: 900;
+    background: linear-gradient(135deg, #ffffff 0%, #e0e8f0 50%, #b8d4e8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.2;
+    letter-spacing: 6px;
+    margin-bottom: 8px;
+  }
+
+  .clinic-name-en {
+    font-size: 13px;
+    font-weight: 300;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    margin-bottom: 30px;
+  }
+
+  .divider-line {
+    width: 80px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #2a9d8f, transparent);
+    margin: 0 auto 16px;
+  }
+
+  .tagline {
+    font-size: 16px;
+    font-weight: 300;
+    color: rgba(255,255,255,0.6);
+    letter-spacing: 3px;
+    line-height: 1.6;
+  }
+
+  /* Core services - center block */
+  .services {
+    position: relative;
+    z-index: 5;
+    padding: 40px 60px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+
+  .service-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 20px 16px;
+    text-align: center;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+  }
+
+  .service-card:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(42, 157, 143, 0.3);
+    transform: translateY(-2px);
+  }
+
+  .service-icon {
+    font-size: 28px;
+    margin-bottom: 10px;
+    display: block;
+  }
+
+  .service-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #e0e8f0;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+
+  .service-desc {
+    font-size: 11px;
+    font-weight: 300;
+    color: rgba(255,255,255,0.45);
+    line-height: 1.5;
+  }
+
+  /* Central CTA area */
+  .cta-area {
+    position: relative;
+    z-index: 5;
+    padding: 10px 60px 0;
+    text-align: center;
+  }
+
+  .cta-title {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: #e9c46a;
+    letter-spacing: 4px;
+    margin-bottom: 6px;
+  }
+
+  .cta-sub {
+    font-size: 13px;
+    font-weight: 300;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 2px;
+    margin-bottom: 24px;
+  }
+
+  .cta-button {
+    display: inline-block;
+    background: linear-gradient(135deg, #2a9d8f, #21867a);
+    color: #fff;
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: 3px;
+    padding: 14px 48px;
+    border-radius: 30px;
+    text-decoration: none;
+    box-shadow: 0 4px 20px rgba(42, 157, 143, 0.3);
+    transition: all 0.3s ease;
+  }
+
+  .cta-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(42, 157, 143, 0.45);
+  }
+
+  /* Info bar */
+  .info-bar {
+    position: relative;
+    z-index: 5;
+    padding: 30px 60px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-top: 8px;
+  }
+
+  .info-item {
+    text-align: center;
+  }
+
+  .info-label {
+    font-size: 10px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.3);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .info-value {
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.75);
+    letter-spacing: 1px;
+  }
+
+  .info-value.small {
+    font-size: 12px;
+  }
+
+  /* Bottom decorative section */
+  .bottom-section {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    padding: 20px 60px 30px;
+    background: linear-gradient(0deg, rgba(0,0,0,0.4) 0%, transparent 100%);
+  }
+
+  .bottom-divider {
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(42, 157, 143, 0.3), rgba(38, 139, 210, 0.3), transparent);
+    margin-bottom: 20px;
+  }
+
+  .bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .bottom-left {
+    text-align: left;
+  }
+
+  .bottom-center {
+    text-align: center;
+  }
+
+  .bottom-right {
+    text-align: right;
+  }
+
+  .qr-placeholder {
+    width: 80px;
+    height: 80px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: rgba(255,255,255,0.25);
+    letter-spacing: 1px;
+  }
+
+  .bottom-text-sm {
+    font-size: 11px;
+    color: rgba(255,255,255,0.3);
+    letter-spacing: 1px;
+    line-height: 1.8;
+  }
+
+  .bottom-text-xs {
+    font-size: 9px;
+    color: rgba(255,255,255,0.2);
+    letter-spacing: 1px;
+  }
+
+  /* Decorative cross / plus sign elements */
+  .med-cross {
+    position: absolute;
+    font-size: 180px;
+    font-weight: 100;
+    color: rgba(42, 157, 143, 0.04);
+    z-index: 1;
+  }
+  .med-cross-1 {
+    bottom: 150px;
+    right: 40px;
+    transform: rotate(15deg);
+  }
+  .med-cross-2 {
+    top: 200px;
+    left: 30px;
+    transform: rotate(-10deg);
+    font-size: 120px;
+    color: rgba(38, 139, 210, 0.04);
+  }
+
+  /* Hong Kong silhouette line art */
+  .hk-silhouette {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    z-index: 2;
+    display: flex;
+    align-items: flex-end;
+  }
+
+  .building {
+    flex: 1;
+    background: linear-gradient(0deg, rgba(255,255,255,0.02) 0%, transparent 100%);
+    height: 100%;
+    clip-path: polygon(
+      5% 100%, 5% 40%, 8% 40%, 8% 100%,
+      12% 100%, 12% 20%, 16% 20%, 16% 100%,
+      20% 100%, 20% 55%, 23% 55%, 23% 100%,
+      27% 100%, 27% 15%, 31% 15%, 31% 100%,
+      35% 100%, 35% 30%, 38% 30%, 38% 100%,
+      42% 100%, 42% 10%, 46% 10%, 46% 100%,
+      50% 100%, 50% 25%, 53% 25%, 53% 100%,
+      57% 100%, 57% 45%, 60% 45%, 60% 100%,
+      64% 100%, 64% 18%, 68% 18%, 68% 100%,
+      72% 100%, 72% 35%, 75% 35%, 75% 100%,
+      79% 100%, 79% 12%, 83% 12%, 83% 100%,
+      87% 100%, 87% 28%, 90% 28%, 90% 100%,
+      94% 100%, 94% 50%, 97% 50%, 97% 100%
+    );
+  }
+
+  /* Floating particles */
+  .particle {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    background: rgba(42, 157, 143, 0.2);
+    border-radius: 50%;
+    z-index: 1;
+    animation: float 8s infinite ease-in-out;
+  }
+  .particle:nth-child(1) { top: 15%; left: 10%; animation-delay: 0s; }
+  .particle:nth-child(2) { top: 25%; right: 15%; animation-delay: 2s; width: 3px; height: 3px; background: rgba(38, 139, 210, 0.15); }
+  .particle:nth-child(3) { top: 55%; left: 85%; animation-delay: 4s; width: 5px; height: 5px; background: rgba(233, 196, 106, 0.1); }
+  .particle:nth-child(4) { top: 70%; left: 5%; animation-delay: 6s; width: 3px; height: 3px; }
+  .particle:nth-child(5) { top: 40%; left: 90%; animation-delay: 3s; width: 4px; height: 4px; background: rgba(38, 139, 210, 0.12); }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0) scale(1); opacity: 0.3; }
+    50% { transform: translateY(-20px) scale(1.5); opacity: 0.6; }
+  }
+
+  /* Print optimization */
+  @media print {
+    body { padding: 0; background: white; }
+    .poster { box-shadow: none; }
+  }
+
+  /* Responsive for screen viewing */
+  @media (max-width: 860px) {
+    body { padding: 10px; }
+    .poster { width: 100%; height: auto; min-height: 100vh; }
+    .header { padding: 40px 30px 0; }
+    .clinic-name { font-size: 36px; }
+    .services { padding: 30px 30px; grid-template-columns: 1fr; }
+    .info-bar { padding: 20px 30px; grid-template-columns: 1fr; gap: 12px; }
+    .cta-area { padding: 10px 30px 0; }
+    .bottom-section { padding: 20px 30px; }
+    .bottom-grid { grid-template-columns: 1fr; text-align: center; }
+    .bottom-left, .bottom-right { text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<div class="poster">
+
+  <!-- Top stripe -->
+  <div class="top-stripe"></div>
+
+  <!-- Background elements -->
+  <div class="bg-circle-1"></div>
+  <div class="bg-circle-2"></div>
+  <div class="bg-circle-3"></div>
+  <div class="grid-overlay"></div>
+
+  <!-- Medical cross decorations -->
+  <div class="med-cross med-cross-1">✚</div>
+  <div class="med-cross med-cross-2">✚</div>
+
+  <!-- HK skyline -->
+  <div class="hk-silhouette">
+    <div class="building"></div>
+  </div>
+
+  <!-- Floating particles -->
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="hk-badge">✦ HONG KONG</div>
+    <div class="clinic-name">香港大健康门诊</div>
+    <div class="clinic-name-en">Hong Kong Grand Health Clinic</div>
+    <div class="divider-line"></div>
+    <div class="tagline">
+      专业 · 关怀 · 全面健康管理
+    </div>
+  </div>
+
+  <!-- Services -->
+  <div class="services">
+    <div class="service-card">
+      <span class="service-icon">🏥</span>
+      <div class="service-title">全科诊疗</div>
+      <div class="service-desc">内科、外科、儿科<br>一站式综合医疗服务</div>
+    </div>
+    <div class="service-card">
+      <span class="service-icon">🫀</span>
+      <div class="service-title">专科会诊</div>
+      <div class="service-desc">心脏科、骨科、内分泌<br>香港专科医师团队</div>
+    </div>
+    <div class="service-card">
+      <span class="service-icon">🔬</span>
+      <div class="service-title">体检筛查</div>
+      <div class="service-desc">全面健康检查<br>癌症早期筛查项目</div>
+    </div>
+    <div class="service-card">
+      <span class="service-icon">💊</span>
+      <div class="service-title">中医调理</div>
+      <div class="service-desc">中药调理、针灸推拿<br>体质辨识与养生指导</div>
+    </div>
+    <div class="service-card">
+      <span class="service-icon">🧬</span>
+      <div class="service-title">疫苗注射</div>
+      <div class="service-desc">流感疫苗、HPV疫苗<br>旅行疫苗咨询</div>
+    </div>
+    <div class="service-card">
+      <span class="service-icon">❤️</span>
+      <div class="service-title">慢病管理</div>
+      <div class="service-desc">糖尿病、高血压管理<br>个性化健康方案</div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta-area">
+    <div class="cta-title">守护您与家人的健康</div>
+    <div class="cta-sub">立即预约 · 尊享专业医疗关怀</div>
+    <a href="#" class="cta-button">预约咨询</a>
+  </div>
+
+  <!-- Info bar -->
+  <div class="info-bar">
+    <div class="info-item">
+      <div class="info-label">地址</div>
+      <div class="info-value small">香港九龙尖沙咀弥敦道<br>100号东英大厦15楼</div>
+    </div>
+    <div class="info-item">
+      <div class="info-label">营业时间</div>
+      <div class="info-value small">周一至周六 9:00 - 19:00<br>周日及公众假期 休息</div>
+    </div>
+    <div class="info-item">
+      <div class="info-label">预约热线</div>
+      <div class="info-value">+852 1234 5678</div>
+    </div>
+  </div>
+
+  <!-- Bottom section -->
+  <div class="bottom-section">
+    <div class="bottom-divider"></div>
+    <div class="bottom-grid">
+      <div class="bottom-left">
+        <div class="bottom-text-sm">🏥 立即预约 · 专业服务</div>
+        <div class="bottom-text-xs">诊所编号: HK-MD-2024-001</div>
+      </div>
+      <div class="bottom-center">
+        <div class="qr-placeholder">扫码<br>预约</div>
+      </div>
+      <div class="bottom-right">
+        <div class="bottom-text-sm">📱 微信: HKGrandHealth</div>
+        <div class="bottom-text-xs">www.hkgrandhealth.com.hk</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

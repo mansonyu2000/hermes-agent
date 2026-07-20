@@ -248,8 +248,8 @@ function WinPeekSidebarBadge() {
     <div className="shrink-0 px-2.5 pb-1">
       <button
         className="flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-[0.75rem] text-(--ui-text-tertiary) transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground"
-        onClick={() => navigate('/mim')}
-        title={`WinPeek: ${ident.name} · #${ident.uid}`}
+        onClick={() => navigate('/mim?profile=1')}
+        title={`WinPeek: ${ident.name} · ${ident.uid}`}
       >
         <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] bg-(--ui-accent)/15 text-[0.55rem] font-semibold text-(--ui-accent)">
           {ident.name.charAt(0)}

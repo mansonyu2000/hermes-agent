@@ -542,7 +542,13 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const { t } = useI18n()
   const { requestGateway: gatewayRequest } = useGatewayRequest()
   const [identity, setIdentity] = useState<WinPeekIdentity | null>(loadSavedIdentity)
-  const [showProfile, setShowProfile] = useState(false)
+  const [showProfile, setShowProfile] = useState(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('profile') === '1') {
+      window.history.replaceState(null, '', window.location.pathname) // clear ?profile=1 from URL
+      return true
+    }
+    return false
+  })
   const [viewContactUid, setViewContactUid] = useState<number | null>(null)
 
   const [contacts, setContacts] = useState<Contact[]>([])
