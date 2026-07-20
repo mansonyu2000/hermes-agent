@@ -45,6 +45,32 @@
 | F1.5 | 身份切换 | 切换清空消息列表, history 按新 uid 重查, poll 跟随新 uid, send 用新 uid | F1.4, F3.3, F9.2 | ❌ | V1 — 包D |
 | F1.6 | 两步新建智能体 | 第1步: 15种类型网格(已发现高亮), 第2步: 预填名 `{machine}-{type}-{n}`, 提交调 login | F1.7, F1.4 | ❌ | V1 — 包D |
 | F1.7 | daemon 自动发现本机 agent | 15种类型, 双通道检测(config_dir + path_cmd), 幂等(已注册不重复) | F7.3 | ⚠️ | V1 — 包C |
+| **F1.8** | **MIM 账号归属模型** | `users.master_uid` → `persons.id`, 一人可有多个 MIM 账号, MIM 账号也可以无主(独立Agent号)。有主账号继承主人的公司/资源权限。任何人/Agent 凭密码即可登录任意 MIM 账号。 | F1.1, F4.x | ✅ | **2026-07-21** |
+
+### MIM 账号归属规则 (2026-07-21)
+
+```
+MIM 账号 (users.uid)
+│
+├── master_uid = NULL/0    → 独立账号 (Agent/公共号)
+│                             任何人都可用密码登录
+│                             不继承任何人的组织信息
+│
+└── master_uid = <person_id> → 真人归属账号
+                               继承主人的:
+                               ├── squad (公司) 信息
+                               ├── persons 资料
+                               └── 公司资源访问权
+                               谁拿到密码谁就能登录
+```
+
+**设计原则：**
+- MIM 账号是轻量的消息账号，不是"人"
+- 一个人（真人）可以有多个 MIM 账号（如 yuyangmin, yuyangmin-work）
+- MIM 账号可以不属于任何人（纯 Agent 号，如 BackendCoder, DB1003）
+- 登录靠密码，不验证"你是谁" — 密码即身份
+- 有主账号自动继承主人的组织信息，方便数据统计和资源访问
+- `winpeek_accounts` 表是多余中间层，直接用 `users.master_uid` 一步到位
 
 ---
 

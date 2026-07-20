@@ -351,6 +351,28 @@ def _handle_mim_login(args: dict) -> str:
         upsert_machine(hostname, device_type="pc", winpeek_uid=result["uid"])
     except Exception:
         pass
+    # Check if this MIM account belongs to a person (via users.master_uid)
+    try:
+        from gateway.winpeek_hub.db import get_conn
+        conn2 = get_conn()
+        if conn2:
+            with conn2.cursor() as cur2:
+                cur2.execute("""
+                    SELECT u.master_uid, p.name AS person_name, p.squad_id, s.name AS squad_name
+                    FROM users u
+                    LEFT JOIN persons p ON u.master_uid = p.id
+                    LEFT JOIN squads s ON p.squad_id = s.id
+                    WHERE u.uid = %s
+                """, (result["uid"],))
+                row = cur2.fetchone()
+                if row and row.get("master_uid"):
+                    result["master_uid"] = row["master_uid"]
+                    result["person_name"] = row.get("person_name", "")
+                    result["squad_id"] = row.get("squad_id", 0)
+                    result["squad_name"] = row.get("squad_name", "")
+            conn2.close()
+    except Exception:
+        pass
     return json.dumps({"ok": True, "identity": result})
 
 
@@ -1856,6 +1878,46 @@ for rpc_name, desc, params, handler in [
     )
 
 logger.info("WinPeek agent tools registered: list + upsert")
+
+# ── MIM Master (set person association) ──
+
+
+def _handle_mim_set_master(args: dict) -> str:
+    """Set the master (person) for a MIM account via users.master_uid"""
+    uid = int(args.get("uid", 0) or 0)
+    master_uid = int(args.get("master_uid", 0) or 0)  # master_uid = persons.id
+    if not uid or not master_uid:
+        return json.dumps({"error": "uid and master_uid required"})
+    try:
+        from gateway.winpeek_hub.db import get_conn
+        conn = get_conn()
+        if not conn:
+            return json.dumps({"error": "DB unavailable"})
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM persons WHERE id = %s", (master_uid,))
+            if not cur.fetchone():
+                conn.close()
+                return json.dumps({"error": f"Person {master_uid} not found"})
+            cur.execute("UPDATE users SET master_uid = %s WHERE uid = %s", (master_uid, uid))
+            conn.commit()
+        conn.close()
+        return json.dumps({"ok": True, "uid": uid, "master_uid": master_uid})
+    except ImportError:
+        return json.dumps({"error": "Not loaded"})
+
+
+registry.register(
+    name="winpeek_mim_set_master", toolset="winpeek_rpa",
+    schema={"name": "winpeek_mim_set_master",
+            "description": "Set the master (person) for a MIM account. master_uid = persons.id.",
+            "parameters": {"type": "object",
+                           "properties": {"uid": {"type": "integer"}, "master_uid": {"type": "integer"}},
+                           "required": ["uid", "master_uid"]}},
+    handler=lambda args, **kw: _handle_mim_set_master(args), check_fn=lambda: True, requires_env=[],
+    description="MIM account master association",
+)
+
+logger.info("WinPeek MIM master tool registered")
 
 # ── APPROVAL RPCs ──
 

@@ -14744,6 +14744,14 @@ def _(rid, params: dict) -> dict:
     except Exception: return _ok(rid, {"result": result})
 
 
+@method("winpeek_mim_set_master")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_mim_set_master
+    result = _handle_mim_set_master(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
 @method("winpeek_person_approve")
 def _(rid, params: dict) -> dict:
     from tools.winpeek_tools import _handle_person_approve

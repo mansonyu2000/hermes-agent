@@ -208,11 +208,11 @@ def _get_user_squad_ids(uid: int) -> set[int]:
                 (uid,))
             for r in cur.fetchall():
                 ids.add(r["squad_id"])
-            # via person link
+            # via users.master_uid → persons.squad_id
             cur.execute("""
                 SELECT DISTINCT p.squad_id FROM persons p
-                INNER JOIN winpeek_accounts wa ON p.id = wa.person_id
-                WHERE wa.uid = %s AND p.squad_id IS NOT NULL
+                INNER JOIN users u ON u.master_uid = p.id
+                WHERE u.uid = %s AND p.squad_id IS NOT NULL
             """, (uid,))
             for r in cur.fetchall():
                 ids.add(r["squad_id"])
@@ -264,7 +264,7 @@ def upsert_squad(name: str, requester_uid: int = 0, **fields) -> dict:
                     oid = existing.get("owner_person_id")
                     if not oid or not requester_uid:
                         return {"ok": False, "error": "Only squad owner can set managed_by_uid"}
-                    cur.execute("SELECT 1 FROM winpeek_accounts WHERE person_id = %s AND uid = %s", (oid, requester_uid))
+                    cur.execute("SELECT 1 FROM users WHERE master_uid = %s AND uid = %s", (oid, requester_uid))
                     if not cur.fetchone():
                         return {"ok": False, "error": "Only squad owner can set managed_by_uid"}
                     vals["managed_by_uid"] = fields["managed_by_uid"]
@@ -450,23 +450,34 @@ def get_machine_detail(machine_id: int, requester_uid: int = 0) -> dict | None:
 
 
 def get_org_status(winpeek_uid: int) -> dict:
-    """Check if a uid's machine is linked to a squad. Returns options for frontend."""
+    """Check if a uid is linked to a squad (via machines.squad_id or users.master_uid)."""
     conn = get_conn()
     if conn is None: return {"linked": False, "squads": []}
     try:
         with conn.cursor() as cur:
-            # find machine for this uid
+            # 1) check machines.squad_id
             cur.execute("SELECT id, squad_id, hostname FROM machines WHERE winpeek_uid = %s ORDER BY last_seen DESC LIMIT 1", (winpeek_uid,))
             m = cur.fetchone()
-            if m and m["squad_id"]:
+            mid = m["id"] if m else None
+            hn = m["hostname"] if m else ""
+            if m and m.get("squad_id"):
                 cur.execute("SELECT * FROM squads WHERE id = %s", (m["squad_id"],))
                 s = cur.fetchone()
-                return {"linked": True, "machine_id": m["id"], "squad": _row(s) if s else None}
-            # list available squads
+                return {"linked": True, "machine_id": mid, "squad": _row(s) if s else None, "hostname": hn}
+            # 2) check users.master_uid → persons.squad_id
+            cur.execute("""
+                SELECT s.* FROM users u
+                INNER JOIN persons p ON u.master_uid = p.id
+                INNER JOIN squads s ON p.squad_id = s.id
+                WHERE u.uid = %s LIMIT 1
+            """, (winpeek_uid,))
+            row = cur.fetchone()
+            if row:
+                return {"linked": True, "machine_id": mid, "squad": _row(row), "hostname": hn, "via_master": True}
+            # 3) not linked → list available
             cur.execute("SELECT * FROM squads ORDER BY name")
             squads = [_row(s) for s in cur.fetchall()]
-            return {"linked": False, "machine_id": m["id"] if m else None, "squads": squads,
-                    "hostname": m["hostname"] if m else ""}
+            return {"linked": False, "machine_id": mid, "squads": squads, "hostname": hn}
     finally:
         conn.close()
 
@@ -504,8 +515,8 @@ def join_squad(machine_id: int, squad_id: int, winpeek_uid: int,
             cur.execute("UPDATE machines SET squad_id = %s, person_id = %s, approval_status = %s WHERE id = %s",
                         (squad_id, pid, approval, machine_id))
 
-            cur.execute("INSERT INTO winpeek_accounts (person_id, uid, is_main) VALUES (%s, %s, 1) "
-                        "ON DUPLICATE KEY UPDATE is_main = 1", (pid, winpeek_uid))
+            # Link MIM account (users.uid) to person (persons.id) — simple direct FK
+            cur.execute("UPDATE users SET master_uid = %s WHERE uid = %s", (pid, winpeek_uid))
 
             if is_owner:
                 cur.execute("UPDATE squads SET owner_person_id = %s WHERE id = %s", (pid, squad_id))
@@ -583,7 +594,7 @@ def link_account(person_id: int, uid: int, is_main: int = 0) -> dict:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO winpeek_accounts (person_id, uid, is_main) VALUES (%s, %s, %s) "
+                "UPDATE users SET master_uid = %s WHERE uid = %s"
                 "ON DUPLICATE KEY UPDATE is_main = VALUES(is_main)",
                 (person_id, uid, is_main))
             conn.commit()
@@ -601,9 +612,9 @@ def list_accounts_for_person(person_id: int) -> list[dict]:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT wa.*, u.nickname, u.role
-                FROM winpeek_accounts wa
+                FROM users u
                 LEFT JOIN users u ON wa.uid = u.uid
-                WHERE wa.person_id = %s
+                WHERE u.master_uid = %s
             """, (person_id,))
             return [_row(r) for r in cur.fetchall()]
     finally:
@@ -688,7 +699,7 @@ def _is_squad_admin(uid: int, squad_id: int, cur) -> bool:
     oid = s.get("owner_person_id")
     if not oid:
         return False
-    cur.execute("SELECT 1 FROM winpeek_accounts WHERE person_id = %s AND uid = %s", (oid, uid))
+    cur.execute("SELECT 1 FROM users WHERE master_uid = %s AND uid = %s", (oid, uid))
     return bool(cur.fetchone())
 
 
