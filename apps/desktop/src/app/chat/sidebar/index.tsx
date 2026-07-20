@@ -3,6 +3,7 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { Button } from '@/components/ui/button'
@@ -218,9 +219,11 @@ interface ChatSidebarProps extends React.ComponentProps<typeof Sidebar> {
 
 /* Peeka account popup — self-contained, no external deps */
 function PeekaPopup() {
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false); const [sub, setSub] = useState(false)
   const [ident, setIdent] = useState<any>(null); const ref = useRef<HTMLDivElement>(null); const btn = useRef<HTMLButtonElement>(null)
-  useEffect(() => { try { setIdent(JSON.parse(localStorage.getItem('mim-identity')||'')) } catch {} }, [])
+  const sync = useCallback(() => { try { setIdent(JSON.parse(localStorage.getItem('mim-identity')||'')) } catch {} }, [])
+  useEffect(() => { sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [sync])
   useEffect(() => { if(!open) return; const f=(e:MouseEvent)=>{const t=e.target as Node;if(ref.current&&!ref.current.contains(t)&&btn.current&&!btn.current.contains(t)){setOpen(false);setSub(false)}};document.addEventListener('mousedown',f);return ()=>document.removeEventListener('mousedown',f)},[open])
 
   const s = {display:'flex',alignItems:'center',gap:8,border:'none',background:'none',cursor:'pointer',width:'100%',textAlign:'left' as const}
@@ -248,7 +251,7 @@ function PeekaPopup() {
             <span style={{width:26,height:26,borderRadius:'50%',border:'1px dashed #d1d5db',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:300}}>+</span><span>添加账号</span>
           </div>
         </div>}
-      </> : <button style={{...s,padding:'8px 16px',fontSize:12,color:'#7c3aed',fontWeight:600,fontFamily:'inherit'}} onClick={()=>setOpen(false)}><span style={{fontSize:16,width:20}}>👤</span>登录 Peeka 账号</button>}
+      </> : <button style={{...s,padding:'8px 16px',fontSize:12,color:'#7c3aed',fontWeight:600,fontFamily:'inherit'}} onClick={()=>{setOpen(false);navigate('/mim')}}><span style={{fontSize:16,width:20}}>👤</span>登录 Peeka 账号</button>}
     </div>}
   </div>
 }
