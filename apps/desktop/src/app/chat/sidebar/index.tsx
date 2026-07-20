@@ -3,6 +3,7 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { Button } from '@/components/ui/button'
@@ -59,7 +60,7 @@ import {
   toggleSidebarMessagingOpen,
   unpinSession
 } from '@/store/layout'
-import { $activeGatewayProfile, $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
+import { $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
 import {
   $activeProjectId,
   $projects,
@@ -218,37 +219,43 @@ interface ChatSidebarProps extends React.ComponentProps<typeof Sidebar> {
 
 /* Peeka account popup — uses Hermes built-in profiles as identity */
 function PeekaPopup() {
-  const activeProfile = useStore($activeGatewayProfile)
   const [open, setOpen] = useState(false)
+  const [ident, setIdent] = useState<{name:string; uid:number; role:string}|null>(null)
   const ref = useRef<HTMLDivElement>(null); const btn = useRef<HTMLButtonElement>(null)
 
-  // Peeka identity = Hermes active profile name (display only, no switching)
-  const activeName = activeProfile || 'Peeka'
-  const letter = (activeName.replace(/[^a-z0-9]/gi, '').charAt(0) || 'P').toUpperCase()
+  // Peeka identity = MIM login (from localStorage), NOT Hermes profile
+  const sync = useCallback(() => { try { setIdent(JSON.parse(localStorage.getItem('mim-identity')||'')) } catch { setIdent(null) } }, [])
+  useEffect(() => { sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [sync])
+
+  // Go to MIM login page to sign in
+  const nav = useNavigate()
 
   useEffect(() => { if(!open) return; const f=(e:MouseEvent)=>{const t=e.target as Node;if(ref.current&&!ref.current.contains(t)&&btn.current&&!btn.current.contains(t)){setOpen(false)}};document.addEventListener('mousedown',f);return ()=>document.removeEventListener('mousedown',f)},[open])
 
   const st = {display:'flex' as const,alignItems:'center' as const,gap:8,border:'none',background:'none',cursor:'pointer',width:'100%',textAlign:'left' as const}
-  const Row = (p:{c:string;t:string;onClick?:()=>void;r?:boolean}) => <button style={{...st,padding:'8px 16px',fontSize:12,color:p.r?'#ef4444':'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{p.onClick?.();if(p.t!=='切换账号')setOpen(false)}}><span style={{fontSize:14,width:20,textAlign:'center'}}>{p.c}</span><span style={{flex:1}}>{p.t}</span></button>
+  const Row = (p:{c:string;t:string;onClick?:()=>void;r?:boolean}) => <button style={{...st,padding:'8px 16px',fontSize:12,color:p.r?'#ef4444':'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{p.onClick?.();setOpen(false)}}><span style={{fontSize:14,width:20,textAlign:'center'}}>{p.c}</span><span style={{flex:1}}>{p.t}</span></button>
+
+  const name = ident?.name || ''
+  const letter = (name.charAt(0) || 'P').toUpperCase()
 
   return <div style={{flexShrink:0,borderTop:'1px solid #e5e7eb',padding:'2px 8px 4px'}}>
     <button ref={btn} style={{...st,padding:'6px 8px',borderRadius:6,fontSize:12,fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>setOpen(v=>!v)}>
-      <span style={{width:24,height:24,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{letter}</span>
-      <span style={{flex:1,fontWeight:500,color:'#111827',fontSize:12}}>{activeName}</span>
+      <span style={{width:24,height:24,borderRadius:'50%',background:ident?'#7c3aed':'#d1d5db',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{ident ? letter : 'P'}</span>
+      <span style={{flex:1,fontWeight:500,color:ident?'#111827':'#9ca3af',fontSize:12}}>{ident ? name : 'Peeka'}</span>
       <span style={{fontSize:10,color:'#9ca3af'}}>{open?'▼':'▶'}</span>
     </button>
     {open && <div ref={ref} style={{position:'fixed',zIndex:99999,bottom:44,left:6,width:260,background:'#fff',borderRadius:16,border:'1px solid #d1d5db',boxShadow:'0 20px 60px rgba(0,0,0,.28)',padding:'6px 0',maxHeight:'calc(100vh - 120px)',overflowY:'auto'}}>
-      <>
+      {ident ? <>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px'}}>
           <span style={{width:36,height:36,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:700}}>{letter}</span>
-          <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:600,color:'#111827'}}>{activeName}</div><div style={{fontSize:10,color:'#9ca3af'}}>Peeka</div></div>
+          <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:600,color:'#111827'}}>{name}</div><div style={{fontSize:10,color:'#9ca3af'}}>{ident.role||'User'} · #{ident.uid}</div></div>
         </div>
         <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} />
         <Row c='⚙' t='设置' /><Row c='★' t='收藏夹' /><Row c='🔌' t='API 服务' /><Row c='⬆' t='检查更新' /><Row c='?' t='帮助与反馈' />
         <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} /><Row c='✦' t='专业能力升级' />
         <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} />
-        <Row c='⇄' t='切换账号' />{/* disabled for now — profile/SOUL.md uid desync unresolved, see F1.9 */}
-      </>
+        <Row c='⤻' t='退出登录' r onClick={()=>{localStorage.removeItem('mim-identity');setIdent(null);setOpen(false)}} />
+      </> : <button style={{...st,padding:'8px 16px',fontSize:12,color:'#7c3aed',fontWeight:600,fontFamily:'inherit'}} onClick={()=>{setOpen(false);nav('/mim')}}><span style={{fontSize:16,width:20}}>👤</span>登录 Peeka 账号</button>}
     </div>}
   </div>
 }

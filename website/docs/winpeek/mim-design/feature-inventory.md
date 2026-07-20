@@ -88,7 +88,7 @@ Hermes profiles (SOUL.md, model, provider…)
 ```
 
 | F1.7 | daemon 自动发现本机 agent | 15种类型, 双通道检测(config_dir + path_cmd), 幂等(已注册不重复) | F7.3 | ⚠️ | V1 — 包C |
-| **F1.9** | **Profile 切换时 uid 同步** | SOUL.md 内可能写死旧 uid, 切换 profile 后 Agent 仍以为自己是旧 uid。需要做切换时自动更新 SOUL.md 中的 uid 引用。 | F1.4, F1.8 | ❌ | 暂时不做 — 已知问题，等场景明确后再修 |
+| **F1.9** | **SOUL.md 不应写死 uid** | Agent/Profile 配置文件（SOUL.md, skill, curl-loop 常量）里不应硬编码 uid。uid 应从 `active_uid()` 运行时解析，随登录账号自动变更。同一个 profile 登录 uid=2022 → 身份是 2022；登录 uid=3000 → 身份是 3000。profile 是"怎么做"的配置，uid 是"谁在做"的上下文。 | F1.4, F1.8 | ✅ | **原则已定 — 所有 Agent 配置用变量，不用固定 uid** |
 
 ---
 
