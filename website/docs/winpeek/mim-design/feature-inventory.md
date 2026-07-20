@@ -44,33 +44,50 @@
 | F1.4 | 多身份支持 | `mim-identities` 数组存储, `mim-active-uid` 激活标识, 旧版单 key 自动迁移 | — | ⚠️ | V1 — 包D |
 | F1.5 | 身份切换 | 切换清空消息列表, history 按新 uid 重查, poll 跟随新 uid, send 用新 uid | F1.4, F3.3, F9.2 | ❌ | V1 — 包D |
 | F1.6 | 两步新建智能体 | 第1步: 15种类型网格(已发现高亮), 第2步: 预填名 `{machine}-{type}-{n}`, 提交调 login | F1.7, F1.4 | ❌ | V1 — 包D |
+| **F1.8** | **Peeka 统一身份模型** | Peeka登录 = MIM登录 = Agent登录, 都是同一张 `users` 表。uid 是唯一寻址键, AI后端可换但 uid 不变。 | F1.1, F4.x | ✅ | **2026-07-21** |
+
+### Peeka 统一身份模型 (2026-07-21)
+
+```
+┌──────────────────────────────────────┐
+│ Peeka 登录 = MIM 登录 = Agent 登录    │
+│ 全部来自同一张表: users              │
+│                                      │
+│ users 表的一行:                       │
+│   uid      = 2022                    │  ← 唯一寻址键, 消息路由靠它
+│   nickname = Hermes (或 yuyangmin)   │  ← 显示名, 可重复
+│   password = 123321                  │  ← 谁有密码谁登录
+│   master_uid → persons.id (可选)     │  ← 有主=真人账号, 无主=独立Agent
+│   role      = Developer             │
+│                                      │
+│ 同一个 uid, 可以:                     │
+│   ├── 今天用 Claude Code 前端登录     │
+│   ├── 明天用 Hermes CLI 登录          │
+│   └── 后天用 Qoder 前端登录           │
+│   AI后端随便换, uid/地址/联系人不变   │
+│                                      │
+│ 寻址: uid → http://{ip}:2000/api/... │
+│ 消息: say 2022 "hello" → 路由到 uid  │
+└──────────────────────────────────────┘
+```
+
+**核心原则：**
+- **uid 是唯一地址** — 消息路由、联系人列表、在线状态全部靠 uid。nickname 只是显示名，可以重复，不改路由。
+- **AI 后端与身份分离** — Hermes/Claude Code/Qoder 是"怎么思考和执行"，uid 是"是谁"。同一个 agent 今天用 Qoder 登录，明天换 Claude Code 登录，uid 不变。
+- **密码即身份** — 没有额外的身份验证层。谁有 uid+密码谁就是这个 agent，可以收发消息、执行任务。
+- **有主/无主** — `users.master_uid` 指向 `persons.id` 就是真人账号（继承公司/组织信息），NULL 就是独立 Agent 号（只干活不归属任何人）。
+- **Peeka 桌面 = 一个 MIM 客户端** — Peeka desktop app 本质上是一个 MIM 聊天客户端 + 软件资产管理器。Peeka 的 "profile" 就是 MIM 的 uid。
+
+**与 Hermes 原生 profile 的关系：**
+```
+Hermes profiles (SOUL.md, model, provider…)
+  = "怎么执行任务" 的配置
+  = 绑在 uid 上的工作参数
+  ≠ 独立身份层
+  = MIM 账号的工作配置
+```
+
 | F1.7 | daemon 自动发现本机 agent | 15种类型, 双通道检测(config_dir + path_cmd), 幂等(已注册不重复) | F7.3 | ⚠️ | V1 — 包C |
-| **F1.8** | **MIM 账号归属模型** | `users.master_uid` → `persons.id`, 一人可有多个 MIM 账号, MIM 账号也可以无主(独立Agent号)。有主账号继承主人的公司/资源权限。任何人/Agent 凭密码即可登录任意 MIM 账号。 | F1.1, F4.x | ✅ | **2026-07-21** |
-
-### MIM 账号归属规则 (2026-07-21)
-
-```
-MIM 账号 (users.uid)
-│
-├── master_uid = NULL/0    → 独立账号 (Agent/公共号)
-│                             任何人都可用密码登录
-│                             不继承任何人的组织信息
-│
-└── master_uid = <person_id> → 真人归属账号
-                               继承主人的:
-                               ├── squad (公司) 信息
-                               ├── persons 资料
-                               └── 公司资源访问权
-                               谁拿到密码谁就能登录
-```
-
-**设计原则：**
-- MIM 账号是轻量的消息账号，不是"人"
-- 一个人（真人）可以有多个 MIM 账号（如 yuyangmin, yuyangmin-work）
-- MIM 账号可以不属于任何人（纯 Agent 号，如 BackendCoder, DB1003）
-- 登录靠密码，不验证"你是谁" — 密码即身份
-- 有主账号自动继承主人的组织信息，方便数据统计和资源访问
-- `winpeek_accounts` 表是多余中间层，直接用 `users.master_uid` 一步到位
 
 ---
 
