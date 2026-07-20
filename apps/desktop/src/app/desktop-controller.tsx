@@ -137,7 +137,6 @@ const ProfilesView = lazy(async () => ({ default: (await import('./profiles')).P
 const SettingsView = lazy(async () => ({ default: (await import('./settings')).SettingsView }))
 const SkillsView = lazy(async () => ({ default: (await import('./skills')).SkillsView }))
 const AutomationView = lazy(async () => ({ default: (await import('./winpeek')).AutomationView }))
-const HwInfoView = lazy(async () => ({ default: (await import('./winpeek')).HwInfoView }))
 const MimView = lazy(async () => ({ default: (await import('./winpeek')).MimView }))
 const AssetsView = lazy(async () => ({ default: (await import('./winpeek')).AssetsView }))
 const WechatPanel = lazy(async () => ({ default: (await import('./winpeek')).WechatPanel }))
@@ -1365,14 +1364,6 @@ export function DesktopController() {
               </Suspense>
             }
             path="automation"
-          />
-          <Route
-            element={
-              <Suspense fallback={null}>
-                <HwInfoView onClose={closeOverlayToPreviousRoute} />
-              </Suspense>
-            }
-            path="winpeek-hwinfo"
           />
           <Route
             element={

@@ -13,7 +13,6 @@ export const AUTOMATION_ROUTE = '/automation'
 export const MIM_ROUTE = '/mim'
 export const ASSETS_ROUTE = '/assets'
 export const WECHAT_ROUTE = '/winpeek-wechat'
-export const HWINFO_ROUTE = '/winpeek-hwinfo'
 
 export type AppView =
   | 'agents'
@@ -30,7 +29,6 @@ export type AppView =
   | 'skills'
   | 'starmap'
   | 'winpeek-wechat'
-  | 'winpeek-hwinfo'
 
 export type AppRouteId =
   | 'agents'
@@ -47,7 +45,6 @@ export type AppRouteId =
   | 'skills'
   | 'starmap'
   | 'winpeek-wechat'
-  | 'winpeek-hwinfo'
 
 export interface AppRoute {
   id: AppRouteId
@@ -69,8 +66,7 @@ export const APP_ROUTES = [
   { id: 'automation', path: AUTOMATION_ROUTE, view: 'automation' },
   { id: 'mim', path: MIM_ROUTE, view: 'mim' },
   { id: 'assets', path: ASSETS_ROUTE, view: 'assets' },
-  { id: 'winpeek-wechat', path: WECHAT_ROUTE, view: 'winpeek-wechat' },
-  { id: 'winpeek-hwinfo', path: HWINFO_ROUTE, view: 'winpeek-hwinfo' }
+  { id: 'winpeek-wechat', path: WECHAT_ROUTE, view: 'winpeek-wechat' }
 ] as const satisfies readonly AppRoute[]
 
 const APP_VIEW_BY_PATH = new Map<string, AppView>(APP_ROUTES.map(route => [route.path, route.view]))
