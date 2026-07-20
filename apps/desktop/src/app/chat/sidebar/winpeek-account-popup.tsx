@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { Codicon } from '@/components/ui/codicon'
-
 interface Ident { name: string; role: string; uid: number }
+
+const rowStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+  fontSize: 13, cursor: 'pointer', border: 'none', background: 'none',
+  width: '100%', textAlign: 'left', color: '#374151',
+}
+const hr = <div style={{ margin: '4px 12px', borderTop: '1px solid #e5e7eb' }} />
 
 export function WinPeekAccountPopup() {
   const [open, setOpen] = useState(false)
@@ -11,119 +16,110 @@ export function WinPeekAccountPopup() {
   const ref = useRef<HTMLDivElement>(null)
   const btn = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    const read = () => { try { setIdent(JSON.parse(localStorage.getItem('mim-identity')||'')) } catch {} }
-    read(); window.addEventListener('storage', read); return () => window.removeEventListener('storage', read)
-  }, [])
+  const sync = () => {
+    try {
+      const raw = localStorage.getItem('mim-identity')
+      setIdent(raw ? JSON.parse(raw) : null)
+    } catch { setIdent(null) }
+  }
+  useEffect(() => { sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [])
 
   useEffect(() => {
     if (!open) return
     const h = (e: MouseEvent) => {
-      const t = e.target as Node
-      if (ref.current && !ref.current.contains(t) && btn.current && !btn.current.contains(t)) { setOpen(false); setSub(false) }
+      if (ref.current && !ref.current.contains(e.target as Node) && btn.current && !btn.current.contains(e.target as Node)) {
+        setOpen(false); setSub(false)
+      }
     }
     document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h)
   }, [open])
 
-  const Row = (p: { icon: string; label: string; end?: string; danger?: boolean; onClick?: () => void }) => (
-    <div
-      style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', fontSize:13, cursor:'pointer',
-        color: p.danger ? 'var(--ui-destructive, #ef4444)' : 'inherit' }}
-      onMouseEnter={e => (e.currentTarget.style.background = 'var(--ui-control-hover-background, rgba(0,0,0,.05))')}
-      onMouseLeave={e => (e.currentTarget.style.background = '')}
-      onClick={() => { p.onClick?.(); if (p.icon !== 'arrow-swap') setOpen(false) }}
+  const logout = () => { localStorage.removeItem('mim-identity'); setIdent(null); setOpen(false); setSub(false); window.dispatchEvent(new Event('storage')) }
+
+  const Row = (p: { icon: string; label: string; onClick?: () => void; danger?: boolean }) => (
+    <button
+      style={{ ...rowStyle, color: p.danger ? '#ef4444' : rowStyle.color }}
+      onMouseEnter={e => { e.currentTarget.style.background = '#f3f4f6' }}
+      onMouseLeave={e => { e.currentTarget.style.background = '' }}
+      onClick={() => { p.onClick?.(); if (p.label !== '切换账号') setOpen(false) }}
     >
-      <Codicon name={p.icon} size={14} />
-      <span style={{ flex:1 }}>{p.label}</span>
-      {p.end && <span style={{ fontSize:11, opacity:.5 }}>{p.end}</span>}
-    </div>
+      <span style={{ width: 18, textAlign: 'center', fontSize: 14, flexShrink: 0 }}>{p.icon}</span>
+      <span style={{ flex: 1 }}>{p.label}</span>
+    </button>
   )
 
-  const HR = <div style={{ margin:'4px 12px', borderTop:'1px solid var(--ui-stroke-quaternary, #e5e7eb)' }} />
-
   return (
-    <div style={{ flexShrink:0, borderTop:'1px solid var(--ui-stroke-quaternary, #e5e7eb)', padding:'0 10px 5px' }}>
+    <div style={{ flexShrink: 0, borderTop: '1px solid #e5e7eb', padding: '0 8px 4px' }}>
       {/* Trigger */}
       <button
         ref={btn}
-        style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'6px 8px', border:'none',
-          background:'none', cursor:'pointer', borderRadius:6, textAlign:'left', fontSize:12,
-          color:'var(--ui-text-secondary, #6b7280)' }}
-        onMouseEnter={e => (e.currentTarget.style.background = 'var(--ui-control-hover-background, rgba(0,0,0,.05))')}
-        onMouseLeave={e => (e.currentTarget.style.background = '')}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 8px',
+          border: 'none', background: 'none', cursor: 'pointer', borderRadius: 6, textAlign: 'left', fontSize: 12 }}
+        onMouseEnter={e => { e.currentTarget.style.background = '#f3f4f6' }}
+        onMouseLeave={e => { e.currentTarget.style.background = '' }}
         onClick={() => setOpen(v => !v)}
       >
-        <div style={{ width:24, height:24, borderRadius:'50%', background:'var(--ui-accent, #7c3aed)',
-          color:'#fff', display:'flex', alignItems:'center', justifyContent:'center',
-          fontSize:10, fontWeight:700, flexShrink:0 }}>
+        <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#7c3aed', color: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
           {ident ? ident.name[0] : 'P'}
         </div>
-        <span style={{ flex:1, fontWeight:500, color:'var(--ui-text-primary, #111827)' }}>
-          {ident ? ident.name : 'Peeka'}
-        </span>
-        <span style={{ fontSize:10, opacity:.4, transform: open ? 'rotate(90deg)' : '' }}>&#9654;</span>
+        <span style={{ flex: 1, fontWeight: 500, color: '#111827', fontSize: 12 }}>{ident ? ident.name : 'Peeka'}</span>
+        <span style={{ fontSize: 10, color: '#9ca3af' }}>{open ? '▼' : '▶'}</span>
       </button>
 
       {/* Popup */}
       {open && (
         <div ref={ref} style={{
-          position:'fixed', bottom:40, left:8, zIndex:99999, width:260,
-          background:'var(--ui-bg-surface, #fff)', borderRadius:16,
-          border:'1px solid var(--ui-stroke-tertiary, #d1d5db)',
-          boxShadow:'0 20px 60px rgba(0,0,0,.2)', padding:'6px 0',
-          maxHeight:'calc(100vh - 100px)', overflowY:'auto',
+          position: 'fixed', bottom: 44, left: 6, zIndex: 99999, width: 260,
+          background: '#fff', borderRadius: 16, border: '1px solid #d1d5db',
+          boxShadow: '0 20px 60px rgba(0,0,0,.25)', padding: '6px 0',
+          maxHeight: 'calc(100vh - 100px)', overflowY: 'auto',
         }}>
           {ident ? (
             <>
-              {/* Header */}
-              <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 12px' }}>
-                <div style={{ width:32, height:32, borderRadius:'50%', background:'var(--ui-accent, #7c3aed)',
-                  color:'#fff', display:'flex', alignItems:'center', justifyContent:'center',
-                  fontSize:13, fontWeight:700, flexShrink:0 }}>{ident.name[0]}</div>
-                <div style={{ minWidth:0 }}>
-                  <div style={{ fontSize:13, fontWeight:600 }}>{ident.name}</div>
-                  <div style={{ fontSize:10, opacity:.4 }}>{ident.role} · #{ident.uid}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px' }}>
+                <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#7c3aed', color: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                  {ident.name[0]}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{ident.name}</div>
+                  <div style={{ fontSize: 11, color: '#9ca3af' }}>{ident.role} · #{ident.uid}</div>
                 </div>
               </div>
-              {HR}
+              {hr}
 
-              {/* System */}
-              <Row icon="settings-gear" label="设置" />
-              <Row icon="star-full" label="收藏夹" />
-              <Row icon="plug" label="API 服务" />
-              <Row icon="arrow-up" label="检查更新" />
-              <Row icon="question" label="帮助与反馈" />
-              {HR}
+              <Row icon="⚙" label="设置" />
+              <Row icon="★" label="收藏夹" />
+              <Row icon="🔌" label="API 服务" />
+              <Row icon="⬆" label="检查更新" />
+              <Row icon="?" label="帮助与反馈" />
+              {hr}
 
-              {/* Premium */}
-              <Row icon="star-empty" label="专业能力升级" />
-              {HR}
+              <Row icon="✦" label="专业能力升级" />
+              {hr}
 
-              {/* Account */}
-              <Row icon="arrow-swap" label="切换账号" end=">" onClick={() => setSub(v => !v)} />
-              <Row icon="sign-out" label="退出登录" danger onClick={() => {
-                localStorage.removeItem('mim-identity'); setIdent(null); setOpen(false); setSub(false)
-              }} />
+              <Row icon="⇄" label="切换账号" onClick={() => setSub(v => !v)} />
+              <Row icon="⤻" label="退出登录" danger onClick={logout} />
 
-              {/* Sub panel */}
               {sub && (
-                <div style={{ margin:'4px 12px 8px', padding:4, borderRadius:12,
-                  background:'var(--ui-bg-quaternary, #f3f4f6)', border:'1px solid var(--ui-stroke-tertiary, #d1d5db)' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 8px', borderRadius:8 }}>
-                    <div style={{ width:24, height:24, borderRadius:'50%', background:'var(--ui-accent, #7c3aed)',
-                      color:'#fff', display:'flex', alignItems:'center', justifyContent:'center',
-                      fontSize:9, fontWeight:700, flexShrink:0 }}>{ident.name[0]}</div>
-                    <span style={{ flex:1, fontSize:12 }}>{ident.name}</span>
-                    <Codicon name="check" size={11} />
+                <div style={{ margin: '4px 10px 8px', padding: 6, borderRadius: 12,
+                  background: '#f3f4f6', border: '1px solid #e5e7eb' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 8 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#7c3aed', color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                      {ident.name[0]}
+                    </div>
+                    <span style={{ flex: 1, fontSize: 12, color: '#111827' }}>{ident.name}</span>
+                    <span style={{ color: '#7c3aed', fontSize: 14 }}>✓</span>
                   </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 8px', borderRadius:8,
-                    cursor:'pointer', fontSize:12, opacity:.5 }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--ui-control-hover-background, rgba(0,0,0,.05))')}
-                    onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                    <div style={{ width:24, height:24, borderRadius:'50%',
-                      border:'1px dashed var(--ui-stroke-tertiary, #d1d5db)',
-                      display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                      <Codicon name="add" size={12} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px',
+                    borderRadius: 8, cursor: 'pointer', fontSize: 12, color: '#9ca3af' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#e5e7eb' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = '' }}>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', border: '1px dashed #d1d5db',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 16 }}>
+                      +
                     </div>
                     <span>添加账号</span>
                   </div>
@@ -131,7 +127,12 @@ export function WinPeekAccountPopup() {
               )}
             </>
           ) : (
-            <Row icon="sign-in" label="登录 Peeka 账号" />
+            <button
+              style={{ ...rowStyle, color: '#7c3aed' }}
+              onClick={() => setOpen(false)}>
+              <span style={{ width: 18, textAlign: 'center', fontSize: 14 }}>👤</span>
+              <span>登录 Peeka 账号</span>
+            </button>
           )}
         </div>
       )}
