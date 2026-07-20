@@ -88,6 +88,32 @@ function loadSavedIdentity(): WinPeekIdentity | null {
 }
 function saveIdentity(id: WinPeekIdentity) {
   localStorage.setItem('mim-identity', JSON.stringify(id))
+  // Also maintain the multi-identity store
+  try {
+    const raw = localStorage.getItem('mim-identities')
+    const arr: WinPeekIdentity[] = raw ? JSON.parse(raw) : []
+    const idx = arr.findIndex(x => x.uid === id.uid)
+    if (idx >= 0) arr[idx] = id
+    else arr.push(id)
+    localStorage.setItem('mim-identities', JSON.stringify(arr))
+  } catch {}
+}
+function removeIdentity(uid: number) {
+  try {
+    const raw = localStorage.getItem('mim-identities')
+    let arr: WinPeekIdentity[] = raw ? JSON.parse(raw) : []
+    arr = arr.filter(x => x.uid !== uid)
+    localStorage.setItem('mim-identities', JSON.stringify(arr))
+    // If removing the active one, clear mim-identity too
+    const active = loadSavedIdentity()
+    if (active?.uid === uid) localStorage.removeItem('mim-identity')
+  } catch {}
+}
+function loadAllIdentities(): WinPeekIdentity[] {
+  try {
+    const raw = localStorage.getItem('mim-identities')
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
 }
 
 /* ── Login / Register Form ───────────────────── */
@@ -631,11 +657,11 @@ export function MimView({ onClose }: { onClose: () => void }) {
   }, [gatewayRequest, refreshUsers])
 
   const handleLogout = useCallback(() => {
-    localStorage.removeItem('mim-identity')
+    if (identity) removeIdentity(identity.uid)
     setIdentity(null)
     setActiveContactId(null)
     setMessages([])
-  }, [])
+  }, [identity])
 
   // ── Load contacts via winpeek_mim_contacts ──
   useEffect(() => {

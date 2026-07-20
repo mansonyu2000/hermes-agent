@@ -217,26 +217,36 @@ interface ChatSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onTriggerCronJob: (jobId: string) => void
 }
 
-/* Peeka account popup — uses Hermes built-in profiles as identity */
+/* Peeka account popup — reads MIM identities from localStorage, supports switching */
 function PeekaPopup() {
   const [open, setOpen] = useState(false)
+  const [sub, setSub] = useState(false)
   const [ident, setIdent] = useState<{name:string; uid:number; role:string}|null>(null)
+  const [allIdentities, setAllIdentities] = useState<{name:string; uid:number; role:string}[]>([])
   const ref = useRef<HTMLDivElement>(null); const btn = useRef<HTMLButtonElement>(null)
-
-  // Peeka identity = MIM login (from localStorage), NOT Hermes profile
-  const sync = useCallback(() => { try { setIdent(JSON.parse(localStorage.getItem('mim-identity')||'')) } catch { setIdent(null) } }, [])
-  useEffect(() => { sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [sync])
-
-  // Go to MIM login page to sign in
   const nav = useNavigate()
 
-  useEffect(() => { if(!open) return; const f=(e:MouseEvent)=>{const t=e.target as Node;if(ref.current&&!ref.current.contains(t)&&btn.current&&!btn.current.contains(t)){setOpen(false)}};document.addEventListener('mousedown',f);return ()=>document.removeEventListener('mousedown',f)},[open])
+  const sync = useCallback(() => {
+    try { setIdent(JSON.parse(localStorage.getItem('mim-identity')||'')) } catch { setIdent(null) }
+    try { setAllIdentities(JSON.parse(localStorage.getItem('mim-identities')||'[]')) } catch { setAllIdentities([]) }
+  }, [])
+  useEffect(() => { sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [sync])
+
+  useEffect(() => { if(!open) return; const f=(e:MouseEvent)=>{const t=e.target as Node;if(ref.current&&!ref.current.contains(t)&&btn.current&&!btn.current.contains(t)){setOpen(false);setSub(false)}};document.addEventListener('mousedown',f);return ()=>document.removeEventListener('mousedown',f)},[open])
 
   const st = {display:'flex' as const,alignItems:'center' as const,gap:8,border:'none',background:'none',cursor:'pointer',width:'100%',textAlign:'left' as const}
-  const Row = (p:{c:string;t:string;onClick?:()=>void;r?:boolean}) => <button style={{...st,padding:'8px 16px',fontSize:12,color:p.r?'#ef4444':'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{p.onClick?.();setOpen(false)}}><span style={{fontSize:14,width:20,textAlign:'center'}}>{p.c}</span><span style={{flex:1}}>{p.t}</span></button>
+  const Row = (p:{c:string;t:string;onClick?:()=>void;r?:boolean}) => <button style={{...st,padding:'8px 16px',fontSize:12,color:p.r?'#ef4444':'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{p.onClick?.();if(p.t!=='切换账号'){setOpen(false);setSub(false)}}}><span style={{fontSize:14,width:20,textAlign:'center'}}>{p.c}</span><span style={{flex:1}}>{p.t}</span></button>
 
   const name = ident?.name || ''
   const letter = (name.charAt(0) || 'P').toUpperCase()
+  const swapAccount = (target: {name:string; uid:number; role:string}) => {
+    localStorage.setItem('mim-identity', JSON.stringify(target))
+    setSub(false); setOpen(false)
+    window.dispatchEvent(new Event('storage'))
+  }
+
+  // Build sub-list: other identities + "add more" link
+  const otherIdentities = allIdentities.filter(x => x.uid !== ident?.uid)
 
   return <div style={{flexShrink:0,borderTop:'1px solid #e5e7eb',padding:'2px 8px 4px'}}>
     <button ref={btn} style={{...st,padding:'6px 8px',borderRadius:6,fontSize:12,fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>setOpen(v=>!v)}>
@@ -254,7 +264,25 @@ function PeekaPopup() {
         <Row c='⚙' t='设置' /><Row c='★' t='收藏夹' /><Row c='🔌' t='API 服务' /><Row c='⬆' t='检查更新' /><Row c='?' t='帮助与反馈' />
         <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} /><Row c='✦' t='专业能力升级' />
         <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} />
-        <Row c='⤻' t='退出登录' r onClick={()=>{localStorage.removeItem('mim-identity');setIdent(null);setOpen(false)}} />
+        <button style={{...st,padding:'8px 16px',fontSize:12,color:'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>setSub(v=>!v)}>
+          <span style={{fontSize:14,width:20,textAlign:'center'}}>⇄</span><span style={{flex:1}}>切换账号</span><span style={{fontSize:10,color:'#9ca3af'}}>{sub?'▼':'▶'}</span>
+        </button>
+        {sub && <div style={{margin:'4px 12px 8px',padding:6,borderRadius:12,background:'#f3f4f6',border:'1px solid #e5e7eb'}}>
+          {otherIdentities.map(x => <div key={x.uid} style={{...st,cursor:'pointer',padding:'6px 8px',borderRadius:8,gap:10}}
+            onMouseEnter={e=>e.currentTarget.style.background='#e5e7eb'} onMouseLeave={e=>e.currentTarget.style.background=''}
+            onClick={()=>swapAccount(x)}>
+            <span style={{width:26,height:26,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{x.name.charAt(0).toUpperCase()}</span>
+            <span style={{flex:1,fontSize:12,color:'#111827'}}>{x.name}</span>
+            <span style={{fontSize:9,color:'#9ca3af'}}>#{x.uid}</span>
+          </div>)}
+          <div style={{...st,padding:'6px 8px',borderRadius:8,gap:10,fontSize:12,color:'#9ca3af',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#e5e7eb'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{setOpen(false);setSub(false);nav('/mim')}}>
+            <span style={{width:26,height:26,borderRadius:'50%',border:'1px dashed #d1d5db',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:300}}>+</span><span>添加账号</span>
+          </div>
+        </div>}
+        <Row c='⤻' t='退出登录' r onClick={()=>{
+          try { const raw = localStorage.getItem('mim-identities'); const arr = raw ? JSON.parse(raw) : []; const nxt = arr.filter((x:any)=>x.uid!==ident.uid); localStorage.setItem('mim-identities',JSON.stringify(nxt)) } catch {}
+          localStorage.removeItem('mim-identity'); setIdent(null); setOpen(false); setSub(false)
+        }} />
       </> : <button style={{...st,padding:'8px 16px',fontSize:12,color:'#7c3aed',fontWeight:600,fontFamily:'inherit'}} onClick={()=>{setOpen(false);nav('/mim')}}><span style={{fontSize:16,width:20}}>👤</span>登录 Peeka 账号</button>}
     </div>}
   </div>
