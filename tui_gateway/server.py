@@ -14408,3 +14408,115 @@ def _(rid, params: dict) -> dict:
         return _ok(rid, data)
     except Exception:
         return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_group_create")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_group_create
+    result = _handle_mim_group_create(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_group_list")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_group_list
+    result = _handle_mim_group_list(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_group_info")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_group_info
+    result = _handle_mim_group_info(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_group_invite")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_group_invite
+    result = _handle_mim_group_invite(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_group_update")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_group_update
+    result = _handle_mim_group_update(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_group_transfer")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_group_transfer
+    result = _handle_mim_group_transfer(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_announcement_delete")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_announcement_delete
+    result = _handle_mim_announcement_delete(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_group_leave")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_group_leave
+    result = _handle_mim_group_leave(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})

@@ -69,6 +69,7 @@ PORT = int(os.getenv("MIM_PORT", "1883"))
 
 INBOX_TOPIC = property(lambda self: f"comms/inbox/{UID}")
 SAY_TOPIC_PREFIX = "comms/say"
+GROUP_TOPIC_PREFIX = "comms/group"
 
 _client: Optional[mqtt.Client] = None
 _message_handler = None
@@ -92,7 +93,8 @@ def set_message_handler(handler):
 def _on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
         client.subscribe("comms/inbox/#", qos=1)
-        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, inbox=all")
+        client.subscribe("comms/group/#", qos=1)
+        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, inbox+group=all")
     else:
         logger.warning(f"MIM connect failed: code={reason_code}")
 
@@ -106,6 +108,7 @@ def _on_message(client, userdata, msg):
     from_uid = payload.get("from_uid", "")
     from_name = payload.get("from", "?")
     body = payload.get("body", "")
+    gid = payload.get("gid")
 
     if str(from_uid) == str(UID):
         return
@@ -119,6 +122,7 @@ def _on_message(client, userdata, msg):
             "from_uid": int(from_uid) if str(from_uid).isdigit() else 0,
             "from_name": from_name,
             "to_uid": UID,
+            "gid": gid,
             "content": body,
             "time": payload.get("ts", time.strftime("%Y-%m-%dT%H:%M:%S")),
         })
@@ -185,6 +189,26 @@ def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
         return result.rc == mqtt.MQTT_ERR_SUCCESS
     except Exception as e:
         logger.warning(f"MIM send failed: {e}")
+        return False
+
+
+def send_group_message(gid: int, text: str, from_name: str, from_uid: int = 0) -> bool:
+    if not _client or gid <= 0:
+        return False
+    topic = f"{GROUP_TOPIC_PREFIX}/{gid}"
+    payload = json.dumps({
+        "from_uid": str(from_uid or UID),
+        "from": from_name or NAME,
+        "gid": gid,
+        "body": text,
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }, ensure_ascii=False)
+    try:
+        result = _client.publish(topic, payload, qos=1)
+        logger.info(f"MIM → group {gid}: {text[:60]}")
+        return result.rc == mqtt.MQTT_ERR_SUCCESS
+    except Exception as e:
+        logger.warning(f"MIM group send failed: {e}")
         return False
 
 

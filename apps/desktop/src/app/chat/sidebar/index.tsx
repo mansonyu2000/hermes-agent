@@ -95,7 +95,7 @@ import {
   setCurrentCwd
 } from '@/store/session'
 
-import { type AppView, ARTIFACTS_ROUTE, ASSETS_ROUTE, AUTOMATION_ROUTE, MESSAGING_ROUTE, MIM_ROUTE, SKILLS_ROUTE } from '../../routes'
+import { type AppView, ARTIFACTS_ROUTE, ASSETS_ROUTE, AUTOMATION_ROUTE, HWINFO_ROUTE, MESSAGING_ROUTE, MIM_ROUTE, SKILLS_ROUTE } from '../../routes'
 import type { SidebarNavItem } from '../../types'
 
 import { countLabel } from './chrome'
@@ -147,6 +147,7 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
   { id: 'artifacts', label: '', icon: props => <Codicon name="files" {...props} />, route: ARTIFACTS_ROUTE },
   { id: 'automation', label: '', icon: props => <Codicon name="tools" {...props} />, route: AUTOMATION_ROUTE },
   { id: 'mim', label: '', icon: props => <Codicon name="comment-discussion" {...props} />, route: MIM_ROUTE },
+  { id: 'winpeek-hwinfo', label: '', icon: props => <Codicon name="server" {...props} />, route: HWINFO_ROUTE },
   { id: 'assets', label: '', icon: props => <Codicon name="package" {...props} />, route: ASSETS_ROUTE }
 ]
 
@@ -1058,7 +1059,8 @@ export function ChatSidebar({
                   (item.id === 'messaging' && currentView === 'messaging') ||
                   (item.id === 'artifacts' && currentView === 'artifacts') ||
                   (item.id === 'automation' && currentView === 'automation') ||
-                  (item.id === 'mim' && currentView === 'mim')
+                  (item.id === 'mim' && currentView === 'mim') ||
+                  (item.id === 'winpeek-hwinfo' && currentView === 'winpeek-hwinfo')
 
                 const isNewSession = item.id === 'new-session'
 

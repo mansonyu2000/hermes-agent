@@ -1,149 +1,216 @@
 ---
-title: "MIM 聊天界面终极规格"
-description: "一次分析+一次实现 — 决定对齐 Hermes 哪些功能、不做哪些、消息气泡/输入框精确规格"
+title: "MIM 聊天界面布局规范（微信风格）"
+description: "完全左对齐体系 — 页面分层、组件标准、视觉权重、对齐规范、数据接口映射"
 sidebar_position: 8
-type: product
-role: ["developer"]
-module: mim
-status: approved
-last_updated: "2026-07-19"
+date: 2026-07-20
+status: done
+type: spec
 ---
 
-# MIM 聊天界面终极规格
+# MIM 聊天界面布局规范
 
-> **目标**：一次分析，一次实现。不再反复。
-
----
-
-## 0. 根因复盘：为什么前 4 次都没对齐
-
-| 次数 | 做了什么 | 为什么不对 |
-|:--:|------|------|
-| 1 | 加 Streamdown/CopyButton/滚动 | 只改了渲染，没碰输入框 |
-| 2 | 改输入框为 glass panel | 样式对了但结构不对——没有对齐 grid 布局 |
-| 3 | 改为 grid 布局 + PRIMARY_ICON_BTN | 用户要的 voice/mic/model/+ 一个没上 |
-
-**核心错误**：每次只修一个点，没有把 Hermes 原生 ChatBar 和 MIM 的需求差异**先说明白**。
+> 版本: v2.0 · 日期: 2026-07-20 · 状态: ✅ 已实现
+> 前端文件: `apps/desktop/src/app/winpeek/mim/index.tsx`
 
 ---
 
-## 1. MIM vs Hermes 原生：哪些该对齐，哪些不适用
-
-### 1.1 Composer（输入框区域）
-
-Hermes 原生 Composer 的按钮排：
+## 一、页面整体分层（4 大区块）
 
 ```
-[+] [Mic图标] [喇叭图标] [模型标签] [发送按钮]
-```
-
-| 功能 | Hermes 原生用途 | MIM 需要吗 | 决策 |
-|------|----------------|:--:|------|
-| **发送按钮** | 发消息 | ✅ 任何聊天都要 | V1 对齐 — 黑色圆形 + arrow-up |
-| **喇叭 (AutoSpeak)** | TTS 朗读 AI 回复 | ❌ MIM 是文字聊天，不涉及 TTS | V1 **不做** |
-| **Mic (Dictation)** | 语音输入转文字 | ❌ MIM 是 Agent 间文字通讯 | V1 **不做** |
-| **模型标签 (ModelPill)** | 选择 LLM 模型 | ❌ MIM 不调 LLM | V1 **不做** |
-| **+ (ContextMenu)** | 上传文件/文件夹/图片 | ⚠️ 未来可能需要，但现在单聊消息够用 | V1 **不做**，V1.5 考虑 |
-| **Ctrl+Enter / steering wheel** | 导向模式 | ❌ MIM 无 LLM 上下文 | V1 **不做** |
-
-**结论**：MIM Composer 比 Hermes 简单——它只需要一个 textarea + 一个发送按钮。Hermes 的 5 个控制按钮在 MIM 里只有 1 个适用。
-
-### 1.2 消息气泡
-
-| 功能 | Hermes 原生 | MIM 当前 | 差距 |
-|------|-----------|---------|------|
-| **自己发的消息** | `bg-(--dt-user-bubble)` + border + rounded-xl | `bg-(--ui-accent) text-(--ui-accent-foreground) rounded-br-md` | 🔴 颜色太鲜艳 |
-| **对方发的消息** | `bg-(--dt-assistant-bubble)` 或 `bg-muted` | `bg-(--ui-bg-quaternary) text-foreground rounded-bl-md` | 🟡 可接受 |
-| **Markdown** | Streamdown（同一个组件） | ✅ 已对齐 | ✅ |
-| **时间戳** | formatMessageTimestamp | ✅ 已对齐 | ✅ |
-| **复制** | CopyButton (appearance="tool-row") | CopyButton (appearance="icon") | ✅ 已对齐 |
-| **编辑重发** | "Restore to message" — 把旧消息内容回填到 composer | ❌ 无 | 🟡 V1 做简化版 |
-| **引用回复** | Thread reply — 引用条 + 蓝色左边框 | ❌ 无 | V2 |
-
-**结论**：自己发的消息气泡用 `bg-(--dt-user-bubble)` 取代 `bg-(--ui-accent)`，是唯一的颜色修复。
-
-### 1.3 决定——MIM Composer 最终形态
-
-```
-┌─────────────────────────────────────────────────────┐
-│  [消息历史区域]                                       │
-│                                                     │
-│  ┌───────────────────── Composer ──────────────────┐│
-│  │ ┌─────────────────────────────┐ ┌────────────┐ ││
-│  │ │ 输入消息...                  │ │     ↑      │ ││
-│  │ └─────────────────────────────┘ └────────────┘ ││
-│  └───────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────┘
-
-一条输入框 + 一个发送按钮。无 voice/mic/model/+。
+┌─────────────────────────────────────────┐
+│  区块1: 顶部导航栏（固定头部）           │
+│  👥 群名(人数)  ·  ·  · 在线/离线 ⋯   │
+├─────────────────────────────────────────┤
+│  区块2: 消息卡片流（核心内容区）         │
+│  头像 + 名称 + 气泡 + 时间戳            │
+│  完全左对齐体系                         │
+├─────────────────────────────────────────┤
+│  区块3: Composer 输入区（底部固定）      │
+│  [+] [🎤] [📢]  textarea  [↑]          │
+└─────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. 改动清单（7 项，全在一个文件）
+## 二、头部导航栏
 
-| # | 改什么 | 当前位置 | 改成 | 理由 |
-|---|--------|---------|------|------|
-| 1 | 己方消息气泡颜色 | `bg-(--ui-accent)` | `bg-(--dt-user-bubble)` | 对齐 Hermes 用户消息 token |
-| 2 | 己方消息文字颜色 | `text-(--ui-accent-foreground)` | `text-foreground` | 随背景 token 变 |
-| 3 | 己方消息圆角 | `rounded-br-md` | `rounded-2xl` | 对齐 Hermes USER_BUBBLE rounded-xl |
-| 4 | 己方消息加 border | 无 | `border border-border/50` | 对齐 Hermes standalone-glass border |
-| 5 | 对方消息圆角 | `rounded-bl-md` | `rounded-2xl` | 与己方一致 |
-| 6 | 编辑重发 | 无 | 点击自己消息 → 复制内容到 composer → 覆盖式重发（不是追加新消息） | 对标 Hermes Restore |
-| 7 | Composer 面板 | 当前 glass dock | 保持不变（第 5 次改动后的版本已对齐） | 无需再改 |
+```
+左侧: 头像 + 群名(人数)  —  单聊显示在线/离线+角色
+右侧: ⋯ 三点菜单按钮 (群聊时出现，点击进群资料面板)
 
-### 2.1 编辑重发逻辑
-
-```tsx
-// 点击自己的消息 → 复制到输入框 → 再次发送时覆盖原消息
-const [editingMsgId, setEditingMsgId] = useState<string | null>(null)
-
-function handleEditResend(msg: ChatMessage) {
-  setInputText(msg.content)
-  setEditingMsgId(msg.id)
-  textareaRef.current?.focus()
-}
-
-// handleSend 中：
-if (editingMsgId) {
-  // 覆盖消息内容（乐观更新）
-  setMessages(prev => prev.map(m => m.id === editingMsgId ? { ...m, content: text } : m))
-  setEditingMsgId(null)
-  // 发新消息到后端（后端不区分编辑/新发——都是 INSERT chat 新行）
-}
+群名格式: WinPeek工作群33(14)
+  → title + 浅灰小字(成员数)
+单聊格式: yuyangmin
+  第二行浅灰: 在线 · PM · #2022
 ```
 
-编辑后发的是新消息（后端 INSERT 新行），但前端乐观更新把旧消息气泡的内容替换掉，视觉上像编辑。
+**实现要点：**
+- `TextForeground` 主标题，`TextTertiary` 辅助信息
+- 群名右边紧跟 `(member_count)` 浅灰色
+- 三点按钮 `⋯` Unicode，hover 浅色背景
 
 ---
 
-## 3. 不做清单（明确边界）
+## 三、消息卡片流（核心）
 
-| 功能 | 为什么不 |
-|------|---------|
-| voice/喇叭 | MIM 无 TTS |
-| mic/语音输入 | MIM 是文字聊天 |
-| model 标签 | MIM 不调 LLM |
-| + 文件选择 | V1.5 |
-| Thread Reply 引用条 | V2 — 需要改 DB 加 reply_to 列 |
-| 图片/表情 | V2 |
-| Shiki 代码高亮 | V1.5 — Streamdown 默认代码块够用 |
+### 3.1 统一模板
+
+每条消息 = **头像 + 发送者信息栏 + 消息主体**
+
+所有消息**完全左对齐**，包括自己的消息，无右对齐气泡。
+
+```
+┌─────────────────────────────────────────┐
+│           7月20日 15:30                 │  ← 居中时间戳分割线
+│                                         │
+│ 🟡 头像  yuyangmin                      │  ← 头像(36px圆角) + 昵称
+│    ┌─────────────────────────┐         │
+│    │ 大家下午好啊             │         │  ← 浅灰圆角气泡
+│    └─────────────────────────┘         │
+│    📋 15:30                            │  ← 复制+时间
+│                                         │
+│  ↑ 与上条间距 12px                     │
+│                                         │
+│ 🟡 头像  yudahai                        │
+│    ┌─────────────────────────┐         │
+│    │ 下午好，今天进度如何？    │         │
+│    └─────────────────────────┘         │
+│    📋 15:30                            │
+└─────────────────────────────────────────┘
+```
+
+### 3.2 时间戳分割
+
+- **居中显示**，不依附任何消息框
+- **出现条件**：两条消息间隔 > 5 分钟，或每天第一条消息
+- 样式：`bg-(--ui-bg-tertiary) rounded-full px-3` 浅灰圆角标签
+- 文字 `text-[0.6rem] text-(--ui-text-quaternary)`
+
+### 3.3 气泡样式
+
+| 属性 | 值 |
+|------|-----|
+| 背景 | `bg-(--ui-bg-tertiary)` 浅灰色 |
+| 圆角 | `rounded-lg` 小半径 |
+| 内边距 | `px-2.5 py-1.5` |
+| 最大宽度 | `max-w-[75%]` |
+| 文字 | `text-foreground text-sm` |
+
+### 3.4 群聊发送者名
+
+- 群聊模式：每条消息气泡上方显示发送者昵称
+- 颜色：`text-(--ui-accent)` 蓝色
+- 单聊模式：对方消息可省昵称或浅灰色
+
+### 3.5 未读新消息浮标
+
+- 用户上滚查看历史后，底部出现绿色标签
+- `bg-emerald-500 text-white rounded-full`
+- 文字 `↓ X条新消息`，点击回到最新消息
 
 ---
 
-## 4. 验收标准
+## 四、视觉层级权重
 
-| # | 操作 | 预期 |
-|---|------|------|
-| 1 | 看一眼自己发的消息 | 气泡是 Hermes 同款 `bg-(--dt-user-bubble)` 半透明卡片，不是亮蓝色 |
-| 2 | 看一眼对方发的消息 | 气泡是 `bg-(--ui-bg-quaternary)`，圆角 rounded-2xl |
-| 3 | 点击自己发的消息 | 内容回填到输入框 |
-| 4 | 编辑后点发送 | 旧气泡内容更新，但后端 INSERT 新行 |
-| 5 | 对方消息不可编辑 | 点击无反应 |
-| 6 | 输入框 | glass dock + 黑色圆发送按钮 + 自动增高 |
+```
+L1 (最重): 群名、绿色未读浮标、气泡正文
+    → text-foreground, emerald-500, 标准字重
+
+L2 (中等): 群聊发送者昵称（蓝色）、气泡背景色块
+    → text-(--ui-accent), bg-(--ui-bg-tertiary)
+
+L3 (最轻): 居中时间戳、群成员数、复制按钮、在线状态
+    → text-(--ui-text-quaternary), text-[0.55rem]
+```
 
 ---
 
-## 5. 工时
+## 五、对齐与排版规范
 
-**30 分钟，约 30 行改动。7 项全在一个文件 `mim/index.tsx`。**
+| 规则 | 说明 |
+|------|------|
+| 左对齐体系 | 头像、名称、气泡全部左对齐形成垂直参考线 |
+| 水平安全边距 | 页面左右 `px-4`（16px） |
+| 垂直间距 | 消息之间 `mb-3`（12px），气泡与发送者名 `mb-0.5`（2px） |
+| 头像尺寸 | 36px 圆角方形 `rounded-md h-9 w-9` |
+| 文字层次 | 主标题 `text-sm font-medium`，辅信息 `text-[0.6rem] text-tertiary` |
+| 容器圆角 | 时间戳 `rounded-full`，气泡 `rounded-lg`，统一视觉语言 |
+
+---
+
+## 六、统一复用组件
+
+1. **消息行组件** — 头像 + 名称 + 气泡 + CopyButton，逐条复用
+2. **时间戳分割组件** — 居中圆角标签，`>5min` 间隔自动插入
+3. **未读浮标组件** — 绿色悬浮标签，仅上滚时出现
+4. **CopyButton** — 复用 `@/components/ui/copy-button`，`appearance="icon"`
+5. **Streamdown** — 复用 `streamdown` Markdown 渲染
+
+---
+
+## 七、数据接口映射
+
+| 界面元素 | 数据来源 |
+|----------|---------|
+| 群名 + 人数 | `winpeek_mim_contacts` → `groups[].title` + `member_count` |
+| 群公告 | `winpeek_mim_group_info` → `metadata.announcement` |
+| 消息列表 | `winpeek_mim_history` → `messages[] {from_uid, from_name, content, msg_ts}` |
+| 在线状态 | `winpeek_mim_contacts` → `contacts[].online` (hub.is_online) |
+| 群成员 | `winpeek_mim_group_info` → `members[] {uid, nickname, participant_type}` |
+| 未读数 | `winpeek_mim_contacts` → `contacts[].unread_count` |
+| 用户资料 | `winpeek_mim_user_info` → `{uid, nickname, role, title, bio, skills}` |
+| 群操作 | `winpeek_mim_group_update` / `winpeek_mim_group_transfer` / `winpeek_mim_group_invite` |
+
+---
+
+## 八、群资料面板
+
+右侧详情列显示，通过群聊头部 `⋯` 按钮进入。
+
+```
+┌─ 群资料 ──────────────────────┐
+│                                │
+│  成员网格 (5列头像+昵称)        │
+│  ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐   │
+│  │头│ │头│ │头│ │头│ │ + │    │
+│  │名│ │名│ │名│ │名│ │邀请│   │
+│  └──┘ └──┘ └──┘ └──┘ └──┘   │
+│  查看更多 (14人) ›             │
+│  ─────────────────────────    │
+│  群聊名称    WinPeek工作群33   │
+│  群公告     ›                  │
+│    公告正文...                 │
+│  ─────────────────────────    │
+│  🟡 yuyangmin  PM    群主    │
+│  🟡 yudahai   Arch  转让    │
+│  ...                          │
+│  ─────────────────────────    │
+│  清空聊天记录                 ›│
+│  退出群聊（红色）             ›│
+└────────────────────────────────┘
+```
+
+**功能清单：**
+
+| 功能 | 权限 | 数据接口 |
+|------|------|---------|
+| 查看成员列表 | 群成员 | `winpeek_mim_group_info` |
+| 点击成员看资料 | 群成员 | `winpeek_mim_user_info` |
+| 改名 | owner/admin | `winpeek_mim_group_update {title}` |
+| 编辑公告 | owner/admin | `winpeek_mim_group_update {announcement}` |
+| 邀请成员 | owner/admin | `winpeek_mim_group_invite` |
+| 转让群主 | owner only | `winpeek_mim_group_transfer` |
+| 清空聊天 | 本人 | 仅清空前端 messages 列表 |
+| 退出/解散 | 本人 | 待实现 `winpeek_mim_group_leave` |
+
+---
+
+## 九、与原 Hermes 的差异
+
+| 项目 | Hermes 原生 | MIM |
+|------|------------|-----|
+| 气泡对齐 | 己右蓝，彼左灰 | **全部左对齐**，统一浅灰 |
+| 时间戳 | 每条右下角 | **居中**分割线，>5min 出现 |
+| 头像 | 圆形 | **圆角方形** (rounded-md) |
+| 群聊 | 无 | 群名(人数) + 公告横幅 + 发送者名 |
+| 未读提示 | 红点数字 | **绿色浮标** "↓ X条新消息" |

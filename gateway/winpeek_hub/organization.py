@@ -1,0 +1,623 @@
+"""WinPeek org hierarchy — squad → person → device → winpeek → agent.
+
+Tables:
+  squads           — 组织 (company/team)
+  persons          — 真人, 属于一个 squad
+  machines         — Device (pc/laptop/phone/container/vm), 属于 person 或 squad
+  winpeek_accounts — person 与 users.uid 的关联 (一人可有多个winpeek账号)
+  ai_agents        — AI Agent, 属于 person/device/squad
+
+Relations:
+  squad 1──N persons
+  squad 1──N machines (组织级设备)
+  person 1──N machines (个人设备)
+  person 1──N winpeek_accounts (winpeek uid)
+  person 1──N ai_agents
+  machine 1──1 winpeek_uid (主账号)
+  machine 1──N ai_agents (运行在此设备上的agent)
+  machine 1──N winpeek_software (安装的软件)
+"""
+
+import json as _json
+import logging
+from datetime import datetime
+from typing import Any
+
+from .db import get_conn
+
+logger = logging.getLogger(__name__)
+
+_DDL_OK = False
+
+
+def ensure_tables():
+    global _DDL_OK
+    if _DDL_OK:
+        return
+    conn = get_conn()
+    if conn is None:
+        return
+    try:
+        with conn.cursor() as cur:
+            # ── squads ──
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS squads (
+                  id          INT AUTO_INCREMENT PRIMARY KEY,
+                  name        VARCHAR(128) NOT NULL,
+                  description TEXT,
+                  meta        TEXT COMMENT 'JSON扩展',
+                  created_at  DATETIME DEFAULT NOW(),
+                  updated_at  DATETIME DEFAULT NOW() ON UPDATE NOW(),
+                  UNIQUE KEY uk_squad_name (name)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            _ensure_cols(cur, "squads", {
+                "description": "TEXT", "meta": "TEXT",
+                "updated_at": "DATETIME DEFAULT NOW() ON UPDATE NOW()",
+            })
+
+            # ── persons ──
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS persons (
+                  id          INT AUTO_INCREMENT PRIMARY KEY,
+                  name        VARCHAR(128) NOT NULL,
+                  squad_id    INT,
+                  email       VARCHAR(128),
+                  phone       VARCHAR(32),
+                  notes       TEXT COMMENT '备注',
+                  meta        TEXT COMMENT 'JSON扩展',
+                  created_at  DATETIME DEFAULT NOW(),
+                  updated_at  DATETIME DEFAULT NOW() ON UPDATE NOW(),
+                  FOREIGN KEY (squad_id) REFERENCES squads(id) ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            _ensure_cols(cur, "persons", {
+                "email": "VARCHAR(128)", "phone": "VARCHAR(32)",
+                "notes": "TEXT", "meta": "TEXT",
+                "updated_at": "DATETIME DEFAULT NOW() ON UPDATE NOW()",
+            })
+
+            # ── machines ──
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS machines (
+                  id           INT AUTO_INCREMENT PRIMARY KEY,
+                  hostname     VARCHAR(128) NOT NULL,
+                  squad_id     INT,
+                  person_id    INT,
+                  winpeek_uid  INT COMMENT '关联 users.uid',
+                  os_name      VARCHAR(64),
+                  os_version   VARCHAR(64),
+                  cpu_model    VARCHAR(256),
+                  cpu_cores    INT,
+                  ram_gb       DECIMAL(6,1),
+                  gpu_models   TEXT COMMENT 'JSON array',
+                  disks_json   TEXT COMMENT 'JSON [{\"drive\":\"C:\",\"total_gb\":512}]',
+                  ip_address   VARCHAR(64),
+                  mac_address  VARCHAR(64),
+                  last_seen    DATETIME,
+                  meta         TEXT COMMENT 'JSON扩展',
+                  created_at   DATETIME DEFAULT NOW(),
+                  updated_at   DATETIME DEFAULT NOW() ON UPDATE NOW(),
+                  UNIQUE KEY uk_hostname (hostname),
+                  FOREIGN KEY (person_id) REFERENCES persons(id) ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            _ensure_cols(cur, "machines", {
+                "squad_id": "INT", "device_type": "VARCHAR(32)",
+                "os_name": "VARCHAR(64)", "os_version": "VARCHAR(64)",
+                "cpu_model": "VARCHAR(256)", "cpu_cores": "INT",
+                "ram_gb": "DECIMAL(6,1)", "gpu_models": "TEXT",
+                "disks_json": "TEXT", "ip_address": "VARCHAR(64)",
+                "mac_address": "VARCHAR(64)", "meta": "TEXT",
+                "winpeek_uid": "INT",
+                "updated_at": "DATETIME DEFAULT NOW() ON UPDATE NOW()",
+            })
+
+            # ── winpeek_accounts: person ↔ users.uid ──
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS winpeek_accounts (
+                  id        INT AUTO_INCREMENT PRIMARY KEY,
+                  person_id INT NOT NULL,
+                  uid       INT NOT NULL COMMENT 'users.uid',
+                  is_main   TINYINT DEFAULT 0 COMMENT '主账号',
+                  created_at DATETIME DEFAULT NOW(),
+                  UNIQUE KEY uk_person_uid (person_id, uid),
+                  FOREIGN KEY (person_id) REFERENCES persons(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+
+            # ── ai_agents: AI agent registry ──
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ai_agents (
+                  id          INT AUTO_INCREMENT PRIMARY KEY,
+                  name        VARCHAR(128) NOT NULL,
+                  agent_type  VARCHAR(64) COMMENT 'hermes/qoder/cc...',
+                  uid         INT COMMENT 'users.uid',
+                  person_id   INT,
+                  squad_id    INT,
+                  machine_id  INT,
+                  role        VARCHAR(64),
+                  status      VARCHAR(32) DEFAULT 'active',
+                  config_json TEXT COMMENT 'JSON配置',
+                  created_at  DATETIME DEFAULT NOW(),
+                  updated_at  DATETIME DEFAULT NOW() ON UPDATE NOW(),
+                  FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+
+            # ── FK ──
+            _ensure_cols(cur, "winpeek_software", {"machine_id": "INT"})
+            _ensure_cols(cur, "winpeek_software_account", {"machine_id": "INT"})
+
+            conn.commit()
+        _DDL_OK = True
+        logger.info("organization tables ready: squads + persons + machines")
+    except Exception as e:
+        logger.warning(f"ensure_tables failed: {e}")
+    finally:
+        conn.close()
+
+
+def _ensure_cols(cur, table: str, cols: dict[str, str]):
+    """Add columns if not present."""
+    for col, col_type in cols.items():
+        cur.execute(
+            "SELECT 1 FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s",
+            (table, col),
+        )
+        if cur.fetchone():
+            continue
+        try:
+            cur.execute(f"ALTER TABLE `{table}` ADD COLUMN `{col}` {col_type}")
+        except Exception:
+            pass
+
+
+# ═══════════════════════════════════════════════════════
+#  SQUAD CRUD
+# ═══════════════════════════════════════════════════════
+
+def list_squads() -> list[dict]:
+    conn = get_conn()
+    if conn is None: return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM squads ORDER BY name")
+            return [_row(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def upsert_squad(name: str, **fields) -> dict:
+    ensure_tables()
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    allowed = {"description", "meta"}
+    vals = {"name": name}
+    for k in allowed:
+        if k in fields and fields[k] is not None:
+            vals[k] = fields[k]
+    now = _now()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM squads WHERE name = %s", (name,))
+            existing = cur.fetchone()
+            if existing:
+                sid = existing["id"]
+                sets = ", ".join(f"`{k}` = %s" for k in vals)
+                cur.execute(f"UPDATE squads SET {sets}, updated_at = %s WHERE id = %s",
+                            list(vals.values()) + [now, sid])
+            else:
+                vals["created_at"] = now; vals["updated_at"] = now
+                cols = ", ".join(f"`{k}`" for k in vals)
+                ph = ", ".join("%s" for _ in vals)
+                cur.execute(f"INSERT INTO squads ({cols}) VALUES ({ph})", list(vals.values()))
+                sid = cur.lastrowid
+            conn.commit()
+        return {"ok": True, "id": sid}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════
+#  PERSON CRUD
+# ═══════════════════════════════════════════════════════
+
+def list_persons(squad_id: int = 0) -> list[dict]:
+    conn = get_conn()
+    if conn is None: return []
+    try:
+        with conn.cursor() as cur:
+            if squad_id:
+                cur.execute("""
+                    SELECT p.*, s.name AS squad_name
+                    FROM persons p LEFT JOIN squads s ON p.squad_id = s.id
+                    WHERE p.squad_id = %s ORDER BY p.name
+                """, (squad_id,))
+            else:
+                cur.execute("""
+                    SELECT p.*, s.name AS squad_name
+                    FROM persons p LEFT JOIN squads s ON p.squad_id = s.id
+                    ORDER BY p.name
+                """)
+            return [_row(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def upsert_person(name: str, requester_uid: int = 0, **fields) -> dict:
+    ensure_tables()
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    allowed = {"squad_id", "email", "phone", "notes", "meta"}
+    vals = {"name": name}
+    for k in allowed:
+        if k in fields and fields[k] is not None:
+            vals[k] = fields[k]
+    now = _now()
+    try:
+        with conn.cursor() as cur:
+            pid = fields.get("id")
+            if pid:
+                cur.execute("SELECT id FROM persons WHERE id = %s", (pid,))
+                if cur.fetchone():
+                    sets = ", ".join(f"`{k}` = %s" for k in vals)
+                    cur.execute(f"UPDATE persons SET {sets}, updated_at = %s WHERE id = %s",
+                                list(vals.values()) + [now, pid])
+                    conn.commit()
+                    return {"ok": True, "id": pid}
+            vals["created_at"] = now; vals["updated_at"] = now
+            cols = ", ".join(f"`{k}`" for k in vals)
+            ph = ", ".join("%s" for _ in vals)
+            cur.execute(f"INSERT INTO persons ({cols}) VALUES ({ph})", list(vals.values()))
+            conn.commit()
+        return {"ok": True, "id": cur.lastrowid}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════
+#  MACHINE CRUD
+# ═══════════════════════════════════════════════════════
+
+def list_machines(person_id: int = 0) -> list[dict]:
+    conn = get_conn()
+    if conn is None: return []
+    try:
+        with conn.cursor() as cur:
+            if person_id:
+                cur.execute("""
+                    SELECT m.*, p.name AS person_name, s.name AS squad_name
+                    FROM machines m
+                    LEFT JOIN persons p ON m.person_id = p.id
+                    LEFT JOIN squads s ON p.squad_id = s.id
+                    WHERE m.person_id = %s ORDER BY m.hostname
+                """, (person_id,))
+            else:
+                cur.execute("""
+                    SELECT m.*, p.name AS person_name, s.name AS squad_name
+                    FROM machines m
+                    LEFT JOIN persons p ON m.person_id = p.id
+                    LEFT JOIN squads s ON p.squad_id = s.id
+                    ORDER BY m.last_seen DESC
+                """)
+            return [_row(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def upsert_machine(hostname: str, **fields) -> dict:
+    """Upsert a machine. hostname is the unique key."""
+    ensure_tables()
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    allowed = {"squad_id", "device_type", "person_id", "winpeek_uid",
+               "os_name", "os_version",
+               "cpu_model", "cpu_cores", "ram_gb", "gpu_models",
+               "disks_json", "ip_address", "mac_address", "meta"}
+    vals = {"hostname": hostname, "last_seen": _now()}
+    for k in allowed:
+        if k in fields and fields[k] is not None:
+            vals[k] = fields[k]
+    now = _now()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM machines WHERE hostname = %s", (hostname,))
+            existing = cur.fetchone()
+            if existing:
+                mid = existing["id"]
+                sets = ", ".join(f"`{k}` = %s" for k in vals)
+                cur.execute(f"UPDATE machines SET {sets}, updated_at = %s WHERE id = %s",
+                            list(vals.values()) + [now, mid])
+            else:
+                vals["created_at"] = now; vals["updated_at"] = now
+                cols = ", ".join(f"`{k}`" for k in vals)
+                ph = ", ".join("%s" for _ in vals)
+                cur.execute(f"INSERT INTO machines ({cols}) VALUES ({ph})", list(vals.values()))
+                mid = cur.lastrowid
+            conn.commit()
+        return {"ok": True, "id": mid}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def get_machine_detail(machine_id: int, requester_uid: int = 0) -> dict | None:
+    conn = get_conn()
+    if conn is None: return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT m.*, p.name AS person_name, p.email AS person_email,
+                       s.name AS squad_name, s.id AS squad_id
+                FROM machines m
+                LEFT JOIN persons p ON m.person_id = p.id
+                LEFT JOIN squads s ON p.squad_id = s.id
+                WHERE m.id = %s
+            """, (machine_id,))
+            r = cur.fetchone()
+            if not r: return None
+            data = _row(r)
+            # load software on this machine
+            cur.execute(
+                "SELECT * FROM winpeek_software WHERE machine_id = %s ORDER BY name",
+                (machine_id,))
+            data["softwares"] = [_row(s) for s in cur.fetchall()]
+            return data
+    finally:
+        conn.close()
+
+
+def get_org_status(winpeek_uid: int) -> dict:
+    """Check if a uid's machine is linked to a squad. Returns options for frontend."""
+    conn = get_conn()
+    if conn is None: return {"linked": False, "squads": []}
+    try:
+        with conn.cursor() as cur:
+            # find machine for this uid
+            cur.execute("SELECT id, squad_id, hostname FROM machines WHERE winpeek_uid = %s ORDER BY last_seen DESC LIMIT 1", (winpeek_uid,))
+            m = cur.fetchone()
+            if m and m["squad_id"]:
+                cur.execute("SELECT * FROM squads WHERE id = %s", (m["squad_id"],))
+                s = cur.fetchone()
+                return {"linked": True, "machine_id": m["id"], "squad": _row(s) if s else None}
+            # list available squads
+            cur.execute("SELECT * FROM squads ORDER BY name")
+            squads = [_row(s) for s in cur.fetchall()]
+            return {"linked": False, "machine_id": m["id"] if m else None, "squads": squads,
+                    "hostname": m["hostname"] if m else ""}
+    finally:
+        conn.close()
+
+
+def join_squad(machine_id: int, squad_id: int, winpeek_uid: int) -> dict:
+    """Link a machine to a squad. Auto-create person if needed."""
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM machines WHERE id = %s AND winpeek_uid = %s",
+                        (machine_id, winpeek_uid))
+            if not cur.fetchone():
+                return {"ok": False, "error": "Machine not found"}
+            cur.execute("UPDATE machines SET squad_id = %s WHERE id = %s",
+                        (squad_id, machine_id))
+
+            # Auto-create person if not exists for this winpeek_uid
+            cur.execute("SELECT nickname FROM users WHERE uid = %s", (winpeek_uid,))
+            u = cur.fetchone()
+            name = u["nickname"] if u else f"user_{winpeek_uid}"
+            cur.execute("SELECT id FROM persons WHERE name = %s", (name,))
+            p = cur.fetchone()
+            if not p:
+                cur.execute("INSERT INTO persons (name, squad_id) VALUES (%s, %s)", (name, squad_id))
+            else:
+                cur.execute("UPDATE persons SET squad_id = %s WHERE id = %s", (squad_id, p["id"]))
+
+            conn.commit()
+        return {"ok": True, "squad_id": squad_id}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def scan_and_register_machine(winpeek_uid: int, hostname: str = "") -> dict:
+    """Auto-register current machine with hardware info, then scan software."""
+    import platform as _plat, socket, os as _os
+
+    if not hostname:
+        hostname = _plat.node()
+
+    # ── scan hardware ──
+    from .scanner import get_hardware_info
+    hw = get_hardware_info()
+
+    # ── scan software ──
+    from .scanner import scan_software
+    sw = scan_software()
+
+    # ── upsert machine ──
+    disks = hw.get("disks", [])
+    machine = upsert_machine(hostname,
+        device_type="pc",
+        winpeek_uid=winpeek_uid,
+        os_name=hw.get("os", {}).get("system", ""),
+        os_version=hw.get("os", {}).get("release", ""),
+        cpu_model=hw.get("cpu", {}).get("name", ""),
+        cpu_cores=hw.get("cpu", {}).get("cores", 0),
+        ram_gb=_to_float(hw.get("memory", {}).get("total_gb", 0)),
+        gpu_models=_json.dumps(hw.get("gpus", []), ensure_ascii=False),
+        disks_json=_json.dumps(disks, ensure_ascii=False),
+        ip_address=socket.gethostbyname(hostname) if hostname else "",
+    )
+
+    # ── tag software with machine_id ──
+    if machine.get("ok") and machine.get("id"):
+        mid = machine["id"]
+        conn = get_conn()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE winpeek_software SET machine_id = %s WHERE machine_id IS NULL",
+                        (mid,))
+                    conn.commit()
+            except Exception:
+                pass
+            finally:
+                conn.close()
+
+    return {"ok": True, "machine": machine, "hardware": hw, "software": sw}
+
+
+# ═══════════════════════════════════════════════════════
+#  HIERARCHY VIEW (full tree)
+# ═══════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════
+#  WINPEEK_ACCOUNTS (person ↔ users.uid)
+# ═══════════════════════════════════════════════════════
+
+
+def link_account(person_id: int, uid: int, is_main: int = 0) -> dict:
+    ensure_tables()
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO winpeek_accounts (person_id, uid, is_main) VALUES (%s, %s, %s) "
+                "ON DUPLICATE KEY UPDATE is_main = VALUES(is_main)",
+                (person_id, uid, is_main))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def list_accounts_for_person(person_id: int) -> list[dict]:
+    conn = get_conn()
+    if conn is None: return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT wa.*, u.nickname, u.role
+                FROM winpeek_accounts wa
+                LEFT JOIN users u ON wa.uid = u.uid
+                WHERE wa.person_id = %s
+            """, (person_id,))
+            return [_row(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════
+#  AI_AGENTS
+# ═══════════════════════════════════════════════════════
+
+
+def list_agents(squad_id: int = 0, machine_id: int = 0) -> list[dict]:
+    conn = get_conn()
+    if conn is None: return []
+    try:
+        with conn.cursor() as cur:
+            sql = "SELECT * FROM ai_agents WHERE 1=1"
+            params = []
+            if squad_id: sql += " AND squad_id = %s"; params.append(squad_id)
+            if machine_id: sql += " AND machine_id = %s"; params.append(machine_id)
+            sql += " ORDER BY name"
+            cur.execute(sql, params)
+            return [_row(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def upsert_agent(name: str, **fields) -> dict:
+    ensure_tables()
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    allowed = {"agent_type", "uid", "person_id", "squad_id", "machine_id",
+               "role", "status", "config_json"}
+    vals = {"name": name}
+    for k in allowed:
+        if k in fields and fields[k] is not None:
+            vals[k] = fields[k]
+    now = _now()
+    try:
+        with conn.cursor() as cur:
+            aid = fields.get("id")
+            if aid:
+                cur.execute("SELECT id FROM ai_agents WHERE id = %s", (aid,))
+                if cur.fetchone():
+                    sets = ", ".join(f"`{k}` = %s" for k in vals)
+                    cur.execute(f"UPDATE ai_agents SET {sets}, updated_at = %s WHERE id = %s",
+                                list(vals.values()) + [now, aid])
+                    conn.commit()
+                    return {"ok": True, "id": aid}
+            vals["created_at"] = now; vals["updated_at"] = now
+            cols = ", ".join(f"`{k}`" for k in vals)
+            ph = ", ".join("%s" for _ in vals)
+            cur.execute(f"INSERT INTO ai_agents ({cols}) VALUES ({ph})", list(vals.values()))
+            conn.commit()
+        return {"ok": True, "id": cur.lastrowid}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def get_org_tree() -> dict:
+    """Return full hierarchy: squads → persons → machines → software count."""
+    conn = get_conn()
+    if conn is None: return {"squads": []}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM squads ORDER BY name")
+            squads = []
+            for s in cur.fetchall():
+                sd = _row(s)
+                cur.execute("SELECT * FROM persons WHERE squad_id = %s ORDER BY name", (s["id"],))
+                persons = []
+                for p in cur.fetchall():
+                    pd = _row(p)
+                    cur.execute("""
+                        SELECT m.*, (SELECT COUNT(*) FROM winpeek_software WHERE machine_id = m.id) AS software_count
+                        FROM machines m WHERE m.person_id = %s ORDER BY m.hostname
+                    """, (p["id"],))
+                    pd["machines"] = [_row(m) for m in cur.fetchall()]
+                    persons.append(pd)
+                sd["persons"] = persons
+                squads.append(sd)
+        return {"squads": squads}
+    finally:
+        conn.close()
+
+
+# ── helpers ──
+
+def _now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _row(r) -> dict:
+    d = {}
+    for k in r.keys():
+        v = r[k]
+        if isinstance(v, datetime):
+            v = v.strftime("%Y-%m-%d %H:%M:%S")
+        d[k] = v
+    return d
+
+
+def _to_float(v: Any) -> float | None:
+    try: return float(v)
+    except (TypeError, ValueError): return None

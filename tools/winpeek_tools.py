@@ -332,7 +332,7 @@ def _handle_mim_login(args: dict) -> str:
     if not nickname:
         return json.dumps({"error": "nickname required"})
     try:
-        from gateway.winpeek_hub import identity
+        from gateway.winpeek_hub import identity, hub
         from gateway.winpeek_hub.chat import set_active_session
     except ImportError as e:
         return json.dumps({"error": f"MIM Hub not loaded: {e}"})
@@ -340,6 +340,9 @@ def _handle_mim_login(args: dict) -> str:
     if not result:
         return json.dumps({"error": f"login failed — wrong nickname or password"})
     set_active_session(result["uid"], result["nickname"])
+    # Register + heartbeat so this user appears online in contacts
+    hub.register_node(result["uid"], result["nickname"], result.get("role", role))
+    hub.heartbeat(result["uid"])
     return json.dumps({"ok": True, "identity": result})
 
 
@@ -348,20 +351,21 @@ def _handle_mim_send(args: dict) -> str:
     if forwarded is not None:
         return forwarded
     body = args.get("body", "")
-    to_uid = args.get("to_uid")
-    if not to_uid or not body:
-        return json.dumps({"error": "to_uid and body required"})
+    to_uid = int(args.get("to_uid") or 0)
+    gid = int(args.get("gid") or 0)
+    if not body:
+        return json.dumps({"error": "body required"})
+    if not to_uid and not gid:
+        return json.dumps({"error": "to_uid or gid required"})
     try:
         from gateway.winpeek_hub.chat import send_message, active_uid, active_name
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    # Explicit uid (e.g. desktop frontend passes its logged-in identity) wins
-    # over the process-global active session, which may belong to another user.
     uid = int(args.get("uid") or 0) or active_uid()
     if not uid:
         return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
     from_name = args.get("from_name") or (active_name() if uid == active_uid() else "") or f"user_{uid}"
-    return json.dumps(send_message(uid, from_name, int(to_uid), body))
+    return json.dumps(send_message(uid, from_name, body, to_uid=to_uid, gid=gid))
 
 
 def _handle_mim_poll(args: dict) -> str:
@@ -387,7 +391,7 @@ def _handle_mim_contacts(args: dict) -> str:
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
     uid = int(args.get("uid") or 0) or active_uid()
-    return json.dumps({"contacts": get_contacts(uid)})
+    return json.dumps(get_contacts(uid))
 
 
 registry.register(
@@ -417,14 +421,15 @@ registry.register(
     toolset="winpeek_rpa",
     schema={
         "name": "winpeek_mim_send",
-        "description": "Send a message to another agent via MQTT. Sender identity from env MIM_UID/MIM_NAME. Recipient receives on their inbox topic.",
+        "description": "Send a message to another agent or group via MQTT.",
         "parameters": {
             "type": "object",
             "properties": {
-                "to_uid": {"type": "integer", "description": "Recipient agent uid"},
+                "to_uid": {"type": "integer", "description": "Recipient uid (single chat)"},
+                "gid": {"type": "integer", "description": "Group id (group chat)"},
                 "body": {"type": "string", "description": "Message text"},
             },
-            "required": ["to_uid", "body"],
+            "required": ["body"],
         },
     },
     handler=lambda args, **kw: _handle_mim_send(args),
@@ -502,9 +507,10 @@ def _handle_mim_history(args: dict) -> str:
     if forwarded is not None:
         return forwarded
     peer_uid = int(args.get("peer_uid", 0))
+    gid = int(args.get("gid", 0))
     limit = int(args.get("limit", 50))
-    if not peer_uid:
-        return json.dumps({"error": "peer_uid required"})
+    if not peer_uid and not gid:
+        return json.dumps({"error": "peer_uid or gid required"})
     try:
         from gateway.winpeek_hub.chat import get_history, active_uid
     except ImportError:
@@ -512,22 +518,23 @@ def _handle_mim_history(args: dict) -> str:
     uid = int(args.get("uid") or 0) or active_uid()
     if not uid:
         return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
-    return json.dumps({"messages": get_history(uid, peer_uid, limit)})
+    return json.dumps({"messages": get_history(uid, peer_uid, gid=gid, limit=limit)})
 
 registry.register(
     name="winpeek_mim_history",
     toolset="winpeek_rpa",
     schema={
         "name": "winpeek_mim_history",
-        "description": "Get conversation history with a peer. Returns messages in chronological order.",
+        "description": "Get conversation history with a peer or group.",
         "parameters": {
             "type": "object",
             "properties": {
-                "peer_uid": {"type": "integer", "description": "The peer agent's uid"},
+                "peer_uid": {"type": "integer", "description": "The peer agent's uid (single chat)"},
+                "gid": {"type": "integer", "description": "Group id (group chat)"},
                 "limit": {"type": "integer", "description": "Max messages (default 50)"},
                 "uid": {"type": "integer", "description": "Own uid (optional; defaults to active session)"},
             },
-            "required": ["peer_uid"],
+            "required": [],
         },
     },
     handler=lambda args, **kw: _handle_mim_history(args),
@@ -971,3 +978,338 @@ registry.register(
 )
 
 logger.info("WinPeek Portrait tools registered: list + detail")
+# ── MIM: Group Chat ──
+
+
+def _handle_mim_group_create(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_group_create", args)
+    if forwarded is not None:
+        return forwarded
+    title = (args.get("title") or "").strip()
+    member_uids = args.get("member_uids") or []
+    description = args.get("description", "")
+    if not title or not member_uids:
+        return json.dumps({"error": "title and member_uids required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.group import create_group
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = int(args.get("uid") or 0) or active_uid()
+    if not uid:
+        return json.dumps({"error": "not logged in"})
+    member_uids = [int(m) for m in member_uids]
+    return json.dumps(create_group(uid, title, member_uids, description))
+
+
+def _handle_mim_group_list(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_group_list", args)
+    if forwarded is not None:
+        return forwarded
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.group import get_my_groups
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = int(args.get("uid") or 0) or active_uid()
+    if not uid:
+        return json.dumps({"groups": []})
+    return json.dumps({"groups": get_my_groups(uid)})
+
+
+def _handle_mim_group_info(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_group_info", args)
+    if forwarded is not None:
+        return forwarded
+    gid = int(args.get("gid", 0))
+    if not gid:
+        return json.dumps({"error": "gid required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.group import get_group_info
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = int(args.get("uid") or 0) or active_uid()
+    info = get_group_info(gid, requester_uid=uid)
+    if not info:
+        return json.dumps({"error": "group not found"})
+    return json.dumps({"group": info})
+
+
+def _handle_mim_group_invite(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_group_invite", args)
+    if forwarded is not None:
+        return forwarded
+    gid = int(args.get("gid", 0))
+    uids = args.get("uids") or []
+    if not gid or not uids:
+        return json.dumps({"error": "gid and uids required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.group import invite_members
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = int(args.get("uid") or 0) or active_uid()
+    uids = [int(u) for u in uids]
+    return json.dumps(invite_members(gid, uids, requester_uid=uid))
+
+
+# ── Register group RPCs ──
+
+registry.register(
+    name="winpeek_mim_group_create",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_group_create",
+        "description": "Create a new group chat with initial members.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Group name"},
+                "member_uids": {"type": "array", "items": {"type": "integer"},
+                                "description": "Initial member uids"},
+                "description": {"type": "string", "description": "Group description"},
+            },
+            "required": ["title", "member_uids"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_group_create(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM create group",
+)
+
+registry.register(
+    name="winpeek_mim_group_list",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_group_list",
+        "description": "List groups the current user belongs to.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_mim_group_list(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM my group list",
+)
+
+registry.register(
+    name="winpeek_mim_group_info",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_group_info",
+        "description": "Get group detail including member list.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "gid": {"type": "integer", "description": "Group id"},
+            },
+            "required": ["gid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_group_info(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM group info",
+)
+
+registry.register(
+    name="winpeek_mim_group_invite",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_group_invite",
+        "description": "Invite members to a group.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "gid": {"type": "integer", "description": "Group id"},
+                "uids": {"type": "array", "items": {"type": "integer"},
+                         "description": "Member uids to add"},
+            },
+            "required": ["gid", "uids"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_group_invite(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM group invite",
+)
+
+logger.info("WinPeek MIM tools: +group (create/list/info/invite)")
+
+# ── MIM: Group Settings ──
+
+
+def _handle_mim_group_update(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_group_update", args)
+    if forwarded is not None:
+        return forwarded
+    gid = int(args.get("gid", 0))
+    if not gid:
+        return json.dumps({"error": "gid required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.group import update_group
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = int(args.get("uid") or 0) or active_uid()
+    if not uid:
+        return json.dumps({"error": "not logged in"})
+    return json.dumps(update_group(
+        gid, uid,
+        title=args.get("title", ""),
+        description=args.get("description", ""),
+        announcement=args.get("announcement", ""),
+    ))
+
+
+def _handle_mim_group_transfer(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_group_transfer", args)
+    if forwarded is not None:
+        return forwarded
+    gid = int(args.get("gid", 0))
+    new_owner_uid = int(args.get("new_owner_uid", 0))
+    if not gid or not new_owner_uid:
+        return json.dumps({"error": "gid and new_owner_uid required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.group import transfer_ownership
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = int(args.get("uid") or 0) or active_uid()
+    if not uid:
+        return json.dumps({"error": "not logged in"})
+    return json.dumps(transfer_ownership(gid, new_owner_uid, uid))
+
+
+registry.register(
+    name="winpeek_mim_group_update",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_group_update",
+        "description": "Update group name, description, or announcement.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "gid": {"type": "integer", "description": "Group id"},
+                "title": {"type": "string", "description": "New group name"},
+                "description": {"type": "string", "description": "New description"},
+                "announcement": {"type": "string", "description": "Group announcement (@all notification)"},
+            },
+            "required": ["gid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_group_update(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM group update",
+)
+
+registry.register(
+    name="winpeek_mim_group_transfer",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_group_transfer",
+        "description": "Transfer group ownership to another member.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "gid": {"type": "integer", "description": "Group id"},
+                "new_owner_uid": {"type": "integer", "description": "New owner uid (must be a member)"},
+            },
+            "required": ["gid", "new_owner_uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_group_transfer(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM group ownership transfer",
+)
+
+logger.info("WinPeek MIM tools: +group_settings (update/transfer)")
+
+# ── MIM: Group Announcement Delete ──
+
+
+def _handle_mim_announcement_delete(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_announcement_delete", args)
+    if forwarded is not None:
+        return forwarded
+    gid = int(args.get("gid", 0))
+    an_id = (args.get("an_id") or "").strip()
+    if not gid or not an_id:
+        return json.dumps({"error": "gid and an_id required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.group import delete_announcement
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = int(args.get("uid") or 0) or active_uid()
+    if not uid:
+        return json.dumps({"error": "not logged in"})
+    return json.dumps(delete_announcement(gid, an_id, uid))
+
+
+registry.register(
+    name="winpeek_mim_announcement_delete",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_announcement_delete",
+        "description": "Delete a group announcement by id.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "gid": {"type": "integer", "description": "Group id"},
+                "an_id": {"type": "string", "description": "Announcement id"},
+            },
+            "required": ["gid", "an_id"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_announcement_delete(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM group announcement delete",
+)
+
+logger.info("WinPeek MIM tools: +announcement_delete")
+
+# ── MIM: Leave Group ──
+
+
+def _handle_mim_group_leave(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_group_leave", args)
+    if forwarded is not None:
+        return forwarded
+    gid = int(args.get("gid", 0))
+    if not gid:
+        return json.dumps({"error": "gid required"})
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        from gateway.winpeek_hub.group import leave_group
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = int(args.get("uid") or 0) or active_uid()
+    if not uid:
+        return json.dumps({"error": "not logged in"})
+    return json.dumps(leave_group(gid, uid))
+
+
+registry.register(
+    name="winpeek_mim_group_leave",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_group_leave",
+        "description": "Leave a group. Anyone can leave freely.",
+        "parameters": {
+            "type": "object",
+            "properties": {"gid": {"type": "integer", "description": "Group id"}},
+            "required": ["gid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_group_leave(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM group leave",
+)
+
+logger.info("WinPeek MIM tools: +group_leave")

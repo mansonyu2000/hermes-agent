@@ -1,4 +1,5 @@
 export { AssetsView } from './assets'
 export { AutomationView } from './automation'
+export { HwInfoView } from './hwinfo'
 export { MimView } from './mim'
 export { WechatPanel } from './wechat'
