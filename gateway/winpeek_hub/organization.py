@@ -29,6 +29,9 @@ from .db import get_conn
 
 logger = logging.getLogger(__name__)
 
+# Per-uid failed invite-code attempt counter (process-local, resets on restart)
+_invite_fail_count: dict[int, int] = {}
+
 _DDL_OK = False
 
 
@@ -815,10 +818,10 @@ def register_with_squad(uid: int, squad_id: int, is_new_squad: bool = False,
                 exist = cur.fetchone()
                 if exist:
                     return {"ok": False, "error": f"Squad '{squad_name}' already exists"}
-                # Generate 4-digit invite code
+                # Generate 6-digit invite code (human-friendly, 10 retries for uniqueness)
                 code = ''
                 for _ in range(10):
-                    code = f"{secrets.randbelow(10000):04d}"
+                    code = f"{secrets.randbelow(1000000):06d}"
                     cur.execute("SELECT 1 FROM squads WHERE invite_code = %s", (code,))
                     if not cur.fetchone():
                         break
@@ -854,9 +857,18 @@ def register_with_squad(uid: int, squad_id: int, is_new_squad: bool = False,
                 approval = "approved"
             elif invite_code:
                 cur.execute(
-                    "SELECT invite_code FROM squads WHERE id = %s AND invite_code = %s",
-                    (sqid, invite_code))
-                approval = "approved" if cur.fetchone() else "pending"
+                    "SELECT id, invite_code FROM squads WHERE invite_code = %s", (invite_code,))
+                row = cur.fetchone()
+                if row:
+                    approval = "approved"
+                    sqid = row["id"]
+                    _invite_fail_count.pop(uid, None)
+                else:
+                    approval = "pending"
+                    cnt = _invite_fail_count.get(uid, 0) + 1
+                    _invite_fail_count[uid] = cnt
+                    if cnt > 5:
+                        return {"ok": False, "error": "Too many failed attempts. Try again later."}
             else:
                 approval = "pending"
 
