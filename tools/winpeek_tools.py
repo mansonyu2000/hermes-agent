@@ -1657,9 +1657,12 @@ def _handle_squad_upsert(args: dict) -> str:
     if not name:
         return json.dumps({"error": "name required"})
     try:
+        from gateway.winpeek_hub.chat import active_uid
         from gateway.winpeek_hub.organization import upsert_squad
-        allow = ["description", "meta"]
-        return json.dumps(upsert_squad(name, **{k: args[k] for k in allow if k in args}))
+        uid = active_uid()
+        allow = ["description", "meta", "address", "industry", "founded_at",
+                 "legal_person", "contact_phone", "website", "contact_email", "managed_by_uid"]
+        return json.dumps(upsert_squad(name, requester_uid=uid, **{k: args[k] for k in allow if k in args}))
     except ImportError:
         return json.dumps({"error": "Not loaded"})
 

@@ -243,12 +243,12 @@ def list_squads() -> list[dict]:
         conn.close()
 
 
-def upsert_squad(name: str, **fields) -> dict:
+def upsert_squad(name: str, requester_uid: int = 0, **fields) -> dict:
     ensure_tables()
     conn = get_conn()
     if conn is None: return {"ok": False, "error": "DB unavailable"}
     allowed = {"description", "meta", "address", "industry", "founded_at",
-               "legal_person", "contact_phone", "website", "contact_email", "managed_by_uid"}
+               "legal_person", "contact_phone", "website", "contact_email"}
     vals = {"name": name}
     for k in allowed:
         if k in fields and fields[k] is not None:
@@ -256,9 +256,18 @@ def upsert_squad(name: str, **fields) -> dict:
     now = _now()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM squads WHERE name = %s", (name,))
+            cur.execute("SELECT id, owner_person_id FROM squads WHERE name = %s", (name,))
             existing = cur.fetchone()
             if existing:
+                # managed_by_uid: only squad owner can set
+                if "managed_by_uid" in fields and fields["managed_by_uid"] is not None:
+                    oid = existing.get("owner_person_id")
+                    if not oid or not requester_uid:
+                        return {"ok": False, "error": "Only squad owner can set managed_by_uid"}
+                    cur.execute("SELECT 1 FROM winpeek_accounts WHERE person_id = %s AND uid = %s", (oid, requester_uid))
+                    if not cur.fetchone():
+                        return {"ok": False, "error": "Only squad owner can set managed_by_uid"}
+                    vals["managed_by_uid"] = fields["managed_by_uid"]
                 sid = existing["id"]
                 sets = ", ".join(f"`{k}` = %s" for k in vals)
                 cur.execute(f"UPDATE squads SET {sets}, updated_at = %s WHERE id = %s",
