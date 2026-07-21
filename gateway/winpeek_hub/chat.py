@@ -172,17 +172,62 @@ def send_message(from_uid: int, from_name: str, body: str,
     try:
         from gateway.winpeek_hub.peeka_router import route_incoming
         decision = route_incoming(from_uid, to_uid, body)
+
         if decision["action"] in ("auto_reply", "daemon_answer"):
             # Daemon auto‑reply as the recipient (B → A)
             reply = decision["reply"]
-            # Use a shorter mid (locally generated, not inserted again)
+            layer = 1 if decision["action"] == "auto_reply" else 2
+
+            # Record to L1/L2 digest
+            try:
+                from apps.winpeek_injector.daemon import add_digest_entry
+                add_digest_entry(from_uid, from_name, body, reply, layer)
+            except Exception:
+                pass
+
             _enqueue_auto_reply(to_uid, from_uid, reply, from_name)
+
         elif decision["action"] == "drop":
             # Remove from pending queue (advertisement dropped)
             _pending[:] = [m for m in _pending
                            if not (m.get("to_uid") == to_uid
                                    and m.get("from_uid") == from_uid
                                    and m.get("content") == body)]
+
+        elif decision["action"] == "forward":
+            ctx = decision.get("context", {})
+            # Write to recipient agent's inbox
+            msg_dict = {
+                "mid": mid,
+                "from_uid": from_uid,
+                "from_name": from_name,
+                "from_role": ctx.get("peer_role", ""),
+                "from_peeka_name": ctx.get("peeka_name", ""),
+                "relation": ctx.get("relation", "unknown"),
+                "body": body,
+                "context": ctx,
+                "received_at": now,
+                "is_retry": False,
+                "retry_count": 0,
+            }
+            try:
+                from apps.winpeek_injector.daemon import write_to_inbox, track_l3_message
+                write_to_inbox(to_uid, msg_dict)
+                track_l3_message(mid, to_uid, from_uid)
+            except Exception:
+                pass
+
+            # Try RPA delivery to CC (if the recipient agent is on this machine)
+            try:
+                from apps.winpeek_injector.engine import deliver_mim_message
+                deliver_mim_message(to_uid, msg_dict)
+                # Mark as delivered if RPA succeeded
+                from apps.winpeek_injector.daemon import mark_delivered, update_reliability
+                mark_delivered(to_uid, mid)
+                update_reliability(mid, "delivered")
+            except Exception:
+                pass
+
     except Exception as e:
         logger.warning(f"[Peeka] routing error: {e}")
 

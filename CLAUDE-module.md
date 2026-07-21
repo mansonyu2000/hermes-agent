@@ -28,18 +28,48 @@ header 由 `python bin/agent-role.py` 启动时自动生成，包含 uid/nick/ro
 
 **3. 学技能** — 收到任务先查下表，匹配触发词 → 调用 `Skill` 工具加载对应技能：
 
+### 工程技能（agent-skills — 24 skills, Addy Osmani）
+
+| 阶段 | 触发词 | Skill |
+|------|--------|-------|
+| 定义 | 新功能/新项目/需求不清/规格/"要做什么" | `interview-me` → `spec-driven-development` |
+| 计划 | 拆任务/估算/排期/依赖分析 | `planning-and-task-breakdown` |
+| 构建 | 写代码/实现/开发/编码 | `incremental-implementation` + `test-driven-development` |
+| 构建 | UI/前端/页面/组件/样式 | `frontend-ui-engineering` |
+| 构建 | API/接口/后端 | `api-and-interface-design` |
+| 验证 | 测试/debug/报错/不工作 | `debugging-and-error-recovery` |
+| 验证 | 浏览器测试/DOM/console | `browser-testing-with-devtools` |
+| 审查 | review/审查/合并前检查 | `code-review-and-quality` |
+| 审查 | 简化/重构/清理代码 | `code-simplification` |
+| 审查 | 安全检查/漏洞/注入 | `security-and-hardening` |
+| 交付 | 部署/上线/发布/ship | `shipping-and-launch` + `ci-cd-and-automation` |
+| 交付 | 文档/ADR/决策记录 | `documentation-and-adrs` |
+| 通用 | commit/分支/合并/PR | `git-workflow-and-versioning` |
+| 通用 | 性能优化/慢查询/N+1 | `performance-optimization` |
+| 通用 | 废弃/迁移/旧API下线 | `deprecation-and-migration` |
+| 通用 | 日志/监控/告警/追踪 | `observability-and-instrumentation` |
+| 通用 | 上下文配置/规则文件 | `context-engineering` |
+| 通用 | 参考官方文档/源码验证 | `source-driven-development` |
+| 通用 | 不确定/高风险/生产关键 | `doubt-driven-development` |
+
+### 流程技能（superpowers-zh）
+
 | 触发词 | Skill |
 |--------|-------|
-| 添加/新增/新功能/加一个 | `brainstorming` → `writing-plans` |
-| 改/优化/调整/重构 | `brainstorming` → `writing-plans` |
-| 写/实现/开发/编码 | `test-driven-development` |
-| 启/启动/运行 | `subagent-driven-development` 或 `dispatching-parallel-agents` |
-| 修/bug/报错/异常/不工作 | `systematic-debugging` |
+| 新想法/头脑风暴/设计方案 | `brainstorming` → `writing-plans` |
+| 启动/运行/执行 | `subagent-driven-development` 或 `dispatching-parallel-agents` |
 | 好了/完成/搞定/可以了 | `verification-before-completion` |
 | 合并/PR/提交/push | `finishing-a-development-branch` |
-| review/审查/看看代码 | `requesting-code-review` |
-| 计划/方案/架构 | `writing-plans` |
-| 分开/并行/同时 | `dispatching-parallel-agents` |
+| 收到代码审查反馈 | `receiving-code-review` |
+
+### 本项目独特技能
+
+| 触发词 | Skill |
+|--------|-------|
+| 功能集群/多阶段/全流程/发消息/自动化任务 | `agent-coding-workflow` |
+
+> `agent-coding-workflow` 不重造轮子——桥接上述 24+ 技能，叠加本项目的文档治理+双系统同步+集群规则。
+> 24 个技能装在本项目 `.agents/skills/`，Claude Code 自动发现。
 
 **4. 交作业** — commit message 必须含证据标记：
 - `feat:` → `brainstorm:` + `tdd:` + `verified:`

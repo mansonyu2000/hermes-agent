@@ -144,10 +144,25 @@ def _derive_relation(from_peeka: str, to_peeka: str) -> str:
     return "external"
 
 
+def _get_user_info(uid: int) -> dict:
+    """Get full identity info for a uid."""
+    try:
+        from gateway.winpeek_hub import identity
+        user = identity.get_by_uid(uid)
+        if user:
+            return user
+    except Exception:
+        pass
+    return {}
+
+
 def assemble_context(from_uid: int, to_uid: int, body: str, tag: str) -> dict:
     """Assemble context payload for layer‑3 forwarding."""
-    from_peeka = _get_peeka_name(from_uid)
-    to_peeka = _get_peeka_name(to_uid)
+    sender = _get_user_info(from_uid)
+    recipient = _get_user_info(to_uid)
+
+    from_peeka = sender.get("peeka_name", "")
+    to_peeka = recipient.get("peeka_name", "")
     relation = _derive_relation(from_peeka, to_peeka)
 
     # Get some history (recent messages between this pair)
@@ -163,9 +178,14 @@ def assemble_context(from_uid: int, to_uid: int, body: str, tag: str) -> dict:
 
     return {
         "peer_uid": from_uid,
+        "peer_name": sender.get("nickname", f"user_{from_uid}"),
+        "peer_role": sender.get("role", ""),
         "peeka_name": from_peeka,
         "relation": relation,
         "tag": tag,
+        "sender_title": sender.get("title", ""),
+        "sender_skills": sender.get("skills", ""),
+        "sender_squad": sender.get("squad_name", ""),
         "history_count": len(history),
         "history": history,
     }

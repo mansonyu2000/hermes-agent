@@ -69,6 +69,7 @@ PORT = int(os.getenv("MIM_PORT", "1883"))
 
 INBOX_TOPIC = property(lambda self: f"comms/inbox/{UID}")
 SAY_TOPIC_PREFIX = "comms/say"
+OUTBOX_TOPIC = "comms/outbox"
 GROUP_TOPIC_PREFIX = "comms/group"
 
 _client: Optional[mqtt.Client] = None
@@ -93,8 +94,9 @@ def set_message_handler(handler):
 def _on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
         client.subscribe("comms/inbox/#", qos=1)
+        client.subscribe("comms/outbox/#", qos=1)
         client.subscribe("comms/group/#", qos=1)
-        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, inbox+group=all")
+        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, inbox+outbox+group=all")
     else:
         logger.warning(f"MIM connect failed: code={reason_code}")
 
@@ -103,6 +105,11 @@ def _on_message(client, userdata, msg):
     try:
         payload = json.loads(msg.payload.decode())
     except json.JSONDecodeError:
+        return
+
+    # ── Outbox: Agent → Daemon relay ──
+    if msg.topic.startswith("comms/outbox/"):
+        _handle_outbox(msg.topic, payload)
         return
 
     from_uid = payload.get("from_uid", "")
@@ -134,6 +141,72 @@ def _on_message(client, userdata, msg):
             _message_handler(from_uid, from_name, body)
         except Exception as e:
             logger.warning(f"MIM handler error: {e}")
+
+
+def _handle_outbox(topic: str, payload: dict):
+    """Agent 发到 outbox 的消息 → Daemon 补全上下文 → 转发给收件人。
+
+    Topic: comms/outbox/{from_uid}
+    Payload: {"to_uid": int, "body": str, "reply_to_mid": str?, "ts": str?}
+
+    收到后:
+      1. 从 topic 提取 from_uid
+      2. 查 identity 补全 from_name + peeka_name
+      3. 写入 chat DB 归档
+      4. MQTT publish 到 comms/say/{to_uid}
+    """
+    to_uid = int(payload.get("to_uid", 0))
+    body = payload.get("body", "")
+    reply_to_mid = payload.get("reply_to_mid", "")
+
+    if not to_uid or not body:
+        logger.warning(f"[outbox] 无效消息: to_uid={to_uid} body={body[:30]}")
+        return
+
+    # 从 topic 提取 from_uid
+    parts = topic.split("/")
+    from_uid_str = parts[-1] if len(parts) > 2 else ""
+    try:
+        from_uid = int(from_uid_str)
+    except (ValueError, TypeError):
+        logger.warning(f"[outbox] 无法从 topic 提取 uid: {topic}")
+        return
+
+    # 查 identity
+    from_name = f"user_{from_uid}"
+    try:
+        from gateway.winpeek_hub import identity
+        user = identity.get_by_uid(from_uid)
+        if user:
+            from_name = user.get("nickname", from_name)
+    except Exception:
+        pass
+
+    logger.info(f"[outbox] {from_name}[{from_uid}] → uid={to_uid}: {body[:60]}")
+
+    # 归档到 chat DB
+    try:
+        from gateway.winpeek_hub.chat import send_message as chat_send
+        chat_send(from_uid, from_name, to_uid, body)
+    except Exception as e:
+        logger.warning(f"[outbox] DB 归档失败: {e}")
+
+    # 转发给收件人 (MQTT)
+    topic_to = f"{SAY_TOPIC_PREFIX}/{to_uid}"
+    fwd_payload = json.dumps({
+        "from_uid": str(from_uid),
+        "from": from_name,
+        "to_uid": str(to_uid),
+        "body": body,
+        "reply_to_mid": reply_to_mid,
+        "ts": payload.get("ts", time.strftime("%Y-%m-%dT%H:%M:%S")),
+    }, ensure_ascii=False)
+
+    try:
+        _client.publish(topic_to, fwd_payload, qos=1)
+        logger.info(f"[outbox] 已转发 → comms/say/{to_uid}")
+    except Exception as e:
+        logger.warning(f"[outbox] 转发失败: {e}")
 
 
 # ── 连接管理 ──────────────────────────────────────
