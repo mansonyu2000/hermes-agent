@@ -31,6 +31,8 @@
 | 7 | 架构治理 | `F7.x` | 8 |
 | 8 | 部署与运维 | `F8.x` | 5 |
 | 9 | 前端 UI | `F9.x` | 9 |
+| 10 | Agent 消息通道 | `F10.x` | 7 |
+| 11 | **Peeka 消息分级** | `F11.x` | **9** |
 
 ---
 
@@ -43,52 +45,8 @@
 | F1.3 | 统一密码 `123321` | 全部用户默认密码, DB 批量重置 | — | ✅ | 已完成 |
 | F1.4 | 多身份支持 | `mim-identities` 数组存储, `mim-active-uid` 激活标识, 旧版单 key 自动迁移 | — | ⚠️ | V1 — 包D |
 | F1.5 | 身份切换 | 切换清空消息列表, history 按新 uid 重查, poll 跟随新 uid, send 用新 uid | F1.4, F3.3, F9.2 | ❌ | V1 — 包D |
-| F1.6 | 两步新建智能体 | 第1步: 15种类型网格(已发现高亮), 第2步: 预填名 `{machine}-{type}-{n}`, 提交调 login | F1.7, F1.4 | ❌ | V1 — 包D |
-| **F1.8** | **Peeka 统一身份模型** | Peeka登录 = MIM登录 = Agent登录, 都是同一张 `users` 表。uid 是唯一寻址键, AI后端可换但 uid 不变。 | F1.1, F4.x | ✅ | **2026-07-21** |
-
-### Peeka 统一身份模型 (2026-07-21)
-
-```
-┌──────────────────────────────────────┐
-│ Peeka 登录 = MIM 登录 = Agent 登录    │
-│ 全部来自同一张表: users              │
-│                                      │
-│ users 表的一行:                       │
-│   uid      = 2022                    │  ← 唯一寻址键, 消息路由靠它
-│   nickname = Hermes (或 yuyangmin)   │  ← 显示名, 可重复
-│   password = 123321                  │  ← 谁有密码谁登录
-│   master_uid → persons.id (可选)     │  ← 有主=真人账号, 无主=独立Agent
-│   role      = Developer             │
-│                                      │
-│ 同一个 uid, 可以:                     │
-│   ├── 今天用 Claude Code 前端登录     │
-│   ├── 明天用 Hermes CLI 登录          │
-│   └── 后天用 Qoder 前端登录           │
-│   AI后端随便换, uid/地址/联系人不变   │
-│                                      │
-│ 寻址: uid → http://{ip}:2000/api/... │
-│ 消息: say 2022 "hello" → 路由到 uid  │
-└──────────────────────────────────────┘
-```
-
-**核心原则：**
-- **uid 是唯一地址** — 消息路由、联系人列表、在线状态全部靠 uid。nickname 只是显示名，可以重复，不改路由。
-- **AI 后端与身份分离** — Hermes/Claude Code/Qoder 是"怎么思考和执行"，uid 是"是谁"。同一个 agent 今天用 Qoder 登录，明天换 Claude Code 登录，uid 不变。
-- **密码即身份** — 没有额外的身份验证层。谁有 uid+密码谁就是这个 agent，可以收发消息、执行任务。
-- **有主/无主** — `users.master_uid` 指向 `persons.id` 就是真人账号（继承公司/组织信息），NULL 就是独立 Agent 号（只干活不归属任何人）。
-- **Peeka 桌面 = 一个 MIM 客户端** — Peeka desktop app 本质上是一个 MIM 聊天客户端 + 软件资产管理器。Peeka 的 "profile" 就是 MIM 的 uid。
-
-**与 Hermes 原生 profile 的关系：**
-```
-Hermes profiles (SOUL.md, model, provider…)
-  = "怎么执行任务" 的配置
-  = 绑在 uid 上的工作参数
-  ≠ 独立身份层
-  = MIM 账号的工作配置
-```
-
-| F1.7 | daemon 自动发现本机 agent | 15种类型, 双通道检测(config_dir + path_cmd), 幂等(已注册不重复) | F7.3 | ⚠️ | V1 — 包C |
-| **F1.9** | **SOUL.md 不应写死 uid** | Agent/Profile 配置文件（SOUL.md, skill, curl-loop 常量）里不应硬编码 uid。uid 应从 `active_uid()` 运行时解析，随登录账号自动变更。同一个 profile 登录 uid=2022 → 身份是 2022；登录 uid=3000 → 身份是 3000。profile 是"怎么做"的配置，uid 是"谁在做"的上下文。 | F1.4, F1.8 | ✅ | **原则已定 — 所有 Agent 配置用变量，不用固定 uid** |
+| F1.6 | 两步新建智能体 | 第1步: 4种类型网格(claude-code/hermes/qoder/traecli, 已发现高亮), 第2步: 预填名 `{machine}-{type}-{n}`, 提交调 login | F1.7, F1.4 | ❌ | V1 — 包D |
+| F1.7 | daemon 自动发现本机 agent | 4种类型(claude-code/hermes/qoder/traecli), 双通道检测(config_dir + path_cmd), 幂等(已注册不重复) | F7.3 | ⚠️ | V1 — 包C |
 
 ---
 
@@ -114,20 +72,16 @@ Hermes profiles (SOUL.md, model, provider…)
 | F3.2 | 收消息 | `poll_messages(uid)` 内存队列轮询, 3s 间隔 | — | ✅ | 已完成 |
 | F3.3 | 消息历史 | `get_history(uid, peer_uid, limit)` MySQL 查询, 时间倒序, 双向 | — | ✅ | 已完成 |
 | F3.4 | Markdown 消息渲染 | 复用 `compact-markdown.tsx`, 代码块 Shiki 高亮, 行内代码, 链接渲染 | F9.2 | ❌ | V1 P1 |
-| F3.5 | 消息复制按钮 | `CopyButton` icon-only, 每条消息右下角 | F9.2 | ✅ | 已完成 |
-| F3.6 | 时间戳相对格式 | 居中时间戳分割线, `>5min` 间隔自动插入, 复用 `formatMessageTimestamp` | F9.2 | ✅ | 已完成 |
-| F3.7 | 滚动到底部 | 新消息自动滚底, 用户上滚后绿色 `↓ X条新消息` 浮标 | F9.2 | ✅ | 已完成 |
-| F3.8 | 输入框 IME 保护 | Enter=发送(非IME), Shift+Enter=换行, `isComposing=true` 时 Enter 不上发, 空消息禁止发送 | F9.2 | ✅ | 已完成 |
-| F3.9 | 消息发送失败 toast | `notifyError` 提示 | F9.2 | ✅ | 已完成 |
-| F3.10 | 消息头像点击看资料 | 点别人头像 → `ContactProfilePanel` 查看信息; 群聊/单聊通用, 自己头像不触发 | F9.2 | ✅ | 已完成 |
-| F3.11 | 聊天区100%宽度 | `DetailColumn fullWidth` 模式, 左对齐全宽, 不含 `max-w-2xl` 限制 | F9.2 | ✅ | 已完成 |
-| F3.12 | WeChat风格消息排版 | 自己右对齐蓝色气泡, 别人左对齐灰色气泡, 居中时间戳, 消息宽度70% | F9.2 | ✅ | 已完成 |
-| F3.13 | @提及 | `@username` 模式识别, 高亮蓝色 | — | ❌ | V1.5 |
-| F3.14 | Thread Reply | `reply_to` 消息 ID, 引用条 UI | — | ❌ | V1.5 |
-| F3.15 | 消息撤回 | 2分钟内可撤回, "已撤回"占位 | — | ❌ | V2 |
-| F3.16 | 消息转发 | 转发到其他联系人或群 | — | ❌ | V2 |
-| F3.17 | 图片/文件发送 | 拖放上传, 粘贴图片, 附件预览 | — | ❌ | V2 |
-| F3.18 | TTS 朗读 | `SpeechSynthesisUtterance` 自动朗读收到的消息, 控制按钮开关 | — | ✅ | 已完成 |
+| F3.5 | 消息复制按钮 | 右键/长按消息 → 复制文本 → toast "已复制", 复用 `copy-button.tsx` | F9.2 | ❌ | V1 P1 |
+| F3.6 | 时间戳相对格式 | `formatMessageTimestamp()`, 今天=时间, 昨天="昨天 HH:mm", 更早=日期 | F9.2 | ⚠️ | V1 P1 |
+| F3.7 | 滚动到底部 | 新消息自动滚底, 用户上滚后出现 ↓ 按钮, 复用 `scroll-to-bottom-button.tsx` | F9.2 | ⚠️ | V1 P1 |
+| F3.8 | 输入框 IME 保护 | Enter=发送(非IME), Shift+Enter=换行, `isComposing=true` 时 Enter 不上发, 空消息禁止发送 | F9.2 | ⚠️ | V1 P1 |
+| F3.9 | 消息错误提示 | 发送失败 toast, DB 不可达提示, 网络错误提示 | F9.2 | ❌ | V1 P1 |
+| F3.10 | @提及 | `@username` 模式识别, `chat.mentioned` 事件, 高亮蓝色 | — | ❌ | V1.5 |
+| F3.11 | Thread Reply | `reply_to` 消息 ID, 引用条 UI(蓝色左边框), 输入框上方回复栏 | — | ❌ | V1.5 |
+| F3.12 | 消息撤回 | 2分钟内可撤回, "已撤回"占位提示 | — | ❌ | V2 |
+| F3.13 | 消息转发 | 转发到其他联系人或群 | — | ❌ | V2 |
+| F3.14 | 图片/文件发送 | 拖放上传, 粘贴图片, 附件预览 | — | ❌ | V2 |
 
 ---
 
@@ -137,23 +91,16 @@ Hermes profiles (SOUL.md, model, provider…)
 
 | # | 功能 | 子功能 | 依赖 | 状态 | 决策 |
 |---|------|--------|------|:--:|------|
-| F4.1 | 群表 | 复用已有 `groups` + `group_members` + `chat.gid`, 无需新建 | — | ✅ | 已完成 |
-| F4.2 | 创建群 | 选群名+初始成员, owner 写入 `groups.owner_id`, 成员写入 `group_members` | F4.1 | ✅ | 已完成 |
-| F4.3 | 邀请成员 | owner/admin 可邀请, 被邀请者**直接进群**, 无需同意 | F4.1 | ✅ | 已完成 |
-| F4.4 | 群消息发送 | `send_message()` 加 `gid` 参数, MQTT `comms/group/{gid}` 广播 | F4.1, F3.1 | ✅ | 已完成 |
-| F4.5 | 群消息接收 | `poll_messages()` 查群成员缓存自动分发群消息 | F4.1, F3.2 | ✅ | 已完成 |
-| F4.6 | 群消息历史 | `get_history()` 加 `gid` 模式; 非成员拒查 | F4.1, F3.3 | ✅ | 已完成 |
-| F4.7 | 群聊前端 UI | 群列表混排在消息Tab(按时间排序); 群聊视图像人消息一样; 通讯录Tab分离 | F9.1, F4.2 | ✅ | 已完成 |
-| F4.8 | @all 广播 | `isAtAll` → 全员通知, MQTT 广播 | F4.4 | ❌ | V1.5 |
-| F4.9 | 群悄悄话 | 仅被@者+发送者可见, 粉色提示 | — | ❌ | V2 |
-| F4.10 | Agent 自动匹配 | 三阶段专家匹配, EAV 画像 | — | ❌ | V2 |
-| **F4.11** | **群资料面板** | 成员网格+群名+公告列表+成员行; 点 `⋯` 进入, 左侧列表+右侧详情 | F4.1 | ✅ | 已完成 |
-| **F4.12** | **群公告(多条)** | 公告列表存储于 `metadata.announcements[]`, owner/admin 发布/删除, 群聊顶部横幅展示最新一条 | F4.1 | ✅ | 已完成 |
-| **F4.13** | **改名** | owner/admin 可编辑群名 | F4.1 | ✅ | 已完成 |
-| **F4.14** | **转让群主** | 仅 owner, 新群主必须已是成员, 原 owner 保留 admin | F4.1 | ✅ | 已完成 |
-| **F4.15** | **退群** | 任何人来去自由, `leave_group` 无权限校验; 从联系人列表移除该群 | F4.1 | ✅ | 已完成 |
-| **F4.16** | **踢人** | 仅 owner/admin, `remove_member` 校验权限 | F4.1 | ✅ | 已完成 |
-| **F4.17** | **成员点击看资料** | 群资料面板成员列表 + 成员网格, 点击跳转 `ContactProfilePanel` | F4.11 | ✅ | 已完成 |
+| F4.1 | 群表 DDL | `m_groups` 表(gid/title/description/owner_id/admins), `m_group_members` 表, `m_group_tags` 表, `chat` 表加 `gid` 列 | — | ❌ | V1.5 |
+| F4.2 | 创建群 | 选群名+描述+初始成员, 创建者=owner, 自动写入 `m_group_members` | F4.1 | ❌ | V1.5 |
+| F4.3 | 邀请成员 | 群主/管理员邀请, 写入 `m_group_members` | F4.1 | ❌ | V1.5 |
+| F4.4 | 群消息发送 | `send_message()` 加 `gid` 参数, MQTT `comms/group/{gid}` 广播, 本地 enqueue | F4.1, F3.1 | ❌ | V1.5 |
+| F4.5 | 群消息接收 | 订阅 `comms/group/{gid}`, `poll_messages(gid)` 轮询 | F4.1, F3.2 | ❌ | V1.5 |
+| F4.6 | 群消息历史 | 复用 `get_history()` 加 `gid` 模式 | F4.1, F3.3 | ❌ | V1.5 |
+| F4.7 | 群聊前端 UI | 马赛克头像(前4成员首字母), 每条消息显示发送者名, 群信息面板(成员列表/标签), 新建群入口 | F9.1, F4.2 | ❌ | V1.5 |
+| F4.8 | @all 广播 | `isAtAll` → 全员 `chat.mentioned` 事件, MQTT 广播 | F4.4 | ❌ | V1.5 |
+| F4.9 | 群悄悄话 | `whisper_session_id` 隔离, 仅被@者+发送者可见, 粉色"仅你和@xx可见"提示 | — | ❌ | V2 |
+| F4.10 | Agent 自动匹配 | 三阶段: 专家匹配(得分>=1)→标签匹配→历史相似, EAV画像驱动, `match_stats` 统计 | — | ❌ | V2 |
 
 ---
 
@@ -187,7 +134,7 @@ Hermes profiles (SOUL.md, model, provider…)
 |---|------|--------|------|:--:|------|
 | F7.1 | 中心化模式 | 客户端只有一条 WS 到中心, **零 3306/1883 出站**, `_mim_center_call` 转发层 | — | ⚠️ | V1 — 包B |
 | F7.2 | hub_bridge 客户端感知 | `center_url()` 读 config, 配了→跳过 MySQL/MQTT/健康检查, 仍启动 daemon | F7.1 | ❌ | V1 — 包B |
-| F7.3 | daemon 升级 | 15种类型检测表, 注册/心跳改调 handler(不直连 identity/hub), `get_local_state()` | F1.7, F7.2 | ❌ | V1 — 包C |
+| F7.3 | daemon 升级 | 4种类型检测表(claude-code/hermes/qoder/traecli), 注册/心跳改调 handler(不直连 identity/hub), `get_local_state()` | F1.7, F7.2 | ❌ | V1 — 包C |
 | F7.4 | runtime 上报 | daemon 启动上报 `{machine, daemon_version, runtimes[...]}`, 中心写 `nodes.json` machines 键, 覆盖式更新 | F7.3 | ❌ | V1 — 包A+包C |
 | F7.5 | E2E 双实例验证 | assert 零3306/1883, assert login→send→poll, assert runtime_report, assert 杀daemon→offline→重启online | F7.1, F7.2, F7.3 | ❌ | V1 — 包E |
 | F7.6 | 主备中心 failover | 主中心宕→手动切 center_url 到备中心 | — | ❌ | V1.5 |
@@ -224,6 +171,42 @@ Hermes profiles (SOUL.md, model, provider…)
 
 ---
 
+## 十、Agent 消息通道
+
+> 详细设计见 [Agent 消息通道需求分析](agent-messaging-requirements.md)
+> 架构原则：MIM = 消息管道。Agent 用自身 LLM + 环境 + MCP 回答问题。
+
+| # | 功能 | 子功能 | 依赖 | 状态 | 决策 |
+|---|------|--------|------|:--:|------|
+| F10.1 | MCP server 新增 MIM 工具 | `mim_send_message`, `mim_poll_messages`, `mim_get_contacts`, `mim_get_history`, `mim_whoami` — 5 个 MCP 工具暴露给 Agent | F3.1, F3.2, F3.3 | ❌ | V1.5 |
+| F10.2 | mim_poll 返回 sender profile | 每条消息自动附带 `from_role/from_type/from_host/from_title/from_skills`，数据源 `identity.get_by_uid()` | F1.2, F10.1 | ❌ | V1.5 |
+| F10.3 | daemon env 注入 MIM 身份 | MCP_BLOCK 的 env 增加 `MIM_UID`/`MIM_NAME`/`MIM_AGENT_TYPE`，daemon 注册后动态填充 | F1.7, F10.1 | ❌ | V1.5 |
+| F10.4 | MCP server 与本地 serve 通信 | 通过 HTTP/WS 调本地 `winpeek_mim_*` RPC，复用 `_mim_center_call` 转发逻辑 | F7.1, F10.1 | ❌ | V1.5 |
+| F10.5 | Agent 自主收发消息 | Agent (LLM) 通过 MCP 工具主动发消息、轮询收消息、回复 | F10.1, F10.2 | ❌ | V1.5 |
+| F10.6 | 仅支持 4 种 agent 类型 | claude-code / hermes / qoder / traecli，V1 不做 15 种扩展 | F1.7 | ❌ | V1 |
+| F10.7 | Agent 消息回复决策 | LLM 自主判断是否回复：评估 sender profile + 问题内容 + 自身能力 → 决定回复/忽略/延迟，无独立规则引擎 | F10.1, F10.2 | ❌ | V1.5 |
+
+---
+
+## 十一、Peeka 消息分级
+
+> 详细设计见 [Peeka 消息分级处理方案](peeka-design)
+> 上游文档：[Peeka Daemon SPEC](Peeka-Deamon-SPEC.md)、[PeekaAskResponder Skill](Peeka-AskRsoponder-role.md)
+
+| # | 功能 | 子功能 | 依赖 | 状态 | 决策 |
+|---|------|--------|------|:--:|------|
+| F11.1 | PeekaName 分层命名 | `_build_peeka_name()` + identity `_row_to_dict` 追加 `peeka_name` 字段, daemon 注册时自动拼入 | F1.2, F7.3 | ✅ | V1 — P1 |
+| F11.2 | 话术匹配模板库 | `GREETING_TEMPLATES` dict + `match_greeting(body)` 子串匹配, daemon 模块级 | — | ✅ | V1 — P1 |
+| F11.3 | 礼貌交互计数器 | `_politeness_count[(from_uid, to_uid)]` 层1自动回复后 +1 | F11.2 | ✅ | V1 — P1 |
+| F11.4 | 5 类消息分类器 | `classify(body)` 规则分类 greeting/notification/ad/request/other, `peeka_router.py` | — | ✅ | V1 — P3 |
+| F11.5 | 三层路由决策 | `route_incoming()` 层1话术匹配 → 层2自答 → 层3转发 Agent | F11.2, F11.4 | ✅ | V1 — P3 |
+| F11.6 | 上下文拼接 | `assemble_context()` 打包 sender peeka_name/history/relation/tag | F11.1, F11.4 | ✅ | V1 — P3 |
+| F11.7 | Ask/Response 包装 | `send_message` 调 peeka_router 判断 packed, 广告过滤/问候自动回复 | F3.1, F11.5 | ✅ | V1 — P4 |
+| F11.8 | Daemon 本地知识自答 | `DAEMON_KNOWLEDGE` 键值对, agent 状态/本机环境/联系人查询 | F7.3 | ✅ | V1 — P3 |
+| F11.9 | 前端 PeekaName 展示 | Profile 面板显示 peeka_name, 联系人列表 hover 显示 | F9.4, F11.1 | ✅ | V1 — P2 |
+
+---
+
 ## 实施优先级
 
 ### 🔴 V1 P0 — 断了的功能 (约 30 行)
@@ -240,8 +223,8 @@ Hermes profiles (SOUL.md, model, provider…)
 |:--:|------|:--:|
 | A | F7.8 IDOR + F5.5 批量心跳 + F7.4 runtime_report + F1.7 透传 agent_type + DDL | 170 |
 | B | F7.2 hub_bridge 客户端模式 | 30 |
-| C | F7.3 daemon 升级 15 类型 | 150 |
-| D | F1.4 多身份 + F1.5 切换 + F1.6 两步新建 + F9.6 运行时区块 + F9.7 模式显示 | 200 |
+| C | F7.3 daemon 升级 4 类型 | 150 |
+| D | F1.4 多身份 + F1.5 切换 + F1.6 两步新建(4种) + F9.6 运行时区块 + F9.7 模式显示 | 200 |
 | E | F7.5 E2E 双实例 | 80 |
 
 ### 🟡 V1 P1 — UI 体验 (约 100 行)
@@ -276,57 +259,11 @@ Hermes profiles (SOUL.md, model, provider…)
 | F7.2 hub_bridge | F7.3, F7.5 |
 | F7.3 daemon | F1.7, F7.4, F7.5 |
 | F9.2 聊天视图 | F3.4-F3.9, F1.5 |
+| F10.1 MCP MIM 工具 | F3.1, F3.2, F10.2, F10.3, F10.4 |
+| F10.2 sender profile | F1.2, F10.1, F10.5 |
+| F10.3 daemon env 注入 | F1.7, F10.1 |
+| F10.7 回复决策 | F10.1, F10.2 |
 
 ---
 
 **本文是 MIM 功能的唯一事实来源。新增功能→先 Ctrl+F 查重→取新 ID→写清依赖→更新联动索引。**
-
----
-
-## 十、PM 需求池（产品素材）
-
-> 收录用户口述的原话，按模块归档，作为未来迭代的 PM 素材。
-> 来源：2026-07-19/20 实施群聊期间的对话。
-
-### 通讯录 & 联系人
-> "通讯录区与消息区分开，2个不同的菜单设计" — 2026-07-20
-
-- **P10.1** 通讯录多级分组：按 role 分组（开发者/架构师/Ops…），类似微信的 A/B/C 字母索引
-- **P10.2** 好友温度系统：消息互动加分、每日衰减、温度区间 0-100 → `friend-temp.js` 已有参考实现
-- **P10.3** 联系人搜索/过滤：按名字搜索、按角色过滤、按在线状态过滤
-
-### 群聊
-> "群可以改名，群的管理员转让，群也有公告" — 2026-07-20
-> "群公告是群管理员可以发布的信息，会有多条公告，可以删除，可以看更多公告" — 2026-07-20
-> "进群不用同意，群是开放的协作空间，不是封闭的私密聊天" — 2026-07-20
-
-- **P10.4** 群搜索：按群名搜群
-- **P10.5** 群置顶/免打扰：类似微信，本地设置，不影响其他人
-- **P10.6** 群聊文件区：`group_files` 表已有，前端页面待做
-- **P10.7** 群聊问题板：`group_problems` 表已有，记录群内待解决问题
-- **P10.8** 群规分层系统：6 大类（行为/命名/Git/审查/质量/运维），`group-rules.js` 已有参考实现
-- **P10.9** Agent 自动入群发言：被 @ 时自动回复，`agent-group.js` 已有参考实现
-- **P10.10** 群悄悄话：`whisper_session_id` 隔离，仅被 @ 者和发送者可见
-- **P10.11** 群成员昵称：每个成员在群内有独立的显示名（不影响全局 nickname）
-- **P10.12** 群聊中清空聊天记录：仅删除本地消息列表，不影响其他成员
-
-### UI/UX 体验
-> "整个聊天区左对齐，100% 宽度" — 2026-07-20
-> "聊天的 2 个人，1 个左对齐，1 个右对齐。气泡宽度 70%" — 2026-07-20
-> "消息区内容不要冲破天" — 2026-07-20
-
-- **P10.13** 深色模式完整适配
-- **P10.14** 加载骨架屏：历史加载骨架、联系人加载骨架
-- **P10.15** 空状态Intro：随机文案+人格化问候
-- **P10.16** 联系人实时状态推送：`contact.status` WS 事件，上线/离线即时推送
-- **P10.17** 群聊消息搜索：按关键词/日期/文件类型检索
-
-### 数据 & 架构
-- **P10.18** 消息投递确认 ACK：物流回签，`message_acks` 表已有
-- **P10.19** 离线消息缓存：`message_queue` 表，TTL 168h
-- **P10.20** 主备中心 failover：主中心宕→手动切 `center_url`
-
-### 人工注意事项
-- 按钮、图标名称避免硬编码中文，使用项目已有 `Codicon` 组件，跟随主题
-- 单聊/群聊的信息查看入口统一（都用同一个图标/交互模式）
-- 不要弹窗提示多余的 hover tooltip，减少干扰

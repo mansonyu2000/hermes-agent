@@ -7,7 +7,7 @@ to identity DB, injects MIM MCP config, maintains heartbeat.
 Runs silently — no window, no tray (yet). Started by hub_bridge.try_load_hub().
 """
 
-import json, os, stat, time, threading
+import json, os, socket, stat, time, threading
 from datetime import datetime
 from pathlib import Path
 
@@ -49,6 +49,17 @@ AGENT_SCANNERS = [
         "config_format": "json",
         "default_window_title": "Qoder",
     },
+    {
+        "agent_type": "traecli",
+        "name": "Trae CLI",
+        "check_paths": [
+            HOME / ".trae" / "config.json",
+            HOME / ".trae" / "settings.json",
+        ],
+        "config_file": None,  # traecli V1: no MCP injection
+        "config_format": "json",
+        "default_window_title": "Trae CLI",
+    },
 ]
 
 # ═══════════════════════════════════════════════
@@ -72,8 +83,11 @@ MCP_BLOCK = {
 }
 
 # ═══════════════════════════════════════════════
-# Scanner + injector
+# Scanner + injector + daemon state (exposed to RPC)
 # ═══════════════════════════════════════════════
+
+# Module‑level state — set by start_daemon(), read by _handle_mim_local_agents
+_daemon_state: dict = {}
 
 def scan_installed_agents() -> list[dict]:
     """Return list of installed agents on this machine."""
@@ -94,7 +108,7 @@ def inject_mcp_config(config_path: Path) -> bool:
     Uses strict owner-only permissions (0o600) — settings files may
     contain credentials and must not be world-readable.
     """
-    if not config_path.exists():
+    if not config_path or not config_path.exists():
         return False
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -121,28 +135,36 @@ def inject_mcp_config(config_path: Path) -> bool:
 
 def register_and_inject():
     """One-time: scan + register + inject for all found agents."""
+    global _daemon_state
     agents = scan_installed_agents()
     results = []
+    hostname = socket.gethostname()
+    machine = hostname
 
     try:
         from gateway.winpeek_hub import identity
     except ImportError:
+        _daemon_state = {"machine": machine, "daemon_version": "1.0.0", "runtimes": []}
         return results
 
     for scanner in agents:
         name = scanner["name"]
         agent_type = scanner["agent_type"]
+        password = "123321"  # aligned with tool‑layer default
 
-        # Register identity if not exists
-        existing = identity.login(name)
+        # Login or register
+        existing = identity.login(name, password)
         if not existing:
-            existing = identity.register(name, "Agent", agent_type)
+            existing = identity.register(name, "Agent", hostname, password)
+            # If register succeeds, login to get the full identity record
+            if existing:
+                existing = identity.login(name, password)
 
         uid = existing.get("uid") if existing else None
 
-        # Inject MCP config
+        # Inject MCP config (skip for types without config_file like traecli)
         injected = False
-        if scanner["config_file"]:
+        if scanner.get("config_file"):
             injected = inject_mcp_config(scanner["config_file"])
 
         results.append({
@@ -150,10 +172,59 @@ def register_and_inject():
             "name": name,
             "uid": uid,
             "config_injected": injected,
-            "config_file": str(scanner["config_file"]),
+            "config_file": str(scanner.get("config_file", "")),
         })
 
+    _daemon_state = {
+        "machine": machine,
+        "daemon_version": "1.0.0",
+        "runtimes": [
+            {"agent_type": r["agent_type"], "registered": r["uid"] is not None, "uid": r["uid"]}
+            for r in results
+        ],
+    }
     return results
+
+def get_local_state() -> dict:
+    """Return daemon state snapshot (called by _handle_mim_local_agents)."""
+    return _daemon_state
+
+# ═══════════════════════════════════════════════
+# Peeka greeting templates (layer‑1 auto‑reply)
+# ═══════════════════════════════════════════════
+
+GREETING_TEMPLATES = {
+    "吃了没": "吃了，别担心。",
+    "吃饭了吗": "吃了，别担心。",
+    "早安": "早安，新的一天开始。",
+    "晚安": "晚安，早点休息。",
+    "谢谢": "不客气。",
+    "多谢": "不客气。",
+    "在吗": "在的，请说。",
+    "在不在": "在的，请说。",
+    "你好": "你好，请问有什么可以帮忙？",
+    "hello": "Hi there, how can I help?",
+}
+
+def match_greeting(body: str) -> str | None:
+    """Rule‑based greeting matching (substring match, 0 Token)."""
+    for phrase, reply in GREETING_TEMPLATES.items():
+        if phrase in body:
+            return reply
+    return None
+
+# Politeness counter: (from_uid, to_uid) → count
+_politeness_count: dict[tuple[int, int], int] = {}
+
+def incr_politeness(from_uid: int, to_uid: int) -> int:
+    """Increment politeness count and return new value."""
+    key = (from_uid, to_uid)
+    _politeness_count[key] = _politeness_count.get(key, 0) + 1
+    return _politeness_count[key]
+
+def get_politeness(from_uid: int, to_uid: int) -> int:
+    """Read politeness count for a pair."""
+    return _politeness_count.get((from_uid, to_uid), 0)
 
 # ═══════════════════════════════════════════════
 # Background thread — heartbeat

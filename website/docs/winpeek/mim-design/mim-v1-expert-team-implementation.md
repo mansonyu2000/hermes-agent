@@ -110,23 +110,12 @@ ALTER TABLE users ADD COLUMN agent_type VARCHAR(32) NULL;
 
 存量行不动；`identity._row_to_dict` 增加 `agent_type` 字段回传（NULL → `""`）。
 
-### 2.6 15 种 agent 类型检测表（daemon 用，与前端图标 key 一致）
+### 2.6 4 种 agent 类型检测表（daemon 用，与前端图标 key 一致）
 
 | agent_type | 配置目录检测 | PATH 命令检测 |
 |------------|-------------|--------------|
 | claude | `~/.claude/` | `claude` |
-| codebuddy | `~/.codebuddy/` | `codebuddy` |
-| codex | `~/.codex/` | `codex` |
-| copilot | `~/.copilot/` | `copilot` |
-| opencode | `~/.opencode/` | `opencode` |
-| deveco | `~/.deveco/` | `deveco` |
-| openclaw | `~/.openclaw/` | `openclaw` |
 | hermes | `~/.hermes/config.yaml` | `hermes` |
-| pi | `~/.pi/` | `pi` |
-| cursor | `~/.cursor/` | `cursor-agent` |
-| kimi | `~/.kimi/` | `kimi` |
-| kiro | `~/.kiro/` | `kiro` |
-| antigravity | `~/.antigravity/` | `antigravity` |
 | qoder | `~/.qoder/` | `qoder` |
 | traecli | `~/.trae/` | `trae` |
 
@@ -188,8 +177,8 @@ Windows 用 `shutil.which()`（跨平台，勿用 `where` 子进程）。
 **文件（独占）**：`apps/winpeek_injector/daemon.py`（重写主体）
 
 **需求**：
-1. `AGENT_SCANNERS` 重构为契约 2.6 的 15 种类型表（数据驱动：`{agent_type, name, config_dir, path_cmd, config_file?}`）；
-   保留现有 3 种的 `config_file` MCP 注入能力，其余 12 种 `config_file=None`（V1 不注入）
+1. `AGENT_SCANNERS` 重构为契约 2.6 的 4 种类型表（数据驱动：`{agent_type, name, config_dir, path_cmd, config_file?}`）；
+   保留现有 3 种的 `config_file` MCP 注入能力，traecli `config_file=None`（V1 不注入）
 2. `scan_installed_agents()` 双通道检测（`Path.exists()` + `shutil.which()`），
    返回含 `detected_via`
 3. `register_and_inject()` 改造：**删除** `from gateway.winpeek_hub import identity` 直连；
@@ -226,7 +215,7 @@ Windows 用 `shutil.which()`（跨平台，勿用 `where` 子进程）。
    agent 类型名 + `registered` 状态点；`registered && uid>0` 的条目一键"以此身份进入"
    （写入 identities 并激活）
 3. **两步新建智能体**：
-   - 第 1 步选类型：15 种网格，本机已发现的高亮，未发现的灰显但可选（手动路径）
+   - 第 1 步选类型：4 种网格(claude-code/hermes/qoder/traecli)，本机已发现的高亮，未发现的灰显但可选（手动路径）
    - 第 2 步起名：预填 `{machine}-{agent_type}-{n}`（n = 本机同类型已注册数 +1），可改；
      提交调 `winpeek_mim_login`（带 `agent_type`/`machine`），成功后入列并激活
 4. **身份切换**：Profile 面板列出 `mim-identities` 全部身份，点击切换 `mim-active-uid`；
@@ -268,18 +257,11 @@ Windows 用 `shutil.which()`（跨平台，勿用 `where` 子进程）。
 ## 4. 执行波次与依赖
 
 ```
-前置（E）：DDL 一条（幂等）
-     │
+波次 0（前置）：E DDL 一条（幂等）
 波次 1（并行）：A（协议+handler）    B（hub_bridge）
-     │              └─ A 合入后接口即真实可调
 波次 2（并行）：C（daemon，调 A 的 handler）    D（前端，调 A 的 RPC）
-     │
 收尾（E）：E2E 双实例 + 回归 → 汇总提交
 ```
-
-- **A 先行合入**是波次 2 的闸门（C/D 按契约 §2 可提前写，但联调必须等 A）
-- B 与所有人零文件交集，随时可并
-- 冲突高危点唯一：A-6 例外授权改 daemon.py 两行——A 先提交，C 基于 A 之后的基线开工
 
 ## 5. 提交规范（对齐 git 历史风格）
 
@@ -287,7 +269,7 @@ Windows 用 `shutil.which()`（跨平台，勿用 `where` 子进程）。
 |----|-----------|
 | A | `tools(winpeek): mim online 批量 uids + runtime_report/local_agents RPC + login 透传 agent_type` |
 | B | `gateway(winpeek): hub_bridge 感知 center_url — 客户端模式跳过 MySQL/MQTT 加载` |
-| C | `tools(winpeek): daemon 升级运行时守护者 — 15 类检测 + 注册/心跳走转发入口` |
+| C | `tools(winpeek): daemon 升级运行时守护者 — 4 类检测 + 注册/心跳走转发入口` |
 | D | `gateway(winpeek): MIM 前端多身份切换 + 本机运行时 + 两步新建智能体` |
 | E | `tests(winpeek): 客户端/中心双实例 E2E — 零 DB/MQTT 出站断言` |
 
@@ -307,5 +289,7 @@ Windows 用 `shutil.which()`（跨平台，勿用 `where` 子进程）。
 - poll 批量聚合 `uids`（V1.5）
 - 主备中心自动 failover（V1.5，手动切 center_url）
 - `hermes_cli/winpeek_mqtt.py`（say 通道）改造（V2）
-- 12 种新类型的 MCP 注入（V1 仅保留原 3 种）
+- 11 种新 agent 类型的 MCP 注入（V1 仅保留原 3 种 + traecli，共 4 种）
 - 转发层性能优化（连接复用/推送化）
+- **MCP server MIM 工具（mim_send/poll/contacts/history/whoami）— V1.5**
+- **Agent 消息回复决策 + 系统 prompt 植入 — V1.5**
