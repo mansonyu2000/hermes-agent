@@ -7,7 +7,7 @@ to identity DB, injects MIM MCP config, maintains heartbeat.
 Runs silently — no window, no tray (yet). Started by hub_bridge.try_load_hub().
 """
 
-import json, os, socket, stat, time, threading
+import json, os, random, socket, stat, string, time, threading
 from datetime import datetime
 from pathlib import Path
 
@@ -147,26 +147,37 @@ def register_and_inject():
         _daemon_state = {"machine": machine, "daemon_version": "1.0.0", "runtimes": []}
         return results
 
+    def _gen_password() -> str:
+        """Generate agent password: a@ + 6 random alphanumeric chars."""
+        chars = string.ascii_lowercase + string.digits
+        return "a@" + "".join(random.choices(chars, k=6))
+
     for scanner in agents:
         name = scanner["name"]
         agent_type = scanner["agent_type"]
+        password = ""
 
         # Look up existing identity by nickname
         existing = None
         for u in identity.list_all():
             if u.get("nickname") == name:
                 uid = u["uid"]
-                # Try deterministic password a@{uid}, fallback empty
+                # Try a@{uid} (old formula) first, then empty (legacy)
                 existing = identity.login(name, f"a@{uid}") or identity.login(name, "")
+                if existing:
+                    password = f"a@{uid}" if identity.login(name, f"a@{uid}") else ""
                 break
 
         if not existing:
-            # Register new → get uid → set deterministic password a@{uid}
-            existing = identity.register(name, "Agent", hostname, "")
-            if existing:
-                uid = existing["uid"]
-                identity.set_password(uid, f"a@{uid}")
-                existing = identity.login(name, f"a@{uid}") or existing
+            # Register new → generate a@ + 6 random chars
+            password = _gen_password()
+            existing = identity.register(name, "Agent", hostname, password)
+            if not existing:
+                # Fallback: register with empty, then set password
+                existing = identity.register(name, "Agent", hostname, "")
+                if existing:
+                    identity.set_password(existing["uid"], password)
+                    existing = identity.login(name, password) or existing
 
         uid = existing.get("uid") if existing else None
 
@@ -175,10 +186,10 @@ def register_and_inject():
         if scanner.get("config_file"):
             injected = inject_mcp_config(scanner["config_file"])
 
-        # Inject MIM identity block into agent prompt file
+        # Inject MIM identity block into agent prompt file (includes password!)
         prompt_injected = False
         if uid and scanner.get("agent_type"):
-            prompt_injected = _inject_agent_prompt(uid, existing, scanner)
+            prompt_injected = _inject_agent_prompt(uid, existing, scanner, password)
 
         # Initialize inbox for this agent
         if uid:
@@ -216,7 +227,7 @@ AGENT_PROMPT_FILES = {
 }
 
 
-def _build_identity_block(uid: int, identity: dict, scanner: dict) -> str:
+def _build_identity_block(uid: int, identity: dict, scanner: dict, password: str = "") -> str:
     """Build the MIM_IDENTITY_BLOCK markdown for an agent."""
     hostname = socket.gethostname()
     peeka_name = identity.get("peeka_name", f"agent{uid}-{hostname}-hotime.cn")
@@ -231,6 +242,7 @@ def _build_identity_block(uid: int, identity: dict, scanner: dict) -> str:
 [MIM Identity]
 uid: {uid}
 name: {name}
+password: {password}
 role: {role}
 peeka_name: {peeka_name}
 squad: {squad or "(未加入组织)"}
@@ -239,6 +251,7 @@ inbox_path: {HOME / '.hermes' / 'winpeek' / 'inbox' / str(uid)}
 hostname: {hostname}
 
 [MIM Commands]
+- 登录MIM: winpeek_mim_login(nickname="{name}", password="{password}")
 - 发送回复: say <uid> "消息内容"
 - 查阅收信箱: 查看 inbox_path/unread/ 目录
 - 查看联系人: curl http://192.168.3.44:2000/api/contacts
@@ -255,7 +268,7 @@ hostname: {hostname}
     return block.strip()
 
 
-def _inject_agent_prompt(uid: int, identity: dict, scanner: dict) -> bool:
+def _inject_agent_prompt(uid: int, identity: dict, scanner: dict, password: str = "") -> bool:
     """Write MIM_IDENTITY_BLOCK into the agent's prompt/config file.
 
     Idempotent — checks if block already exists before writing.
@@ -265,7 +278,7 @@ def _inject_agent_prompt(uid: int, identity: dict, scanner: dict) -> bool:
     if not prompt_file:
         return False
 
-    block = _build_identity_block(uid, identity, scanner)
+    block = _build_identity_block(uid, identity, scanner, password)
     marker_start = "<!-- MIM_IDENTITY_BLOCK"
     marker_end = "<!-- /MIM_IDENTITY_BLOCK -->"
 
