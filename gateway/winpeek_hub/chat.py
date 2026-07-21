@@ -83,61 +83,47 @@ def _next_mid() -> str:
     return f"mim-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
 
 
-def send_message(from_uid: int, from_name: str, body: str,
-                 to_uid: int = 0, gid: int = 0) -> dict:
-    """Send a message. Single-chat when to_uid>0; group chat when gid>0."""
+def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
+    """Send a single-chat message."""
     conn = get_conn()
     if conn is None:
         return {"ok": False, "error": "DB unavailable"}
-    is_group = bool(gid)
     try:
         with conn.cursor() as cur:
-            # Security: only group members can send to a group
-            if is_group:
-                cur.execute(
-                    "SELECT 1 FROM group_members WHERE gid = %s AND uid = %s",
-                    (gid, from_uid),
-                )
-                if not cur.fetchone():
-                    return {"ok": False, "error": "Not a member of this group"}
-
             mid = _next_mid()
             cid = str(uuid.uuid4().hex[:16])
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             cur.execute(
                 """INSERT INTO chat
-                   (mid, cid, from_uid, to_uid, gid, role, content, from_type,
+                   (mid, cid, from_uid, to_uid, role, content, from_type,
                     created_at, sent_at, direction, delivery_status)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (mid, cid, from_uid, to_uid or None, gid or None, "user", body,
-                 "mim", now, now, "outgoing", "sent"),
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (mid, cid, from_uid, to_uid, "user", body, "mim",
+                 now, now, "outgoing", "sent"),
             )
             conn.commit()
 
-            if not is_group and to_uid:
-                # Update or create contact (single chat only)
+            # Update or create contact
+            cur.execute(
+                "SELECT id FROM contacts WHERE uid = %s AND c_uid = %s",
+                (from_uid, to_uid),
+            )
+            if cur.fetchone():
                 cur.execute(
-                    "SELECT id FROM contacts WHERE uid = %s AND c_uid = %s",
-                    (from_uid, to_uid),
+                    "UPDATE contacts SET last_message = %s, last_contact_at = %s WHERE uid = %s AND c_uid = %s",
+                    (body, now, from_uid, to_uid),
                 )
-                if cur.fetchone():
-                    cur.execute(
-                        "UPDATE contacts SET last_message = %s, last_contact_at = %s "
-                        "WHERE uid = %s AND c_uid = %s",
-                        (body, now, from_uid, to_uid),
-                    )
-                else:
-                    cur.execute("SELECT nickname FROM users WHERE uid = %s", (to_uid,))
-                    peer = cur.fetchone()
-                    peer_name = peer["nickname"] if peer else f"user_{to_uid}"
-                    cur.execute(
-                        "INSERT INTO contacts (uid, c_uid, display_name, "
-                        "last_message, last_contact_at, first_contact_at, status) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, 1)",
-                        (from_uid, to_uid, peer_name, body, now, now),
-                    )
-                conn.commit()
+            else:
+                cur.execute("SELECT nickname FROM users WHERE uid = %s", (to_uid,))
+                peer = cur.fetchone()
+                peer_name = peer["nickname"] if peer else f"user_{to_uid}"
+                cur.execute(
+                    "INSERT INTO contacts (uid, c_uid, display_name, last_message, last_contact_at, first_contact_at, status) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, 1)",
+                    (from_uid, to_uid, peer_name, body, now, now),
+                )
+            conn.commit()
     except Exception as e:
         logger.warning(f"MIM send DB failed: {e}")
         return {"ok": False, "error": str(e)}
@@ -145,23 +131,15 @@ def send_message(from_uid: int, from_name: str, body: str,
         conn.close()
 
     # MQTT publish (best-effort)
-    if is_group:
-        try:
-            from gateway.winpeek_hub.mqtt_adapter import send_group_message
-            send_group_message(gid, body, from_name, from_uid)
-        except Exception:
-            pass
-    elif to_uid:
-        try:
-            from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
-            mqtt_send(to_uid, body, from_name)
-        except Exception:
-            pass
+    try:
+        from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
+        mqtt_send(to_uid, body, from_name)
+    except Exception:
+        pass
 
     # Local delivery
     enqueue({
-        "to_uid": to_uid or None,
-        "gid": gid or None,
+        "to_uid": to_uid,
         "from_uid": from_uid,
         "from_name": from_name,
         "content": body,
