@@ -31,7 +31,7 @@ Desktop 机器上除到 MIM 中心的一条 WebSocket 外，**零 MySQL、零 MQ
 - [ ] **2.1** 所有用户用密码 `123321` 可登录（`identity.login(nickname, password)`）
 - [ ] **2.2** 旧 localStorage `mim-identity`（单对象）自动迁移为 `mim-identities` 数组 + `mim-active-uid`
 - [ ] **2.3** 本机运行时区块显示 daemon 发现的 agent（类型图标 + 注册状态）
-- [ ] **2.4** 两步新建智能体：选类型（15 种网格）→ 起名（预填 `{machine}-{type}-{n}`）→ 成功入列
+- [ ] **2.4** 两步新建智能体：选类型（4 种网格）→ 起名（预填 `{machine}-{type}-{n}`）→ 成功入列
 - [ ] **2.5** `winpeek_mim_login` 带 `agent_type`/`machine` 参数后，MySQL `users` 行对应列有值
 
 ---
@@ -127,5 +127,5 @@ Desktop 机器上除到 MIM 中心的一条 WebSocket 外，**零 MySQL、零 MQ
 - ❌ poll 批量聚合 `uids`（V1.5）
 - ❌ 主备中心自动 failover（V1.5）
 - ❌ `hermes_cli/winpeek_mqtt.py` say 通道改造（V2）
-- ❌ 12 种新 agent 类型的 MCP 注入（V1 只保留原 3 种）
+- ❌ 11 种新 agent 类型的 MCP 注入（V1 只保留原 3 种 + traecli，共 4 种）
 - ❌ 转发层性能优化（连接复用/推送化）

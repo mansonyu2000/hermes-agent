@@ -26,7 +26,9 @@ interface WinPeekIdentity {
   bio?: string
   skills?: string
   manager_uid?: number
+  agent_type?: string // persisted — set on creation, never editable
 }
+interface SavedIdentity extends WinPeekIdentity { agent_type?: string; peeka_name?: string }
 interface Contact {
   id: string
   name: string
@@ -50,19 +52,62 @@ interface ChatMessage {
   msgTs?: string
   isSelf: boolean
 }
+interface LocalAgent {
+  agent_type: string
+  name: string
+  icon: string
+  detected_via: string
+  uid: number       // 0 = not registered
+  registered: boolean
+}
 
 const ROLES = ['Developer', 'Architect', 'Ops', 'QA', 'PM', 'Director', 'Boss'] as const
 
+const AGENT_TYPES = [
+  { key: 'claude', name: 'Claude Code', icon: '🟠' },
+  { key: 'hermes', name: 'Hermes Agent', icon: '🔵' },
+  { key: 'qoder', name: 'Qoder', icon: '🟣' },
+  { key: 'traecli', name: 'Trae CLI', icon: '🟢' },
+] as const
+
 /* ── Identity Store (localStorage) ───────────── */
 
-function loadSavedIdentity(): WinPeekIdentity | null {
+const KEY_IDENTITIES = 'mim-identities'
+const KEY_ACTIVE_UID = 'mim-active-uid'
+
+/** Migrate old single‑identity format → multi‑identity, then load */
+function loadIdentities(): SavedIdentity[] {
   try {
-    const raw = localStorage.getItem('mim-identity')
-    return raw ? JSON.parse(raw) : null
-  } catch { return null }
+    // 1. If new format exists, use it
+    const arr = localStorage.getItem(KEY_IDENTITIES)
+    if (arr) return JSON.parse(arr) as SavedIdentity[]
+
+    // 2. Migrate from legacy single key
+    const old = localStorage.getItem('mim-identity')
+    if (old) {
+      const single = JSON.parse(old) as SavedIdentity
+      saveIdentities([single])
+      localStorage.removeItem('mim-identity')
+      return [single]
+    }
+  } catch { /* corrupt data, start fresh */ }
+  return []
 }
-function saveIdentity(id: WinPeekIdentity) {
-  localStorage.setItem('mim-identity', JSON.stringify(id))
+
+function saveIdentities(ids: SavedIdentity[]) {
+  localStorage.setItem(KEY_IDENTITIES, JSON.stringify(ids))
+}
+
+function getActiveUid(): number | null {
+  const raw = localStorage.getItem(KEY_ACTIVE_UID)
+  if (!raw) return null
+  const uid = Number(raw)
+  return Number.isFinite(uid) ? uid : null
+}
+
+function setActiveUid(uid: number | null) {
+  if (uid == null) localStorage.removeItem(KEY_ACTIVE_UID)
+  else localStorage.setItem(KEY_ACTIVE_UID, String(uid))
 }
 
 /* ── Login / Register Form ───────────────────── */
@@ -177,21 +222,41 @@ function LoginPanel({ existingUsers, onLogin, onRegister }: {
   )
 }
 
-/* ── Profile Panel (self) ────────────────────── */
+/* ── Profile Panel (self + multi‑identity) ──── */
 
-function ProfilePanel({ identity, onLogout, onBack }: { identity: WinPeekIdentity; onLogout: () => void; onBack?: () => void }) {
+function ProfilePanel({ identities, activeUid, localAgents, serverMode,
+  onSwitch, onLogout, onAddAgent, onBack }: {
+  identities: SavedIdentity[]
+  activeUid: number | null
+  localAgents: LocalAgent[]
+  serverMode: string
+  onSwitch: (uid: number) => void
+  onLogout: (uid: number) => void
+  onAddAgent: () => void
+  onBack?: () => void
+}) {
+  const identity = identities.find(i => i.uid === activeUid)
+  if (!identity) return null
   const skills = identity.skills ? identity.skills.split(',').filter(Boolean) : []
+
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 space-y-4 overflow-y-auto">
       {onBack && (
         <button className="text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={onBack}>← 返回</button>
       )}
+      {/* Current identity */}
       <div className="text-center">
         <div className="mx-auto mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-(--ui-accent)/15 text-2xl font-bold text-(--ui-accent)">
           {identity.name.charAt(0)}
         </div>
         <h3 className="text-base font-semibold text-foreground">{identity.name}</h3>
-        <p className="text-xs text-(--ui-text-tertiary)">{identity.title || identity.role} · #{identity.uid}</p>
+        <p className="text-xs text-(--ui-text-tertiary)}">
+          {identity.title || identity.role} · #{identity.uid}
+          {identity.agent_type && <span className="ml-1">{AGENT_TYPES.find(t => t.key === identity.agent_type)?.icon}</span>}
+        </p>
+        {identity.peeka_name && (
+          <p className="mt-0.5 text-[0.6rem] font-mono text-(--ui-text-quaternary)}">{identity.peeka_name}</p>
+        )}
       </div>
       <div className="space-y-2 rounded-lg border border-(--ui-stroke-tertiary) p-3 text-xs">
         <div className="flex justify-between"><span className="text-(--ui-text-secondary)">角色</span><span>{identity.role}</span></div>
@@ -204,12 +269,66 @@ function ProfilePanel({ identity, onLogout, onBack }: { identity: WinPeekIdentit
           </div>
         )}
       </div>
+      {/* ── Identity switcher ── */}
+      {identities.length > 1 && (
+        <div className="space-y-1.5 rounded-lg border border-(--ui-stroke-tertiary) p-3 text-xs">
+          <div className="mb-1 text-(--ui-text-secondary)">切换身份</div>
+          {identities.map(id => (
+            <button
+              key={id.uid}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
+                id.uid === activeUid ? 'bg-(--ui-accent)/10' : 'hover:bg-(--ui-control-hover-background)',
+              )}
+              onClick={() => onSwitch(id.uid)}
+            >
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-(--ui-accent)/15 text-[0.55rem] font-semibold text-(--ui-accent)">
+                {id.name.charAt(0)}
+              </span>
+              <span className="font-medium text-foreground">{id.name}</span>
+              {id.agent_type && (
+                <span className="ml-auto text-[0.7rem]">{AGENT_TYPES.find(t => t.key === id.agent_type)?.icon}</span>
+              )}
+              {id.uid === activeUid && <span className="text-[0.6rem] text-(--ui-accent)">当前</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {/* ── Server mode ── */}
       <div className="space-y-1.5 rounded-lg border border-(--ui-stroke-tertiary) p-3 text-xs">
-        <div className="flex justify-between"><span className="text-(--ui-text-secondary)">MQTT Broker</span><span className="font-mono">192.168.3.23:1883</span></div>
-        <div className="flex justify-between"><span className="text-(--ui-text-secondary)">WinPeek Hub</span><span className="font-mono">127.0.0.1:9200</span></div>
-        <div className="flex items-center justify-between"><span className="text-(--ui-text-secondary)">消息通知</span><Switch defaultChecked id="mim-notify" /></div>
+        <div className="flex justify-between"><span className="text-(--ui-text-secondary)">模式</span><span className="font-mono">{serverMode || '—'}</span></div>
+        <div className="flex justify-between"><span className="text-(--ui-text-secondary)">消息通知</span><Switch defaultChecked id="mim-notify" /></div>
       </div>
-      <Button className="w-full" onClick={onLogout} size="xs" variant="secondary">退出登录</Button>
+      {/* ── Local agents (runtime) ── */}
+      {localAgents.length > 0 && (
+        <div className="space-y-1.5 rounded-lg border border-(--ui-stroke-tertiary) p-3 text-xs">
+          <div className="mb-1 flex items-center justify-between text-(--ui-text-secondary)">
+            <span>本机运行时</span>
+            <span className="text-[0.6rem] text-(--ui-text-quaternary)}">by daemon</span>
+          </div>
+          {localAgents.map(a => {
+            const alreadyLogged = identities.some(i => i.uid === a.uid && a.registered)
+            return (
+              <div key={a.agent_type} className="flex items-center gap-2 py-0.5">
+                <span className="text-sm">{a.icon}</span>
+                <span className="font-medium text-foreground">{a.name}</span>
+                <span className="text-[0.6rem] text-(--ui-text-quaternary)}">{a.detected_via}</span>
+                {a.registered ? (
+                  alreadyLogged
+                    ? <span className="ml-auto text-[0.6rem] text-emerald-500">已登录</span>
+                    : <span className="ml-auto text-[0.6rem] text-(--ui-text-tertiary)}">已注册</span>
+                ) : (
+                  <span className="ml-auto text-[0.6rem] text-amber-500">未注册</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <div className="space-y-2">
+        <Button className="w-full" onClick={onAddAgent} size="xs" variant="secondary">+ 添加智能体</Button>
+        <Button className="w-full" onClick={() => onLogout(identity.uid)} size="xs" variant="secondary">退出登录</Button>
+      </div>
     </div>
   )
 }
@@ -269,14 +388,126 @@ function ContactProfilePanel({ uid, gatewayRequest, onBack }: { uid: number; gat
   )
 }
 
+/* ── Two‑step New Agent Panel ───────────────── */
+
+function NewAgentPanel({ onRegister, onBack }: {
+  onRegister: (name: string, role: string, password: string, agentType?: string, machine?: string) => Promise<string | null>
+  onBack: () => void
+}) {
+  const [step, setStep] = useState(1)
+  const [selectedType, setSelectedType] = useState<string>('')
+  const [nick, setNick] = useState('')
+  const [role, setRole] = useState<string>('Developer')
+  const [password, setPassword] = useState('123321')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = useCallback(async () => {
+    if (!nick.trim() || !selectedType) return
+    setLoading(true); setError('')
+    const err = await onRegister(nick.trim(), role, password, selectedType, '')
+    if (err) setError(err)
+    setLoading(false)
+  }, [nick, role, password, selectedType, onRegister])
+
+  return (
+    <div className="grid h-full place-items-center p-6">
+      <div className="w-full max-w-xs space-y-4">
+        <div className="text-center">
+          <div className="mb-2 text-4xl">🤖</div>
+          <h2 className="text-lg font-semibold text-foreground">新建智能体</h2>
+          <p className="text-xs text-(--ui-text-tertiary)}">{step === 1 ? '选择智能体类型' : '输入智能体信息'}</p>
+        </div>
+        {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
+
+        {step === 1 ? (
+          <div className="grid grid-cols-2 gap-2">
+            {AGENT_TYPES.map(at => (
+              <button
+                key={at.key}
+                className={cn(
+                  'flex flex-col items-center gap-1.5 rounded-lg border p-3 text-center transition-colors',
+                  selectedType === at.key
+                    ? 'border-(--ui-accent) bg-(--ui-accent)/10'
+                    : 'border-(--ui-stroke-tertiary) hover:bg-(--ui-control-hover-background)'
+                )}
+                onClick={() => { setSelectedType(at.key); setStep(2); setNick('') }}
+              >
+                <span className="text-2xl">{at.icon}</span>
+                <span className="text-xs font-medium text-foreground">{at.name}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 rounded-md bg-(--ui-bg-quaternary) px-3 py-2">
+              <span className="text-lg">{AGENT_TYPES.find(t => t.key === selectedType)?.icon}</span>
+              <span className="text-sm font-medium text-foreground">{AGENT_TYPES.find(t => t.key === selectedType)?.name}</span>
+              <button className="ml-auto text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={() => setStep(1)}>切换</button>
+            </div>
+            <Input
+              autoFocus
+              onChange={e => setNick(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+              placeholder="智能体名称（如 yu2-claude-1）"
+              value={nick}
+            />
+            <div className="flex flex-wrap gap-1.5">
+              {ROLES.map(r => (
+                <button
+                  key={r}
+                  className={cn(
+                    'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                    role === r
+                      ? 'bg-(--ui-accent) text-(--ui-accent-foreground)'
+                      : 'bg-(--ui-bg-quaternary) text-(--ui-text-secondary) hover:bg-(--ui-control-hover-background)'
+                  )}
+                  onClick={() => setRole(r)}
+                >{r}</button>
+              ))}
+            </div>
+            <Input
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+              placeholder="密码"
+              type="password"
+              value={password}
+            />
+            <Button className="w-full" disabled={loading || !nick.trim()} onClick={handleSubmit} size="sm">
+              {loading ? '创建中...' : '创建智能体'}
+            </Button>
+          </>
+        )}
+        <button className="w-full text-center text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={onBack}>
+          ← 返回登录
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /* ── Main View ───────────────────────────────── */
 
 export function MimView({ onClose }: { onClose: () => void }) {
   const { t } = useI18n()
   const { requestGateway: gatewayRequest } = useGatewayRequest()
-  const [identity, setIdentity] = useState<WinPeekIdentity | null>(loadSavedIdentity)
+
+  /* ── Multi‑identity state ──────────────── */
+  const [identities, setIdentities] = useState<SavedIdentity[]>(loadIdentities)
+  const [activeUid, setActiveUidState] = useState<number | null>(getActiveUid)
+  // Derive active identity (memo stable unless identities or activeUid change)
+  const identity = useMemo(
+    () => identities.find(i => i.uid === activeUid) ?? null,
+    [identities, activeUid],
+  )
+  const identRef = useRef<WinPeekIdentity | null>(identity)
+  identRef.current = identity
+
   const [showProfile, setShowProfile] = useState(false)
   const [viewContactUid, setViewContactUid] = useState<number | null>(null)
+  const [showNewAgent, setShowNewAgent] = useState(false)
+  const [localAgents, setLocalAgents] = useState<LocalAgent[]>([])
+  const [serverMode, setServerMode] = useState<string>('')
 
   const [contacts, setContacts] = useState<Contact[]>([])
   const [existingUsers, setExistingUsers] = useState<{uid: number; nickname: string; role: string}[]>([])
@@ -291,8 +522,6 @@ export function MimView({ onClose }: { onClose: () => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [ttsEnabled, setTtsEnabled] = useState(false)
   const prevMessagesLen = useRef(messages.length)
-  const identRef = useRef<WinPeekIdentity | null>(identity)
-  identRef.current = identity
   const activeContactRef = useRef<Contact | null>(null)
 
   const refreshUsers = useCallback(() => {
@@ -306,19 +535,60 @@ export function MimView({ onClose }: { onClose: () => void }) {
   // ── Load existing users for login page ──
   useEffect(() => { refreshUsers() }, [refreshUsers])
 
+  // ── Load local agents + mode ──
+  useEffect(() => {
+    gatewayRequest<any>('winpeek_mim_local_agents', {}).then(data => {
+      if (data) {
+        if (data.mode) setServerMode(data.mode)
+        if (data.agents) {
+          setLocalAgents(data.agents.map((a: any) => ({
+            agent_type: a.agent_type,
+            name: a.name || a.agent_type,
+            icon: AGENT_TYPES.find(t => t.key === a.agent_type)?.icon || '🤖',
+            detected_via: a.detected_via || '',
+            uid: a.uid || 0,
+            registered: a.registered || false,
+          })))
+        }
+      }
+    }).catch(() => {})
+  }, [gatewayRequest])
+
   const activeContact = useMemo(
     () => contacts.find(c => c.id === activeContactId) ?? null,
     [contacts, activeContactId]
   )
   activeContactRef.current = activeContact
 
-  const handleLogin = useCallback(async (name: string, password: string): Promise<string | null> => {
+  // ── Persist active uid when it changes ──
+  const switchToIdentity = useCallback((uid: number) => {
+    setActiveUidState(uid)
+    setActiveUid(uid)
+    setActiveContactId(null)
+    setMessages([])
+  }, [])
+
+  const handleLogin = useCallback(async (name: string, password: string, agentType?: string, machine?: string): Promise<string | null> => {
     try {
-      const data: any = await gatewayRequest('winpeek_mim_login', { nickname: name, password })
+      const params: any = { nickname: name, password }
+      if (agentType) params.agent_type = agentType
+      if (machine) params.machine = machine
+      const data: any = await gatewayRequest('winpeek_mim_login', params)
       if (data.ok && data.identity) {
-        const id: WinPeekIdentity = { uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role, host: 'local' }
-        saveIdentity(id)
-        setIdentity(id)
+        const id: SavedIdentity = {
+          uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role,
+          host: machine || 'local', agent_type: agentType,
+          peeka_name: data.identity.peeka_name || '',
+        }
+        setIdentities(prev => {
+          // If this uid already exists (e.g. re‑login), replace
+          const filtered = prev.filter(i => i.uid !== id.uid)
+          const next = [...filtered, id]
+          saveIdentities(next)
+          return next
+        })
+        setActiveUidState(id.uid)
+        setActiveUid(id.uid)
         refreshUsers()
         return null
       }
@@ -329,13 +599,26 @@ export function MimView({ onClose }: { onClose: () => void }) {
     }
   }, [gatewayRequest, refreshUsers])
 
-  const handleRegister = useCallback(async (name: string, role: string, password: string): Promise<string | null> => {
+  const handleRegister = useCallback(async (name: string, role: string, password: string, agentType?: string, machine?: string): Promise<string | null> => {
     try {
-      const data: any = await gatewayRequest('winpeek_mim_login', { nickname: name, role, password })
+      const params: any = { nickname: name, role, password }
+      if (agentType) params.agent_type = agentType
+      if (machine) params.machine = machine
+      const data: any = await gatewayRequest('winpeek_mim_login', params)
       if (data.ok && data.identity) {
-        const id: WinPeekIdentity = { uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role, host: 'local' }
-        saveIdentity(id)
-        setIdentity(id)
+        const id: SavedIdentity = {
+          uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role,
+          host: machine || 'local', agent_type: agentType,
+          peeka_name: data.identity.peeka_name || '',
+        }
+        setIdentities(prev => {
+          const filtered = prev.filter(i => i.uid !== id.uid)
+          const next = [...filtered, id]
+          saveIdentities(next)
+          return next
+        })
+        setActiveUidState(id.uid)
+        setActiveUid(id.uid)
         refreshUsers()
         return null
       }
@@ -346,12 +629,34 @@ export function MimView({ onClose }: { onClose: () => void }) {
     }
   }, [gatewayRequest, refreshUsers])
 
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem('mim-identity')
-    setIdentity(null)
-    setActiveContactId(null)
-    setMessages([])
-  }, [])
+  const handleLogout = useCallback((uid?: number) => {
+    const targetUid = uid ?? activeUid
+    setIdentities(prev => {
+      const next = prev.filter(i => i.uid !== targetUid)
+      saveIdentities(next)
+      return next
+    })
+    if (targetUid === activeUid) {
+      // Switch to the first remaining identity, or clear
+      const remaining = identities.filter(i => i.uid !== targetUid)
+      if (remaining.length > 0) {
+        switchToIdentity(remaining[0].uid)
+      } else {
+        setActiveUidState(null)
+        setActiveUid(null)
+        setActiveContactId(null)
+        setMessages([])
+      }
+    }
+  }, [activeUid, identities, switchToIdentity])
+
+  // ── Reset if active uid disappeared ──
+  useEffect(() => {
+    if (activeUid === null && identities.length > 0) {
+      setActiveUidState(identities[0].uid)
+      setActiveUid(identities[0].uid)
+    }
+  }, [activeUid, identities])
 
   // ── Load contacts via winpeek_mim_contacts ──
   useEffect(() => {
@@ -500,11 +805,27 @@ export function MimView({ onClose }: { onClose: () => void }) {
     if (e.key === 'Enter' && !e.shiftKey && !isComposing) { e.preventDefault(); handleSend() }
   }, [handleSend, isComposing])
 
-  // ── Not logged in ──
+  // ── Not logged in (identities may exist but none is active) ──
   if (!identity) {
+    if (showNewAgent) {
+      return (
+        <MasterDetail>
+          <NewAgentPanel onRegister={handleRegister} onBack={() => setShowNewAgent(false)} />
+        </MasterDetail>
+      )
+    }
     return (
       <MasterDetail>
         <LoginPanel existingUsers={existingUsers} onLogin={handleLogin} onRefreshUsers={refreshUsers} onRegister={handleRegister} />
+      </MasterDetail>
+    )
+  }
+
+  // ── New agent creation ──
+  if (showNewAgent) {
+    return (
+      <MasterDetail>
+        <NewAgentPanel onRegister={handleRegister} onBack={() => setShowNewAgent(false)} />
       </MasterDetail>
     )
   }
@@ -522,7 +843,13 @@ export function MimView({ onClose }: { onClose: () => void }) {
   if (showProfile) {
     return (
       <MasterDetail>
-        <ProfilePanel identity={identity} onLogout={handleLogout} onBack={() => setShowProfile(false)} />
+        <ProfilePanel
+          identities={identities} activeUid={activeUid}
+          localAgents={localAgents} serverMode={serverMode}
+          onSwitch={switchToIdentity} onLogout={handleLogout}
+          onAddAgent={() => setShowNewAgent(true)}
+          onBack={() => setShowProfile(false)}
+        />
       </MasterDetail>
     )
   }
@@ -686,7 +1013,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
                         title={ttsEnabled ? '关闭朗读收到的新消息' : '自动朗读收到的新消息'}
                         type="button"
                       ><Codicon name="megaphone" size={14} /></button>
-                      <div className="ml-auto text-[0.65rem] text-(--ui-text-quaternary)">MIM {ttsEnabled && '🔊'}</div>
+                      <div className="ml-auto text-[0.65rem] text-(--ui-text-quaternary)">{serverMode === 'center' ? 'MIM Center' : serverMode === 'client' ? 'MIM Client' : 'MIM'} {ttsEnabled && '🔊'}</div>
                     </div>
                     {/* Input row: textarea + send button */}
                     <div className="grid w-full grid-cols-[1fr_auto] items-end gap-(--composer-control-gap,0.375rem) [grid-template-areas:'input_controls']">
@@ -732,7 +1059,6 @@ export function MimView({ onClose }: { onClose: () => void }) {
             <div className="text-center">
               <div className="mb-3 text-3xl">💬</div>
               <p className="text-sm text-(--ui-text-tertiary)">选择一个联系人开始聊天</p>
-              <p className="mt-1 text-xs text-(--ui-text-quaternary)}">MIM · WinPeek 多实例消息</p>
             </div>
           </div>
         )}

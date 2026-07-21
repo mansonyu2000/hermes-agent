@@ -121,7 +121,38 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
         "time": now,
     })
 
+    # ── Peeka routing: 3‑layer decision ──
+    try:
+        from gateway.winpeek_hub.peeka_router import route_incoming
+        decision = route_incoming(from_uid, to_uid, body)
+        if decision["action"] in ("auto_reply", "daemon_answer"):
+            # Daemon auto‑reply as the recipient (B → A)
+            reply = decision["reply"]
+            # Use a shorter mid (locally generated, not inserted again)
+            _enqueue_auto_reply(to_uid, from_uid, reply, from_name)
+        elif decision["action"] == "drop":
+            # Remove from pending queue (advertisement dropped)
+            _pending[:] = [m for m in _pending
+                           if not (m.get("to_uid") == to_uid
+                                   and m.get("from_uid") == from_uid
+                                   and m.get("content") == body)]
+    except Exception as e:
+        logger.warning(f"[Peeka] routing error: {e}")
+
     return {"ok": True, "mid": mid}
+
+
+def _enqueue_auto_reply(from_uid: int, to_uid: int, reply: str, original_from_name: str):
+    """Enqueue an auto‑reply message without DB INSERT."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    enqueue({
+        "to_uid": to_uid,
+        "from_uid": from_uid,
+        "from_name": "🤖 " + original_from_name,  # denote auto-reply
+        "content": reply,
+        "time": now,
+        "is_auto_reply": True,
+    })
 
 
 # ── History ─────────────────────────────────────

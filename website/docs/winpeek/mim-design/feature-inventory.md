@@ -31,6 +31,8 @@
 | 7 | 架构治理 | `F7.x` | 8 |
 | 8 | 部署与运维 | `F8.x` | 5 |
 | 9 | 前端 UI | `F9.x` | 9 |
+| 10 | Agent 消息通道 | `F10.x` | 7 |
+| 11 | **Peeka 消息分级** | `F11.x` | **9** |
 
 ---
 
@@ -43,8 +45,8 @@
 | F1.3 | 统一密码 `123321` | 全部用户默认密码, DB 批量重置 | — | ✅ | 已完成 |
 | F1.4 | 多身份支持 | `mim-identities` 数组存储, `mim-active-uid` 激活标识, 旧版单 key 自动迁移 | — | ⚠️ | V1 — 包D |
 | F1.5 | 身份切换 | 切换清空消息列表, history 按新 uid 重查, poll 跟随新 uid, send 用新 uid | F1.4, F3.3, F9.2 | ❌ | V1 — 包D |
-| F1.6 | 两步新建智能体 | 第1步: 15种类型网格(已发现高亮), 第2步: 预填名 `{machine}-{type}-{n}`, 提交调 login | F1.7, F1.4 | ❌ | V1 — 包D |
-| F1.7 | daemon 自动发现本机 agent | 15种类型, 双通道检测(config_dir + path_cmd), 幂等(已注册不重复) | F7.3 | ⚠️ | V1 — 包C |
+| F1.6 | 两步新建智能体 | 第1步: 4种类型网格(claude-code/hermes/qoder/traecli, 已发现高亮), 第2步: 预填名 `{machine}-{type}-{n}`, 提交调 login | F1.7, F1.4 | ❌ | V1 — 包D |
+| F1.7 | daemon 自动发现本机 agent | 4种类型(claude-code/hermes/qoder/traecli), 双通道检测(config_dir + path_cmd), 幂等(已注册不重复) | F7.3 | ⚠️ | V1 — 包C |
 
 ---
 
@@ -132,7 +134,7 @@
 |---|------|--------|------|:--:|------|
 | F7.1 | 中心化模式 | 客户端只有一条 WS 到中心, **零 3306/1883 出站**, `_mim_center_call` 转发层 | — | ⚠️ | V1 — 包B |
 | F7.2 | hub_bridge 客户端感知 | `center_url()` 读 config, 配了→跳过 MySQL/MQTT/健康检查, 仍启动 daemon | F7.1 | ❌ | V1 — 包B |
-| F7.3 | daemon 升级 | 15种类型检测表, 注册/心跳改调 handler(不直连 identity/hub), `get_local_state()` | F1.7, F7.2 | ❌ | V1 — 包C |
+| F7.3 | daemon 升级 | 4种类型检测表(claude-code/hermes/qoder/traecli), 注册/心跳改调 handler(不直连 identity/hub), `get_local_state()` | F1.7, F7.2 | ❌ | V1 — 包C |
 | F7.4 | runtime 上报 | daemon 启动上报 `{machine, daemon_version, runtimes[...]}`, 中心写 `nodes.json` machines 键, 覆盖式更新 | F7.3 | ❌ | V1 — 包A+包C |
 | F7.5 | E2E 双实例验证 | assert 零3306/1883, assert login→send→poll, assert runtime_report, assert 杀daemon→offline→重启online | F7.1, F7.2, F7.3 | ❌ | V1 — 包E |
 | F7.6 | 主备中心 failover | 主中心宕→手动切 center_url 到备中心 | — | ❌ | V1.5 |
@@ -169,6 +171,42 @@
 
 ---
 
+## 十、Agent 消息通道
+
+> 详细设计见 [Agent 消息通道需求分析](agent-messaging-requirements.md)
+> 架构原则：MIM = 消息管道。Agent 用自身 LLM + 环境 + MCP 回答问题。
+
+| # | 功能 | 子功能 | 依赖 | 状态 | 决策 |
+|---|------|--------|------|:--:|------|
+| F10.1 | MCP server 新增 MIM 工具 | `mim_send_message`, `mim_poll_messages`, `mim_get_contacts`, `mim_get_history`, `mim_whoami` — 5 个 MCP 工具暴露给 Agent | F3.1, F3.2, F3.3 | ❌ | V1.5 |
+| F10.2 | mim_poll 返回 sender profile | 每条消息自动附带 `from_role/from_type/from_host/from_title/from_skills`，数据源 `identity.get_by_uid()` | F1.2, F10.1 | ❌ | V1.5 |
+| F10.3 | daemon env 注入 MIM 身份 | MCP_BLOCK 的 env 增加 `MIM_UID`/`MIM_NAME`/`MIM_AGENT_TYPE`，daemon 注册后动态填充 | F1.7, F10.1 | ❌ | V1.5 |
+| F10.4 | MCP server 与本地 serve 通信 | 通过 HTTP/WS 调本地 `winpeek_mim_*` RPC，复用 `_mim_center_call` 转发逻辑 | F7.1, F10.1 | ❌ | V1.5 |
+| F10.5 | Agent 自主收发消息 | Agent (LLM) 通过 MCP 工具主动发消息、轮询收消息、回复 | F10.1, F10.2 | ❌ | V1.5 |
+| F10.6 | 仅支持 4 种 agent 类型 | claude-code / hermes / qoder / traecli，V1 不做 15 种扩展 | F1.7 | ❌ | V1 |
+| F10.7 | Agent 消息回复决策 | LLM 自主判断是否回复：评估 sender profile + 问题内容 + 自身能力 → 决定回复/忽略/延迟，无独立规则引擎 | F10.1, F10.2 | ❌ | V1.5 |
+
+---
+
+## 十一、Peeka 消息分级
+
+> 详细设计见 [Peeka 消息分级处理方案](peeka-design)
+> 上游文档：[Peeka Daemon SPEC](Peeka-Deamon-SPEC.md)、[PeekaAskResponder Skill](Peeka-AskRsoponder-role.md)
+
+| # | 功能 | 子功能 | 依赖 | 状态 | 决策 |
+|---|------|--------|------|:--:|------|
+| F11.1 | PeekaName 分层命名 | `_build_peeka_name()` + identity `_row_to_dict` 追加 `peeka_name` 字段, daemon 注册时自动拼入 | F1.2, F7.3 | ✅ | V1 — P1 |
+| F11.2 | 话术匹配模板库 | `GREETING_TEMPLATES` dict + `match_greeting(body)` 子串匹配, daemon 模块级 | — | ✅ | V1 — P1 |
+| F11.3 | 礼貌交互计数器 | `_politeness_count[(from_uid, to_uid)]` 层1自动回复后 +1 | F11.2 | ✅ | V1 — P1 |
+| F11.4 | 5 类消息分类器 | `classify(body)` 规则分类 greeting/notification/ad/request/other, `peeka_router.py` | — | ✅ | V1 — P3 |
+| F11.5 | 三层路由决策 | `route_incoming()` 层1话术匹配 → 层2自答 → 层3转发 Agent | F11.2, F11.4 | ✅ | V1 — P3 |
+| F11.6 | 上下文拼接 | `assemble_context()` 打包 sender peeka_name/history/relation/tag | F11.1, F11.4 | ✅ | V1 — P3 |
+| F11.7 | Ask/Response 包装 | `send_message` 调 peeka_router 判断 packed, 广告过滤/问候自动回复 | F3.1, F11.5 | ✅ | V1 — P4 |
+| F11.8 | Daemon 本地知识自答 | `DAEMON_KNOWLEDGE` 键值对, agent 状态/本机环境/联系人查询 | F7.3 | ✅ | V1 — P3 |
+| F11.9 | 前端 PeekaName 展示 | Profile 面板显示 peeka_name, 联系人列表 hover 显示 | F9.4, F11.1 | ✅ | V1 — P2 |
+
+---
+
 ## 实施优先级
 
 ### 🔴 V1 P0 — 断了的功能 (约 30 行)
@@ -185,8 +223,8 @@
 |:--:|------|:--:|
 | A | F7.8 IDOR + F5.5 批量心跳 + F7.4 runtime_report + F1.7 透传 agent_type + DDL | 170 |
 | B | F7.2 hub_bridge 客户端模式 | 30 |
-| C | F7.3 daemon 升级 15 类型 | 150 |
-| D | F1.4 多身份 + F1.5 切换 + F1.6 两步新建 + F9.6 运行时区块 + F9.7 模式显示 | 200 |
+| C | F7.3 daemon 升级 4 类型 | 150 |
+| D | F1.4 多身份 + F1.5 切换 + F1.6 两步新建(4种) + F9.6 运行时区块 + F9.7 模式显示 | 200 |
 | E | F7.5 E2E 双实例 | 80 |
 
 ### 🟡 V1 P1 — UI 体验 (约 100 行)
@@ -221,6 +259,10 @@
 | F7.2 hub_bridge | F7.3, F7.5 |
 | F7.3 daemon | F1.7, F7.4, F7.5 |
 | F9.2 聊天视图 | F3.4-F3.9, F1.5 |
+| F10.1 MCP MIM 工具 | F3.1, F3.2, F10.2, F10.3, F10.4 |
+| F10.2 sender profile | F1.2, F10.1, F10.5 |
+| F10.3 daemon env 注入 | F1.7, F10.1 |
+| F10.7 回复决策 | F10.1, F10.2 |
 
 ---
 

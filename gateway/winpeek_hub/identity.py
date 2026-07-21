@@ -7,6 +7,7 @@ Provides: register, login, get_identity, list_identities.
 
 import hashlib
 import logging
+import socket
 import time
 from typing import Optional
 
@@ -15,6 +16,31 @@ from .db import get_conn
 logger = logging.getLogger(__name__)
 
 ROLES = ["Developer", "Architect", "Ops", "QA", "PM", "Director", "Boss"]
+
+# Agent type abbreviations for PeekaName
+AGENT_TYPE_ABBR = {
+    "claude-code": "CC",
+    "hermes": "HM",
+    "qoder": "QD",
+    "traecli": "TC",
+}
+
+def _build_peeka_name(nickname: str, agent_type: str = "", hostname: str = "", ip: str = "") -> str:
+    """Build PeekaName: {prefix}{abbr}-{hostname}{-ip}-hotime.cn
+
+    e.g. pigCC-YU2-192.168.3.44-hotime.cn
+    """
+    abbr = AGENT_TYPE_ABBR.get(agent_type, "XX")
+    # Extract prefix: remove the agent_type abbreviation suffix and machine suffix
+    prefix = nickname
+    for suffix in [f"-{abbr}", f"-{hostname}", abbr]:
+        if prefix.endswith(suffix):
+            prefix = prefix[: -len(suffix)]
+            break
+    if not hostname:
+        hostname = socket.gethostname()
+    ip_part = f"-{ip}" if ip else ""
+    return f"{prefix}{abbr}-{hostname}{ip_part}-hotime.cn"
 
 
 def _hash_password(password: str) -> str:
@@ -95,11 +121,16 @@ def login(nickname: str, password: str = "") -> dict | None:
 
 def _row_to_dict(row: dict) -> dict:
     """Convert a DB row to the identity dict."""
+    host = row.get("hostname", "local")
+    nickname = row["nickname"]
+    agent_type = row.get("agent_type", "")
     return {
         "uid": row["uid"],
-        "nickname": row["nickname"],
+        "nickname": nickname,
         "role": row["role"],
-        "host": row.get("hostname", "local"),
+        "host": host,
+        "agent_type": agent_type,
+        "peeka_name": _build_peeka_name(nickname, agent_type, host),
         "title": row.get("title") or "",
         "bio": row.get("bio") or "",
         "skills": row.get("skills") or "",

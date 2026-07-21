@@ -579,7 +579,6 @@ registry.register(
 )
 
 logger.info("WinPeek MIM tools: +user_info")
-
 # ── Portrait: 画像分析工具 ──────────────────────────
 
 def _portrait_calc_metrics(chats, friend):
@@ -971,3 +970,59 @@ registry.register(
 )
 
 logger.info("WinPeek Portrait tools registered: list + detail")
+
+# ── MIM: Local agents (daemon state) ──
+
+def _handle_mim_local_agents(args: dict) -> str:
+    """Return daemon‑discovered agents on this machine. Never forwarded."""
+    try:
+        from apps.winpeek_injector.daemon import get_local_state
+        state = get_local_state()
+    except ImportError:
+        state = {}
+    # Determine current mode: same logic as _mim_center_call
+    mode = "center"
+    try:
+        from hermes_cli.config import load_config
+        mim = (load_config().get("winpeek", {}) or {}).get("mim", {}) or {}
+        if str(mim.get("center_url") or "").strip():
+            mode = "client"
+    except Exception:
+        pass
+    return json.dumps({
+        "mode": mode,
+        "machine": state.get("machine", ""),
+        "agents": [
+            {
+                "agent_type": r["agent_type"],
+                "name": AGENT_TYPE_NAMES.get(r["agent_type"], r["agent_type"]),
+                "detected_via": "daemon",
+                "uid": r.get("uid") or 0,
+                "registered": r.get("registered", False),
+            }
+            for r in state.get("runtimes", [])
+        ],
+    })
+
+AGENT_TYPE_NAMES = {
+    "claude-code": "Claude Code",
+    "hermes": "Hermes Agent",
+    "qoder": "Qoder",
+    "traecli": "Trae CLI",
+}
+
+registry.register(
+    name="winpeek_mim_local_agents",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_local_agents",
+        "description": "List agent runtimes discovered by the local daemon. Shows machine mode, agent type, and registration status.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_mim_local_agents(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM local agent discovery",
+)
+
+logger.info("WinPeek MIM tools: +user_info +local_agents")
