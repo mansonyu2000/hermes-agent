@@ -56,7 +56,12 @@ def _find_identity() -> tuple[int, str]:
             if uid:
                 return uid, d.get("name") or d.get("agent_name") or _sys_name()
 
-    # 2. Walk up from cwd
+    # 2. MIM_UID + MIM_NAME (Daemon 注入, 权威)
+    mim_uid = int(os.environ.get("MIM_UID", "0"))
+    if mim_uid:
+        return mim_uid, os.environ.get("MIM_NAME", "") or _sys_name()
+
+    # 3. Walk up from cwd
     try:
         for p in [Path.cwd()] + list(Path.cwd().parents)[:6]:
             idf = p / ".winpeek-identity.json"

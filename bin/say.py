@@ -43,11 +43,11 @@ def _find_identity() -> tuple[int, str]:
 
     查找顺序:
       1. WINPEEK_IDENTITY 环境变量 → JSON 文件
-      2. cwd 往上找 .winpeek-identity.json (项目级)
-      3. ~/.hermes/data/agent.conf (Hermes)
-      4. ~/.claude/winpeek-identity.json (CC)
-      5. WINPEEK_UID 环境变量
-      6. MIM_UID + MIM_NAME 环境变量 (Daemon 注入)
+      2. MIM_UID + MIM_NAME 环境变量 (Daemon 注入, 最权威)
+      3. cwd 往上找 .winpeek-identity.json (项目级)
+      4. ~/.hermes/data/agent.conf (Hermes)
+      5. ~/.claude/winpeek-identity.json (CC)
+      6. WINPEEK_UID 环境变量
     """
 
     # 1. 显式指向
@@ -60,7 +60,12 @@ def _find_identity() -> tuple[int, str]:
                 if uid:
                     return uid, d.get("name") or d.get("agent_name") or _sys_name()
 
-    # 2. 从 cwd 往上找 .winpeek-identity.json
+    # 2. MIM_UID + MIM_NAME (Daemon 注入, 权威来源)
+    mim_uid = int(os.environ.get("MIM_UID", "0"))
+    if mim_uid:
+        return mim_uid, os.environ.get("MIM_NAME", "") or _sys_name()
+
+    # 3. 从 cwd 往上找 .winpeek-identity.json
     try:
         for p in [Path.cwd()] + list(Path.cwd().parents)[:6]:
             idf = p / ".winpeek-identity.json"
@@ -96,11 +101,6 @@ def _find_identity() -> tuple[int, str]:
     env_uid = os.environ.get("WINPEEK_UID")
     if env_uid:
         return int(env_uid), _sys_name()
-
-    # 6. MIM_UID + MIM_NAME (Daemon 注入)
-    mim_uid = int(os.environ.get("MIM_UID", "0"))
-    if mim_uid:
-        return mim_uid, os.environ.get("MIM_NAME", "") or _sys_name()
 
     return 0, _sys_name()
 
