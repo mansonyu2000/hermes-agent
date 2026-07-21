@@ -149,11 +149,8 @@ def _handle_outbox(topic: str, payload: dict):
     Topic: comms/outbox/{from_uid}
     Payload: {"to_uid": int, "body": str, "reply_to_mid": str?, "ts": str?}
 
-    收到后:
-      1. 从 topic 提取 from_uid
-      2. 查 identity 补全 from_name + peeka_name
-      3. 写入 chat DB 归档
-      4. MQTT publish 到 comms/say/{to_uid}
+    全权委托 chat.send_message() 处理：
+      DB 归档 → MQTT 发布 → 本地 enqueue → Peeka Router(L1/L2/L3)
     """
     to_uid = int(payload.get("to_uid", 0))
     body = payload.get("body", "")
@@ -172,7 +169,7 @@ def _handle_outbox(topic: str, payload: dict):
         logger.warning(f"[outbox] 无法从 topic 提取 uid: {topic}")
         return
 
-    # 查 identity
+    # 查 identity 补全名称
     from_name = f"user_{from_uid}"
     try:
         from gateway.winpeek_hub import identity
@@ -184,29 +181,13 @@ def _handle_outbox(topic: str, payload: dict):
 
     logger.info(f"[outbox] {from_name}[{from_uid}] → uid={to_uid}: {body[:60]}")
 
-    # 归档到 chat DB
+    # 全权委托 chat.send_message() — 它负责 DB+MQQT+enqueue+Peeka Router
     try:
         from gateway.winpeek_hub.chat import send_message as chat_send
-        chat_send(from_uid, from_name, to_uid, body)
+        result = chat_send(from_uid, from_name, to_uid, body)
+        logger.info(f"[outbox] chat_send result: {result.get('ok')} mid={result.get('mid','')[:20]}")
     except Exception as e:
-        logger.warning(f"[outbox] DB 归档失败: {e}")
-
-    # 转发给收件人 (MQTT)
-    topic_to = f"{SAY_TOPIC_PREFIX}/{to_uid}"
-    fwd_payload = json.dumps({
-        "from_uid": str(from_uid),
-        "from": from_name,
-        "to_uid": str(to_uid),
-        "body": body,
-        "reply_to_mid": reply_to_mid,
-        "ts": payload.get("ts", time.strftime("%Y-%m-%dT%H:%M:%S")),
-    }, ensure_ascii=False)
-
-    try:
-        _client.publish(topic_to, fwd_payload, qos=1)
-        logger.info(f"[outbox] 已转发 → comms/say/{to_uid}")
-    except Exception as e:
-        logger.warning(f"[outbox] 转发失败: {e}")
+        logger.warning(f"[outbox] chat_send 失败: {e}")
 
 
 # ── 连接管理 ──────────────────────────────────────
