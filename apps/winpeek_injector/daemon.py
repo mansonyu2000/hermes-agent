@@ -7,7 +7,7 @@ to identity DB, injects MIM MCP config, maintains heartbeat.
 Runs silently — no window, no tray (yet). Started by hub_bridge.try_load_hub().
 """
 
-import json, os, secrets, socket, stat, time, threading
+import json, os, socket, stat, time, threading
 from datetime import datetime
 from pathlib import Path
 
@@ -133,34 +133,6 @@ def inject_mcp_config(config_path: Path) -> bool:
         json.dump(config, f, indent=2, ensure_ascii=False)
     return True
 
-# Password file: ~/.hermes/winpeek/agent_passwords.json — {agent_name: password}
-_PASSWORD_FILE = HOME / ".hermes" / "winpeek" / "agent_passwords.json"
-
-
-def _get_or_create_agent_password(agent_name: str) -> str:
-    """Retrieve or generate a unique CSPRNG password per agent.
-
-    Passwords persisted to _PASSWORD_FILE with owner-only permissions (0o600).
-    One password per agent name, generated once at registration time.
-    """
-    passwords: dict = {}
-    if _PASSWORD_FILE.exists():
-        try:
-            passwords = json.loads(_PASSWORD_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            passwords = {}
-    if agent_name in passwords:
-        return passwords[agent_name]
-    # Generate new: 16 URL-safe random bytes → ~22 chars
-    pw = secrets.token_urlsafe(16)
-    passwords[agent_name] = pw
-    _PASSWORD_FILE.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(_PASSWORD_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(passwords, f, indent=2, ensure_ascii=False)
-    return pw
-
-
 def register_and_inject():
     """One-time: scan + register + inject for all found agents."""
     global _daemon_state
@@ -179,16 +151,22 @@ def register_and_inject():
         name = scanner["name"]
         agent_type = scanner["agent_type"]
 
-        # Generate or retrieve a unique per-agent password (CSPRNG, persisted)
-        password = _get_or_create_agent_password(name)
+        # Look up existing identity by nickname
+        existing = None
+        for u in identity.list_all():
+            if u.get("nickname") == name:
+                uid = u["uid"]
+                # Try deterministic password a@{uid}, fallback empty
+                existing = identity.login(name, f"a@{uid}") or identity.login(name, "")
+                break
 
-        # Login or register
-        existing = identity.login(name, password)
         if not existing:
-            existing = identity.register(name, "Agent", hostname, password)
-            # If register succeeds, login to get the full identity record
+            # Register new → get uid → set deterministic password a@{uid}
+            existing = identity.register(name, "Agent", hostname, "")
             if existing:
-                existing = identity.login(name, password)
+                uid = existing["uid"]
+                identity.set_password(uid, f"a@{uid}")
+                existing = identity.login(name, f"a@{uid}") or existing
 
         uid = existing.get("uid") if existing else None
 

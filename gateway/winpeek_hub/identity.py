@@ -48,6 +48,24 @@ def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 
+def set_password(uid: int, password: str) -> bool:
+    """Set or change the password for an existing user by uid."""
+    conn = get_conn()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET password_hash = %s WHERE uid = %s",
+                (_hash_password(password), uid))
+            conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
 def register(nickname: str, role: str = "Developer", host: str = "local", password: str = "") -> dict | None:
     """
     Register a new identity. Returns the created identity, or None if nickname taken.
