@@ -7,7 +7,7 @@ to identity DB, injects MIM MCP config, maintains heartbeat.
 Runs silently — no window, no tray (yet). Started by hub_bridge.try_load_hub().
 """
 
-import json, os, random, socket, stat, string, time, threading
+import json, os, secrets, socket, stat, string, time, threading
 from datetime import datetime
 from pathlib import Path
 
@@ -148,9 +148,9 @@ def register_and_inject():
         return results
 
     def _gen_password() -> str:
-        """Generate agent password: a@ + 6 random alphanumeric chars."""
+        """Generate agent password: a@ + 8 cryptographically random chars."""
         chars = string.ascii_lowercase + string.digits
-        return "a@" + "".join(random.choices(chars, k=6))
+        return "a@" + "".join(secrets.choice(chars) for _ in range(8))
 
     for scanner in agents:
         name = scanner["name"]

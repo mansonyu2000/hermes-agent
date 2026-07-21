@@ -192,17 +192,19 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
                 from apps.winpeek_injector.daemon import write_to_inbox, track_l3_message
                 write_to_inbox(to_uid, msg_dict)
                 track_l3_message(mid, to_uid, from_uid)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[Peeka] inbox write failed: {e}")
 
-            # Try RPA delivery to CC (if the recipient agent is on this machine)
+            # RPA delivery only for Claude Code (terminal window injection)
             try:
-                from apps.winpeek_injector.engine import deliver_mim_message
-                deliver_mim_message(to_uid, msg_dict)
-                # Mark as delivered if RPA succeeded
-                from apps.winpeek_injector.daemon import mark_delivered, update_reliability
-                mark_delivered(to_uid, mid)
-                update_reliability(mid, "delivered")
+                from gateway.winpeek_hub import identity
+                agent_info = identity.get_by_uid(to_uid)
+                if agent_info and agent_info.get("agent_type") == "claude-code":
+                    from apps.winpeek_injector.engine import deliver_mim_message
+                    if deliver_mim_message(to_uid, msg_dict):
+                        from apps.winpeek_injector.daemon import mark_delivered, update_reliability
+                        mark_delivered(to_uid, mid)
+                        update_reliability(mid, "delivered")
             except Exception:
                 pass
 
