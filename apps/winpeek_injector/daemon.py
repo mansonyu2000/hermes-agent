@@ -211,7 +211,7 @@ def register_and_inject():
 # Prompt files by agent type — the file Daemon writes the MIM_IDENTITY_BLOCK into
 AGENT_PROMPT_FILES = {
     "claude-code": HOME / ".claude" / "CLAUDE.md",
-    "hermes": HOME / ".hermes" / "config.yaml",
+    "hermes": HOME / ".hermes" / "AGENTS.md",   # NOT config.yaml (YAML!)
     "qoder": HOME / ".qoder" / "AGENTS.md",
 }
 
