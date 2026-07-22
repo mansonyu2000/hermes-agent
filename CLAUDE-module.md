@@ -71,6 +71,27 @@ header 由 `python bin/agent-role.py` 启动时自动生成，包含 uid/nick/ro
 > `agent-coding-workflow` 不重造轮子——桥接上述 24+ 技能，叠加本项目的文档治理+双系统同步+集群规则。
 > 24 个技能装在本项目 `.agents/skills/`，Claude Code 自动发现。
 
+### 可用斜杠命令（`.claude/commands/`）
+
+`/spec` → spec-driven-development | `/plan` → planning-and-task-breakdown
+`/build` → incremental-implementation | `/test` → test-driven-development
+`/review` → code-review-and-quality | `/code-simplify` → code-simplification
+`/ship` → shipping-and-launch (并行派发 3 审查子智能体) | `/webperf` → web-performance-auditor
+
+### 可用子智能体类型（`subagent_type` 参数，共 8 个）
+
+| 类型 | 用途 |
+|------|------|
+| `code-reviewer` | 五维代码审查 |
+| `security-auditor` | 安全漏洞审计 |
+| `test-engineer` | 测试编写/审查 |
+| `web-performance-auditor` | Web 性能审计 |
+| `Explore` | 只读搜索，理解代码结构 |
+| `Plan` | 软件架构设计计划 |
+| `general-purpose` | 复杂多步研究/搜索 |
+| `document-manager-agent` | 文档治理 + 双系统同步 |
+| `orchestrator-agent` | 8 阶段全流程调度 |
+
 **4. 交作业** — commit message 必须含证据标记：
 - `feat:` → `brainstorm:` + `tdd:` + `verified:`
 - `fix:` → `debug:` + `tdd:` + `verified:`
