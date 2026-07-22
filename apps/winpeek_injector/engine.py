@@ -163,8 +163,12 @@ def inject_rpa(click_x: int, click_y: int, text: str):
     pyautogui.press("delete")
     time.sleep(0.05)
     import pyperclip
-    pyperclip.copy(text)
-    pyautogui.hotkey("ctrl", "v")
+    saved = pyperclip.paste()
+    try:
+        pyperclip.copy(text)
+        pyautogui.hotkey("ctrl", "v")
+    finally:
+        pyperclip.copy(saved)
     time.sleep(0.1)
     pyautogui.press("enter")
 
@@ -248,10 +252,14 @@ def inject_backend(title_keyword: str, click_x: int, click_y: int, text: str) ->
 
     if any(ord(c) > 127 for c in text):
         import pyperclip
-        pyperclip.copy(text)
-        events += [_kb(vk=VK_CONTROL), _kb(vk=0x56),
-                   _kb(vk=0x56, flags=KEYEVENTF_KEYUP),
-                   _kb(vk=VK_CONTROL, flags=KEYEVENTF_KEYUP)]
+        saved = pyperclip.paste()
+        try:
+            pyperclip.copy(text)
+            events += [_kb(vk=VK_CONTROL), _kb(vk=0x56),
+                       _kb(vk=0x56, flags=KEYEVENTF_KEYUP),
+                       _kb(vk=VK_CONTROL, flags=KEYEVENTF_KEYUP)]
+        finally:
+            pyperclip.copy(saved)
     else:
         for ch in text:
             if ch == '\n':
