@@ -117,7 +117,7 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
             else:
                 cur.execute("SELECT nickname FROM users WHERE uid = %s", (to_uid,))
                 peer = cur.fetchone()
-                peer_name = peer["nickname"] if peer else f"user_{to_uid}"
+                peer_name = peer.get("nickname") if peer else f"user_{to_uid}"
                 cur.execute(
                     "INSERT INTO contacts (uid, c_uid, display_name, last_message, last_contact_at, first_contact_at, status) "
                     "VALUES (%s, %s, %s, %s, %s, %s, 1)",
@@ -139,6 +139,7 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
 
     # Local delivery
     enqueue({
+        "mid": mid,
         "to_uid": to_uid,
         "from_uid": from_uid,
         "from_name": from_name,
@@ -168,9 +169,7 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
         elif decision["action"] == "drop":
             # Remove from pending queue (advertisement dropped)
             _pending[:] = [m for m in _pending
-                           if not (m.get("to_uid") == to_uid
-                                   and m.get("from_uid") == from_uid
-                                   and m.get("content") == body)]
+                           if m.get("mid") != mid]
 
         elif decision["action"] == "forward":
             ctx = decision.get("context", {})
