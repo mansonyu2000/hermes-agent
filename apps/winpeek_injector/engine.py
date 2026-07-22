@@ -241,7 +241,7 @@ def inject_backend(title_keyword: str, click_x: int, click_y: int, text: str) ->
     if not hwnd:
         return False
 
-    user32.SetForegroundWindow(hwnd)
+    _focus_win32(hwnd)
     time.sleep(0.15)
 
     events = _mouse_click(click_x, click_y)
