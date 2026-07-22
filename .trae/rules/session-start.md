@@ -1,40 +1,36 @@
 # Pipeline: Session Start
 
-This rule loads automatically at session start. It activates the meta-skill and declares available pipeline commands.
+This rule loads at session start. It activates the meta-skill discovery system and declares the available pipeline stages.
 
-## Activated Skills
+## Activated Skill
 
-- `using-agent-skills` — Skill discovery flowchart (`.agents/skills/using-agent-skills/SKILL.md`)
-- `hermes-workflow` — Hermes-specific MIM/ZenTao/DocManager integration
+`using-agent-skills` — Skill discovery flowchart (`.agents/skills/using-agent-skills/SKILL.md`)
 
-## Available Pipeline Commands
+Read it now. It is the single entry point for deciding which skill applies to any task.
 
-Throughout this session, you can invoke these pipeline stages:
+## Available Pipeline Stages
 
-| Command | Skill | Purpose |
-|---------|-------|---------|
-| `pipeline:spec` | spec-driven-development | Write a specification before coding |
-| `pipeline:plan` | planning-and-task-breakdown | Break work into small verifiable tasks |
-| `pipeline:build` | incremental-implementation + TDD | Implement one task at a time (RED→GREEN→REFACTOR) |
-| `pipeline:build:auto` | full pipeline (plan+build) | Run the whole plan in one approved pass |
-| `pipeline:test` | test-driven-development | Write failing test, implement, verify |
-| `pipeline:review` | code-review-and-quality | Five-axis code review |
-| `pipeline:code-simplify` | code-simplification | Simplify code without changing behavior |
-| `pipeline:ship` | shipping-and-launch + fan-out | Pre-launch review → go/no-go decision |
+Throughout this session, invoke pipeline stages by name. Each stage reads the **original SKILL.md** from `.agents/skills/<name>/SKILL.md`:
 
-## Pipeline Flow (Sequential)
+| Stage | Source skill | Read |
+|-------|-------------|------|
+| `pipeline:spec` | `.agents/skills/spec-driven-development/SKILL.md` | Full spec workflow |
+| `pipeline:plan` | `.agents/skills/planning-and-task-breakdown/SKILL.md` | Dependency graph + vertical slices |
+| `pipeline:build` | `.agents/skills/incremental-implementation/SKILL.md` (+ TDD) | RED→GREEN→REFACTOR per task |
+| `pipeline:build:auto` | Same, but execute every task after one approval | Autonomous mode |
+| `pipeline:test` | `.agents/skills/test-driven-development/SKILL.md` | Failing test first |
+| `pipeline:review` | `.agents/skills/code-review-and-quality/SKILL.md` | Five-axis review |
+| `pipeline:code-simplify` | `.agents/skills/code-simplification/SKILL.md` | Preserve behavior, reduce complexity |
+| `pipeline:ship` | `.agents/skills/shipping-and-launch/SKILL.md` | Parallel fan-out + go/no-go |
 
-```
-pipeline:spec → pipeline:plan → pipeline:build → pipeline:test → pipeline:review → pipeline:ship
-```
+**When a pipeline stage is requested, read the full SKILL.md before executing.** Do not skip steps, Common Rationalizations, Red Flags, or Verification checklists.
 
-Each stage is user-initiated. The user runs the next command when ready.
+## Hermes Integration
 
-## Parallel Fan-Out
+On top of the standard skills, apply Hermes-specific tooling:
 
-`pipeline:ship` spawns 3 subagents in parallel (use Task tool):
-1. `code-reviewer` (use general_purpose_task with code-review-and-quality)
-2. `security-auditor` (use general_purpose_task with security-and-hardening)
-3. `test-engineer` (use general_purpose_task with test-driven-development)
+- **ZenTao CLI** — Sync artifacts to pm.test.com (story/task/bug/release)
+- **MIM** — Notify collaborators via Agent messaging (`winpeek_mim_send`)
+- **Peeka Router** — Incoming message classification + auto-reply
 
-Then merge their reports into a go/no-go decision.
+See `website/docs/winpeek/mim-design/hermes-workflow-skill.md` for full Hermes integration reference.
