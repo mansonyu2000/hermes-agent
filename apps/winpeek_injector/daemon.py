@@ -582,16 +582,19 @@ def match_greeting(body: str) -> str | None:
 
 # Politeness counter: (from_uid, to_uid) → count
 _politeness_count: dict[tuple[int, int], int] = {}
+_politeness_lock = threading.Lock()
 
 def incr_politeness(from_uid: int, to_uid: int) -> int:
     """Increment politeness count and return new value."""
     key = (from_uid, to_uid)
-    _politeness_count[key] = _politeness_count.get(key, 0) + 1
-    return _politeness_count[key]
+    with _politeness_lock:
+        _politeness_count[key] = _politeness_count.get(key, 0) + 1
+        return _politeness_count[key]
 
 def get_politeness(from_uid: int, to_uid: int) -> int:
     """Read politeness count for a pair."""
-    return _politeness_count.get((from_uid, to_uid), 0)
+    with _politeness_lock:
+        return _politeness_count.get((from_uid, to_uid), 0)
 
 # ═══════════════════════════════════════════════
 # Background thread — heartbeat
