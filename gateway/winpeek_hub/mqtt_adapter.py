@@ -67,7 +67,6 @@ def _resolve_identity():
 BROKER = os.getenv("MIM_BROKER", "192.168.3.23")
 PORT = int(os.getenv("MIM_PORT", "1883"))
 
-INBOX_TOPIC = property(lambda self: f"comms/inbox/{UID}")
 SAY_TOPIC_PREFIX = "comms/say"
 OUTBOX_TOPIC = "comms/outbox"
 GROUP_TOPIC_PREFIX = "comms/group"
@@ -154,7 +153,6 @@ def _handle_outbox(topic: str, payload: dict):
     """
     to_uid = int(payload.get("to_uid", 0))
     body = payload.get("body", "")
-    reply_to_mid = payload.get("reply_to_mid", "")
 
     if not to_uid or not body:
         logger.warning(f"[outbox] 无效消息: to_uid={to_uid} body={body[:30]}")
