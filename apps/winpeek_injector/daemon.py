@@ -665,8 +665,8 @@ def _reliability_scanner(interval: int = 60):
 
             # Flush audit buffer
             _flush_audit()
-        except Exception:
-            pass
+        except Exception as e:
+            _audit_log("reliability_scanner_error", {"error": str(e)})
 
 
 def start_daemon():
