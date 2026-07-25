@@ -217,7 +217,8 @@ interface ChatSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onTriggerCronJob: (jobId: string) => void
 }
 
-/* Peeka account popup — reads MIM identities from localStorage, supports switching */
+/* Peeka account popup — reads multi‑identity format (mim-identities + mim-active-uid) */
+interface PeekaIdentity { name: string; uid: number; role: string; identity_type?: string; gender?: string }
 function PeekaPopup() {
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState(false)
@@ -227,8 +228,12 @@ function PeekaPopup() {
   const nav = useNavigate()
 
   const sync = useCallback(() => {
-    try { setIdent(JSON.parse(localStorage.getItem('mim-identity')||'')) } catch { setIdent(null) }
-    try { setAllIdentities(JSON.parse(localStorage.getItem('mim-identities')||'[]')) } catch { setAllIdentities([]) }
+    try {
+      const arr: PeekaIdentity[] = JSON.parse(localStorage.getItem('mim-identities') || '[]')
+      setAllIdentities(arr)
+      const auid = Number(localStorage.getItem('mim-active-uid') || 0)
+      setIdent(arr.find(x => x.uid === auid) || arr[0] || null)
+    } catch { setIdent(null); setAllIdentities([]) }
   }, [])
   useEffect(() => { sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [sync])
 
@@ -281,7 +286,7 @@ function PeekaPopup() {
         </div>}
         <Row c='⤻' t='退出登录' r onClick={()=>{
           try { const raw = localStorage.getItem('mim-identities'); const arr = raw ? JSON.parse(raw) : []; const nxt = arr.filter((x:any)=>x.uid!==ident.uid); localStorage.setItem('mim-identities',JSON.stringify(nxt)) } catch {}
-          localStorage.removeItem('mim-identity'); localStorage.removeItem('mim-active-uid'); setIdent(null); setOpen(false); setSub(false)
+          localStorage.removeItem('mim-active-uid'); setIdent(null); setOpen(false); setSub(false)
         }} />
       </> : <button style={{...st,padding:'8px 16px',fontSize:12,color:'#7c3aed',fontWeight:600,fontFamily:'inherit'}} onClick={()=>{setOpen(false);nav('/mim')}}><span style={{fontSize:16,width:20}}>👤</span>登录 Peeka 账号</button>}
     </div>}

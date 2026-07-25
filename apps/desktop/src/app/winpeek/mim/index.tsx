@@ -77,23 +77,9 @@ const AGENT_TYPES = [
 const KEY_IDENTITIES = 'mim-identities'
 const KEY_ACTIVE_UID = 'mim-active-uid'
 
-/** Migrate old single‑identity format → multi‑identity, then load */
 function loadIdentities(): SavedIdentity[] {
-  try {
-    // 1. If new format exists, use it
-    const arr = localStorage.getItem(KEY_IDENTITIES)
-    if (arr) return JSON.parse(arr) as SavedIdentity[]
-
-    // 2. Migrate from legacy single key
-    const old = localStorage.getItem('mim-identity')
-    if (old) {
-      const single = JSON.parse(old) as SavedIdentity
-      saveIdentities([single])
-      localStorage.removeItem('mim-identity')
-      return [single]
-    }
-  } catch { /* corrupt data, start fresh */ }
-  return []
+  try { return JSON.parse(localStorage.getItem(KEY_IDENTITIES) || '[]') as SavedIdentity[] }
+  catch { return [] }
 }
 
 function saveIdentities(ids: SavedIdentity[]) {
