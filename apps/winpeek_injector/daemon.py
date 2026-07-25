@@ -147,6 +147,15 @@ def register_and_inject():
         _daemon_state = {"machine": machine, "daemon_version": "1.0.0", "runtimes": []}
         return results
 
+    # ── Find owner User (真人) for this machine ──
+    device_owner_uid = 0
+    try:
+        device = identity.check_device(hostname)
+        if device and device.get("winpeek_uid"):
+            device_owner_uid = int(device["winpeek_uid"])
+    except Exception:
+        pass
+
     def _gen_password() -> str:
         """Generate agent password: a@ + 8 cryptographically random chars."""
         chars = string.ascii_lowercase + string.digits
@@ -180,6 +189,36 @@ def register_and_inject():
                     existing = identity.login(name, password) or existing
 
         uid = existing.get("uid") if existing else None
+
+        # ── Bind agent to device owner (master_uid) ──
+        if uid and device_owner_uid:
+            try:
+                agent_info = identity.get_by_uid(uid)
+                if agent_info and not agent_info.get("manager_uid"):
+                    # Only set if not already bound
+                    from gateway.winpeek_hub.db import get_conn
+                    conn = get_conn()
+                    if conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "UPDATE users SET manager_uid = %s WHERE uid = %s",
+                                (device_owner_uid, uid))
+                            conn.commit()
+                        conn.close()
+                if agent_info:
+                    identity_type = agent_info.get("identity_type", "")
+                    if identity_type != "mim-agent":
+                        from gateway.winpeek_hub.db import get_conn
+                        conn2 = get_conn()
+                        if conn2:
+                            with conn2.cursor() as cur2:
+                                cur2.execute(
+                                    "UPDATE users SET identity_type = %s WHERE uid = %s",
+                                    ("mim-agent", uid))
+                                conn2.commit()
+                            conn2.close()
+            except Exception:
+                pass
 
         # Inject MCP config (skip for types without config_file like traecli)
         injected = False
