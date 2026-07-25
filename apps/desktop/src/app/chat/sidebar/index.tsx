@@ -240,7 +240,7 @@ function PeekaPopup() {
   const name = ident?.name || ''
   const letter = (name.charAt(0) || 'P').toUpperCase()
   const swapAccount = (target: {name:string; uid:number; role:string}) => {
-    localStorage.setItem('mim-identity', JSON.stringify(target))
+    localStorage.setItem('mim-active-uid', String(target.uid))
     setSub(false); setOpen(false)
     window.dispatchEvent(new Event('storage'))
   }
@@ -272,7 +272,7 @@ function PeekaPopup() {
             onMouseEnter={e=>e.currentTarget.style.background='#e5e7eb'} onMouseLeave={e=>e.currentTarget.style.background=''}
             onClick={()=>swapAccount(x)}>
             <span style={{width:26,height:26,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{x.name.charAt(0).toUpperCase()}</span>
-            <span style={{flex:1,fontSize:12,color:'#111827'}}>{(x as any).gender==='female'?'🚺':(x as any).gender==='male'?'🚹':'🤖'} {x.name}</span>
+            <span style={{flex:1,fontSize:12,color:'#111827'}}>{x.name}</span>
             <span style={{fontSize:9,color:'#9ca3af'}}>#{x.uid}</span>
           </div>)}
           <div style={{...st,padding:'6px 8px',borderRadius:8,gap:10,fontSize:12,color:'#9ca3af',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#e5e7eb'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{setOpen(false);setSub(false);nav('/mim')}}>

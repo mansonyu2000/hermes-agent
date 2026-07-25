@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Streamdown } from 'streamdown'
 
@@ -28,7 +28,7 @@ interface WinPeekIdentity {
   manager_uid?: number
   agent_type?: string // persisted — set on creation, never editable
 }
-interface SavedIdentity extends WinPeekIdentity { agent_type?: string; peeka_name?: string; identity_type?: string; gender?: string }
+interface SavedIdentity extends WinPeekIdentity { agent_type?: string; peeka_name?: string }
 interface Contact {
   id: string
   name: string
@@ -244,11 +244,6 @@ function LoginPanel({ existingUsers, onLogin, onRegister, onRegisterUser, myDevi
 }
 
 /* ── Profile Panel (self + multi‑identity) ──── */
-
-const MenuItem = ({ onClick, children }: { onClick: () => void; children: ReactNode }) => (
-  <button className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-(--ui-control-hover-background) text-foreground"
-    onClick={onClick}>{children}</button>
-)
 
 function ProfilePanel({ identities, activeUid, localAgents, serverMode,
   onSwitch, onLogout, onAddAgent, onBack }: {
@@ -530,7 +525,6 @@ export function MimView({ onClose }: { onClose: () => void }) {
   identRef.current = identity
 
   const [showProfile, setShowProfile] = useState(false)
-  const [showUserMenu, setShowUserMenu] = useState(false)
   const [viewContactUid, setViewContactUid] = useState<number | null>(null)
   const [showNewAgent, setShowNewAgent] = useState(false)
   const [localAgents, setLocalAgents] = useState<LocalAgent[]>([])
@@ -616,8 +610,6 @@ export function MimView({ onClose }: { onClose: () => void }) {
           uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role,
           host: machine || 'local', agent_type: agentType,
           peeka_name: data.identity.peeka_name || '',
-          identity_type: data.identity.identity_type || '',
-          gender: data.identity.gender || '',
         }
         setIdentities(prev => {
           // If this uid already exists (e.g. re‑login), replace
@@ -628,9 +620,6 @@ export function MimView({ onClose }: { onClose: () => void }) {
         })
         setActiveUidState(id.uid)
         setActiveUid(id.uid)
-        // Backward-compat: sync to old format so PeekaPopup sees it
-        localStorage.setItem('mim-identity', JSON.stringify({ name: id.name, uid: id.uid, role: id.role, identity_type: id.identity_type, gender: id.gender }))
-        try { window.dispatchEvent(new Event('storage')) } catch {}
         refreshUsers()
         return null
       }
@@ -652,8 +641,6 @@ export function MimView({ onClose }: { onClose: () => void }) {
           uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role,
           host: machine || 'local', agent_type: agentType,
           peeka_name: data.identity.peeka_name || '',
-          identity_type: data.identity.identity_type || '',
-          gender: data.identity.gender || '',
         }
         setIdentities(prev => {
           const filtered = prev.filter(i => i.uid !== id.uid)
@@ -663,9 +650,6 @@ export function MimView({ onClose }: { onClose: () => void }) {
         })
         setActiveUidState(id.uid)
         setActiveUid(id.uid)
-        // Backward-compat: sync to old format so PeekaPopup sees it
-        localStorage.setItem('mim-identity', JSON.stringify({ name: id.name, uid: id.uid, role: id.role, identity_type: id.identity_type, gender: id.gender }))
-        try { window.dispatchEvent(new Event('storage')) } catch {}
         refreshUsers()
         return null
       }
@@ -692,9 +676,6 @@ export function MimView({ onClose }: { onClose: () => void }) {
         })
         setActiveUidState(id.uid)
         setActiveUid(id.uid)
-        // Backward-compat: sync to old format so PeekaPopup sees it
-        localStorage.setItem('mim-identity', JSON.stringify({ name: id.name, uid: id.uid, role: id.role, identity_type: id.identity_type, gender: id.gender }))
-        try { window.dispatchEvent(new Event('storage')) } catch {}
         refreshUsers()
         return null
       }
@@ -941,49 +922,17 @@ export function MimView({ onClose }: { onClose: () => void }) {
     <MasterDetail>
       <ListColumn>
         <div className="flex h-full flex-col">
-          <header className="relative border-b border-(--ui-stroke-tertiary) px-3 py-2.5">
-            <button className="flex items-center gap-2 text-left hover:opacity-80 w-full" onClick={() => setShowUserMenu(!showUserMenu)}>
+          <header className="flex items-center justify-between border-b border-(--ui-stroke-tertiary) px-3 py-2.5">
+            <button className="flex items-center gap-2 text-left hover:opacity-80" onClick={() => setShowProfile(true)}>
               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-(--ui-accent)/15 text-[0.6rem] font-semibold text-(--ui-accent)">
                 {identity.name.charAt(0)}
               </div>
-              <div className="flex-1 min-w-0">
+              <div>
                 <div className="text-xs font-semibold text-foreground">{identity.name}</div>
-                <div className="text-[0.55rem] text-(--ui-text-tertiary)">
-                  {identity.identity_type === 'mim-user' ? (identity.gender === 'female' ? '🚺' : '🚹') : '🤖'} {identity.role} · #{identity.uid}
-                </div>
+                <div className="text-[0.55rem] text-(--ui-text-tertiary)}">{identity.role} · #{identity.uid}</div>
               </div>
-              <span className="text-[0.65rem] text-(--ui-text-tertiary)">🟢</span>
             </button>
-            {/* User Menu Dropdown */}
-            {showUserMenu && (
-              <div className="absolute left-3 right-3 top-full z-50 mt-1 rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-surface) shadow-lg">
-                <div className="px-3 py-2 border-b border-(--ui-stroke-quaternary)">
-                  <p className="text-xs font-semibold text-foreground">{identity.name} 已登录</p>
-                  <p className="text-[0.6rem] text-(--ui-text-tertiary)">
-                    {identity.identity_type === 'mim-user' ? 'Peeka User (真人)' : 'MIM Agent'} · {identity.peeka_name || `uid:${identity.uid}`}
-                  </p>
-                </div>
-                <div className="py-1">
-                  <MenuItem onClick={() => { setShowUserMenu(false); setShowNewAgent(true) }}>🤖 + 注册新 Agent</MenuItem>
-                  <MenuItem onClick={() => { setShowUserMenu(false); setActiveUidState(null); setActiveUid(null) }}>🔄 切换用户</MenuItem>
-                  <MenuItem onClick={() => { setShowUserMenu(false); setShowProfile(true) }}>👤 个人信息</MenuItem>
-                  {/* Peeka User specific */}
-                  {identity.identity_type === 'mim-user' && (
-                    <MenuItem onClick={() => {
-                      setShowUserMenu(false)
-                      gatewayRequest('winpeek_mim_my_agents', { uid: identity.uid }).then((d: any) => {
-                        const agents = d?.agents || []
-                        alert(`我的 Agent (${agents.length}):\n${agents.map((a: any) => `  ${a.nickname} (uid=${a.uid}, ${a.agent_type || a.role})`).join('\n')}`)
-                      }).catch(() => alert('获取失败'))
-                    }}>🤖 管理我的 Agent</MenuItem>
-                  )}
-                  <div className="border-t border-(--ui-stroke-quaternary) my-1" />
-                  <MenuItem onClick={() => { setShowUserMenu(false); handleLogout(identity.uid) }}>🚪 退出登录</MenuItem>
-                </div>
-              </div>
-            )}
-            {/* Click outside to close */}
-            {showUserMenu && <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />}
+            <span className="text-[0.65rem] text-(--ui-text-tertiary)">🟢 在线</span>
           </header>
 
           <div className="flex-1 overflow-y-auto">
