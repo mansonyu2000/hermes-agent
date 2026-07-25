@@ -122,7 +122,7 @@ def login(nickname: str, password: str = "") -> dict | None:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT uid, nickname, role, hostname, created_at, password_hash, title, bio, skills, manager_uid FROM users WHERE nickname = %s",
+                "SELECT uid, nickname, role, hostname, created_at, password_hash, title, bio, skills, manager_uid, identity_type, gender FROM users WHERE nickname = %s",
                 (nickname,),
             )
             row = cur.fetchone()
@@ -142,12 +142,16 @@ def _row_to_dict(row: dict) -> dict:
     host = row.get("hostname", "local")
     nickname = row["nickname"]
     agent_type = row.get("agent_type", "")
+    identity_type = row.get("identity_type", "")
+    gender = row.get("gender")
     return {
         "uid": row["uid"],
         "nickname": nickname,
         "role": row["role"],
         "host": host,
         "agent_type": agent_type,
+        "identity_type": identity_type,
+        "gender": gender,
         "peeka_name": _build_peeka_name(nickname, agent_type, host),
         "title": row.get("title") or "",
         "bio": row.get("bio") or "",
@@ -165,7 +169,7 @@ def get_by_uid(uid: int) -> Optional[dict]:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT uid, nickname, role, hostname, created_at, title, bio, skills, manager_uid FROM users WHERE uid = %s",
+                "SELECT uid, nickname, role, hostname, created_at, title, bio, skills, manager_uid, identity_type, gender FROM users WHERE uid = %s",
                 (uid,),
             )
             row = cur.fetchone()
@@ -184,8 +188,118 @@ def list_all() -> list[dict]:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT uid, nickname, role, hostname, created_at, title, bio, skills, manager_uid FROM users WHERE is_active = 1 OR is_active IS NULL ORDER BY uid"
+                "SELECT uid, nickname, role, hostname, created_at, title, bio, skills, manager_uid, identity_type, gender FROM users WHERE is_active = 1 OR is_active IS NULL ORDER BY uid"
             )
             return [_row_to_dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+# ── User (真人) registration ──────────────────
+
+
+def register_user(name: str, gender: str = "", password: str = "a@123321",
+                  host: str = "local") -> dict | None:
+    """Register a human User (真人). identity_type = 'mim-user'."""
+    if gender not in ("male", "female"):
+        return None  # gender required for human users
+
+    conn = get_conn()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT uid FROM users WHERE nickname = %s", (name,))
+            if cur.fetchone():
+                return None  # already exists
+
+            cur.execute("SELECT COALESCE(MAX(uid), 1999) + 1 AS next_uid FROM users WHERE uid >= 2000")
+            next_uid = cur.fetchone()["next_uid"]
+
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+            pw_hash = _hash_password(password)
+            cur.execute(
+                """INSERT INTO users (uid, nickname, role, hostname, created_at, updated_at,
+                   is_active, identity_type, status, password_hash, gender)
+                   VALUES (%s, %s, %s, %s, %s, %s, 1, 'mim-user', 1, %s, %s)""",
+                (next_uid, name, "Developer", host, now, now, pw_hash, gender),
+            )
+            conn.commit()
+
+            identity = {
+                "uid": next_uid, "nickname": name, "role": "Developer",
+                "host": host, "identity_type": "mim-user", "gender": gender,
+                "created_at": now,
+            }
+            logger.info(f"MIM User registered: uid={next_uid} name={name} gender={gender}")
+            return identity
+    except Exception as e:
+        logger.warning(f"MIM User register failed: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+# ── Device (电脑) management ──────────────────
+
+
+def check_device(hostname: str) -> dict | None:
+    """Check if a hostname is already registered in machines table.
+    Returns machine info dict if found, None otherwise.
+    """
+    conn = get_conn()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, hostname, person_id, winpeek_uid, os_name, os_version, "
+                "cpu_model, cpu_cores, ram_gb, gpu_models, created_at, device_type "
+                "FROM machines WHERE hostname = %s",
+                (hostname,),
+            )
+            row = cur.fetchone()
+            if row:
+                return {
+                    "id": row["id"], "hostname": row["hostname"],
+                    "person_id": row.get("person_id"), "winpeek_uid": row.get("winpeek_uid"),
+                    "os_name": row.get("os_name"), "os_version": row.get("os_version"),
+                    "cpu_model": row.get("cpu_model"), "cpu_cores": row.get("cpu_cores"),
+                    "ram_gb": float(row["ram_gb"]) if row.get("ram_gb") else None,
+                    "gpu_models": row.get("gpu_models"), "device_type": row.get("device_type"),
+                    "created_at": str(row.get("created_at", "")),
+                }
+            return None
+    finally:
+        conn.close()
+
+
+def register_device(hostname: str, owner_uid: int, os_name: str = "",
+                    os_version: str = "", cpu_model: str = "", cpu_cores: int = 0,
+                    ram_gb: float = 0, gpu_models: str = "", ip_address: str = "",
+                    device_type: str = "pc") -> dict | None:
+    """Register a new device (电脑) to the machines table. Returns the machine record."""
+    conn = get_conn()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM machines WHERE hostname = %s", (hostname,))
+            if cur.fetchone():
+                return None  # already registered
+
+            cur.execute(
+                """INSERT INTO machines (hostname, person_id, winpeek_uid, os_name, os_version,
+                   cpu_model, cpu_cores, ram_gb, gpu_models, ip_address, device_type)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (hostname, None, owner_uid, os_name, os_version,
+                 cpu_model, cpu_cores, ram_gb, gpu_models, ip_address, device_type),
+            )
+            conn.commit()
+            logger.info(f"Device registered: hostname={hostname} owner_uid={owner_uid}")
+            return {"hostname": hostname, "winpeek_uid": owner_uid, "device_type": device_type}
+    except Exception as e:
+        logger.warning(f"Device register failed: {e}")
+        return None
     finally:
         conn.close()
