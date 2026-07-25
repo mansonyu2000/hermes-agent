@@ -1,14 +1,21 @@
 ---
 title: "MIM Desktop 身份自动登录与注册"
 status: draft
-date: 2026-07-26
+date: 2026-07-27
 ---
 
 # Spec: MIM Desktop 身份自动登录与注册
 
 ## Objective
 
-Desktop EXE 启动时自动完成 MIM 登录：首次自动注册 Device + 引导选 User，后续自动取已注册身份直接登录。新增 User 注册入口，支持 User → Squad 组织归属。修正 Agent 必须属于 User 的主人关系。
+Desktop EXE 启动时引导 Peeka User 注册/登录，然后注册本机 MIM Agent 身份。User 登录后可查看其所有 Agent；Squad 用户可查看组织所有成员及 Agent。
+
+### 核心规则
+
+1. **MIM Agent 必须属于一个 Peeka User（真人）** — 主人关系，可变更
+2. **User 可直接登录 Desktop** — 登录后查看自己拥有的所有 Agent
+3. **User 登录 = Daemon 最高权限** — 可管理本机所有 Agent
+4. **Squad 用户** — 可查看 Squad 内所有成员及其 Agent
 
 ### 身份四层模型
 
@@ -16,13 +23,14 @@ Desktop EXE 启动时自动完成 MIM 登录：首次自动注册 Device + 引�
 Squad (组织, 有4位注册码)
   │
   ▼
-User (真人, 男/女) — 主人
+Peeka User (真人, 男/女) ─── 主人 ──→ MIM Agent (无性别)
+  │                                      │
+  ├── Device (电脑)                      ├── 必须属于一个 User
+  │     └── Desktop EXE 登录             ├── 可更换主人
+  │         = 本机 Daemon (最高权限)       └── 继承 User 的 Squad
   │
-  ├── Device (电脑, hostname+OS+CPU+GPU)
-  │     └── Desktop EXE 登录 = 本机 Daemon
-  │
-  └── Agent (MIM Agent, 无性别)
-        └── 必属于一个 User, 可更换主人
+  └── 可登录 Desktop — 查看自己所有 Agent
+      Squad 用户 — 查看 Squad 全部成员 + 全部 Agent
 ```
 
 ### 登录流程
@@ -30,98 +38,47 @@ User (真人, 男/女) — 主人
 ```
 Desktop EXE 启动
   │
-  ├── hostname 已在 machines 表?
-  │   ├── YES → 取 winpeek_uid → login → 进入 MIM
-  │   │
-  │   └── NO → 首次引导:
-  │       1. 注册 Device: hostname + OS + CPU + GPU
-  │       2. 生成本机登录名: hostname + 3位随机数 (如 yu2123)
-  │       3. 密码: a@123321 (可见)
-  │       4. 选 User: 已有列表 or 新建 User
-  │       5. 注册本机 UID → login → 进入 MIM
-  └──
+  ├── Step 0: 是否已注册 Peeka User？
+  │   ├── YES → 选已有 User → Step 2
+  │   └── NO  → Step 1 (注册新 Peeka User)
+  │
+  ├── Step 1: 注册 Peeka User（真人）
+  │       1. 填名字 + 选性别（男/女）
+  │       2. 密码: a@123321
+  │       3. 注册成功 → Step 2
+  │
+  └── Step 2: 注册本机 MIM Agent
+          1. 自动生成用户名: hostname + 3位随机数 (如 yu2123)
+          2. 密码: a@123321 (可见)
+          3. 自动绑定到 Step 0 选择的 Peeka User
+          4. 注册 Device (hostname+OS+CPU 信息进 machines 表)
+          5. 登录 → 进入 MIM 聊天界面
 ```
 
-## Tech Stack
-
-- Backend: Python (`gateway/winpeek_hub/identity.py`, `tools/winpeek_tools.py`)
-- Frontend: React + TypeScript (`apps/desktop/src/app/winpeek/mim/index.tsx`)
-- DB: MySQL `winpeek-db2` — 已有表 `users`, `machines`, `persons`, `squads`
-- MQTT: `192.168.3.23:1883` — 身份通知
-
-## Commands
-
-```bash
-# Backend tests
-python -m pytest tests/ -x -q
-
-# Desktop dev
-cd apps/desktop && npm run dev
-
-# Syntax check all changed files
-python -c "import py_compile; [py_compile.compile(f, doraise=True) for f in ['gateway/winpeek_hub/identity.py', 'tools/winpeek_tools.py', 'apps/winpeek_injector/daemon.py']]"
-```
-
-## Project Structure
+### User 登录后的视图
 
 ```
-gateway/winpeek_hub/
-  identity.py          ← 改造: register/login/get_by_uid → 支持 user_type
-  organization.py      ← 已有: squads/persons/machines CRUD
-  chat.py              ← 已有: get_contacts 区分 User/Agent
-tools/
-  winpeek_tools.py     ← 改造: _handle_mim_login + 新增 _handle_user_register
-apps/desktop/src/app/winpeek/mim/
-  index.tsx            ← 改造: LoginPanel + 新增 UserRegisterPanel + DeviceRegisterPanel
-apps/winpeek_injector/
-  daemon.py            ← 改造: Agent 注册必选 master_uid
-DB: winpeek-db2
-  users                ← 已有: uid/nickname/role/master_uid
-  machines             ← 已有: hostname/person_id/winpeek_uid/cpu/gpu
-  persons              ← 已有: id/name/squad_id
-  squads               ← 已有: id/name/invite_code
+User 登录 Desktop:
+  ├── 联系人列表: 我的所有 Agent（跨所有电脑）+ Squad 成员 + Squad 成员的 Agent
+  ├── Profile: 我的信息 + 我的 Agent 清单
+  └── 权限: 本机最高 Daemon 权限
 ```
-
-## Code Style
-
-已有代码风格——匹配现有 `identity.py` 和 `index.tsx` 的命名和组织方式，不引入新范式。
-
-```python
-# identity.py 风格：函数式 + Optional 返回 + logging
-def register(nickname: str, role: str = "Developer", host: str = "local", password: str = "") -> dict | None:
-    ...
-
-# react 风格：useCallback + useMemo + 现有组件体系
-const handleLogin = useCallback(async (name: string, password: string) => { ... }, [])
-```
-
-## Testing Strategy
-
-- 语法检查: `py_compile.compile(doraise=True)` 对每个 .py 文件
-- 手动 E2E: Desktop EXE 启动 → 首次引导 → 登录 → 聊天
-- Unit (V2): identity.py 的 register/login 已有 DB 直连测试
-- 本次不写自动化测试——前端是 manual E2E，后端改的不多
-
-## Boundaries
-
-- **Always:** 匹配现有 identity.py 风格、不改 machines/persons/squads 表结构
-- **Ask first:** 改 `users` 表 DDL（如需加 user_type 列）
-- **Never:** 删已有用户/机器数据、改现有 API 签名（除非向后兼容）
 
 ## Success Criteria
 
-1. Desktop EXE 首次启动 → 自动检测 hostname → 引导注册 Device → 选 User → 登录成功
-2. Desktop EXE 再次启动 → 自动取 winpeek_uid → login → 无任何提示，直接进 MIM
-3. 新增 User 注册入口 → 填名+选性别 → 注册成功 → 可选创建/加入 Squad
-4. Daemon 注册 Agent 时 → must have master_uid → 继承 User 的 Squad
-5. 联系人列表区分 User (男/女) vs Agent (无性别图标)
+1. Desktop EXE 首次 → 2 步引导（User → MIM）→ 自动绑定 → 登录成功
+2. User 再次登录 → 选已有 User → 自动进入（无需重复注册 MIM）
+3. User 登录 → 可查看自己拥有的所有 Agent
+4. Squad 用户 → 可查看组织内全部成员及 Agent
+5. 联系人列表区分 User (🚹/🚺) vs Agent (🤖)
 
 ## Implementation Tasks
 
-- [ ] **T1**: `identity.py` — 新增 `user_type` 字段支持（User/Agent）, `register_user()` 独立注册
-- [ ] **T2**: `winpeek_tools.py` — 新增 `winpeek_user_register` RPC, `_handle_mim_login` 改为 login-or-register
-- [ ] **T3**: `daemon.py` — Agent 注册时传 `master_uid`, 读取已在本机登录的 User uid
-- [ ] **T4**: `index.tsx` — LoginPanel 改成 Device 自动检测 + User 选择/注册流程
-- [ ] **T5**: `index.tsx` — 联系人列表 + Profile 面板显示性别/User类型图标
-- [ ] **T6**: `chat.py` — `get_contacts` 返回 `user_type` 字段区分 User/Agent
-- [ ] **T7**: E2E 手动验证 + commit
+- [x] **T1**: `identity.py` — `register_user()` + `check_device()` + `register_device()`
+- [x] **T2**: `winpeek_tools.py` — `user_register`, `device_check`, `device_register`, `my_device` RPCs
+- [x] **T3**: `daemon.py` — Agent 注册时绑定 `master_uid = device owner`
+- [x] **T4**: `index.tsx` — LoginPanel 改为 2 步（Peeka User → MIM）
+- [x] **T5**: `index.tsx` — 联系人性别 (🚹/🚺/🤖)
+- [ ] **T6**: `chat.py` — `get_contacts` 返回 `gender`/`identity_type` + User 模式返回全部 Agent
+- [ ] **T7**: `winpeek_tools.py` — 新增 `winpeek_mim_my_agents` RPC（查 User 的所有 Agent）
+- [ ] **T8**: E2E 手动验证 + commit
