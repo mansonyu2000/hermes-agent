@@ -661,6 +661,32 @@ def _handle_mim_device_register(args: dict) -> str:
         return json.dumps({"error": "MIM Hub not loaded"})
 
 
+# ── MIM: My Device (auto-detect hostname) ──
+
+
+def _handle_mim_my_device(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_my_device", args)
+    if forwarded is not None:
+        return forwarded
+    try:
+        import socket
+        hostname = socket.gethostname()
+        from gateway.winpeek_hub import identity
+        device = identity.check_device(hostname)
+        # Also check for mim-user identities on this machine
+        users = identity.list_all()
+        human_users = [{"uid": u["uid"], "nickname": u["nickname"],
+                         "gender": u.get("gender"), "role": u["role"]}
+                        for u in users if u.get("identity_type") == "mim-user"]
+        return json.dumps({
+            "hostname": hostname,
+            "device": device,
+            "humanUsers": human_users,
+        })
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
 # ── Register ──
 
 registry.register(
@@ -724,7 +750,21 @@ registry.register(
     description="MIM device registration",
 )
 
-logger.info("WinPeek MIM tools: +user_register +device_check +device_register")
+registry.register(
+    name="winpeek_mim_my_device",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_my_device",
+        "description": "Auto-detect current device (hostname). Returns device info + human users on this machine.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_mim_my_device(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM auto-detect my device",
+)
+
+logger.info("WinPeek MIM tools: +user_register +device_check +device_register +my_device")
 
 # ── Portrait: 画像分析工具 ──────────────────────────
 

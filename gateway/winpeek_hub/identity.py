@@ -231,7 +231,7 @@ def register_user(name: str, gender: str = "", password: str = "a@123321",
                 "host": host, "identity_type": "mim-user", "gender": gender,
                 "created_at": now,
             }
-            logger.info(f"MIM User registered: uid={next_uid} name={name} gender={gender}")
+            logger.info(f"MIM User registered: uid={next_uid} name={name}")
             return identity
     except Exception as e:
         logger.warning(f"MIM User register failed: {e}")
