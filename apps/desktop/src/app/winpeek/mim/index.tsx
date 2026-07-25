@@ -118,111 +118,150 @@ function loadAllIdentities(): WinPeekIdentity[] {
 
 /* ── Login / Register Form ───────────────────── */
 
-function LoginPanel({ existingUsers, onLogin, onRegister }: {
+function LoginPanel({ existingUsers, onLogin, onRegister, savedIdentities }: {
   existingUsers: {uid: number; nickname: string; role: string}[]
   onLogin: (name: string, password: string) => Promise<string | null>
   onRegister: (name: string, role: string, password: string) => Promise<string | null>
   onRefreshUsers: () => void
+  savedIdentities: WinPeekIdentity[]
 }) {
   const [nick, setNick] = useState('')
-  const [password, setPassword] = useState('123321')
+  const [password, setPassword] = useState('a@123321')
   const [showRegister, setShowRegister] = useState(false)
   const [role, setRole] = useState<string>('Developer')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleLogin = useCallback(async () => {
-    if (!nick.trim()) { return }
+  const handleLogin = useCallback(async (name?: string, pw?: string) => {
+    const n = (name || nick).trim()
+    const p = pw || password
+    if (!n) return
     setLoading(true); setError('')
-    const err = await onLogin(nick.trim(), password)
+    const err = await onLogin(n, p)
     if (err) setError(err)
     setLoading(false)
   }, [nick, password, onLogin])
 
-  const handleRegister = useCallback(async () => {
-    if (!nick.trim()) { return }
-    setLoading(true); setError('')
-    const err = await onRegister(nick.trim(), role, password)
-    if (err) setError(err)
-    setLoading(false)
-  }, [nick, role, password, onRegister])
+  const combinedUsers = useMemo(() => {
+    const seen = new Set<number>()
+    const result: { uid: number; nickname: string; role: string; saved: boolean }[] = []
+    // Saved identities first (previously logged in)
+    for (const s of savedIdentities) {
+      if (!seen.has(s.uid)) { seen.add(s.uid); result.push({ uid: s.uid, nickname: s.name, role: s.role, saved: true }) }
+    }
+    // Then existing users from server
+    for (const u of existingUsers) {
+      if (!seen.has(u.uid) && u.nickname) { seen.add(u.uid); result.push({ ...u, saved: false }) }
+    }
+    return result
+  }, [existingUsers, savedIdentities])
 
   return (
     <div className="grid h-full place-items-center p-6">
-      <div className="w-full max-w-xs space-y-4">
-        <div className="text-center">
-          <div className="mb-2 text-4xl">💬</div>
-          <h2 className="text-lg font-semibold text-foreground">WinPeek MIM</h2>
-          <p className="text-xs text-(--ui-text-tertiary)">登录或注册以使用消息功能</p>
+      <div className="w-full max-w-sm">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-[#7c3aed] to-[#a78bfa] mb-4 shadow-lg shadow-purple-500/20">
+            <span className="text-3xl">🐉</span>
+          </div>
+          <h2 className="text-xl font-bold text-foreground">Peeka</h2>
+          <p className="text-sm text-(--ui-text-secondary) mt-1">登录以使用 MIM 即时通讯</p>
         </div>
-        {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
-        {/* Existing users — quick select */}
-        {existingUsers.length > 0 && !showRegister && (
-          <div>
-            <div className="mb-1.5 text-[0.65rem] font-medium text-(--ui-text-secondary)">已有用户</div>
-            <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-(--ui-stroke-tertiary) p-1">
-              {existingUsers.map(u => (
+
+        {/* Error */}
+        {error && (
+          <div className="rounded-lg bg-destructive/10 px-4 py-2.5 text-xs text-destructive mb-4 border border-destructive/20">{error}</div>
+        )}
+
+        {/* Saved users — quick select */}
+        {combinedUsers.length > 0 && !showRegister && (
+          <div className="mb-5">
+            <div className="text-[0.65rem] font-semibold text-(--ui-text-secondary) mb-2 uppercase tracking-wider">最近使用</div>
+            <div className="space-y-1">
+              {combinedUsers.slice(0, 8).map(u => (
                 <button
                   key={u.uid}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-(--ui-control-hover-background)"
-                  onClick={async () => { setNick(u.nickname); setLoading(true); setError(''); const e = await onLogin(u.nickname, password); if (e) setError(e); setLoading(false) }}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all hover:bg-(--ui-control-hover-background) border border-(--ui-stroke-tertiary)"
+                  onClick={async () => { setNick(u.nickname); setError(''); await handleLogin(u.nickname, 'a@123321') }}
                 >
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-(--ui-accent)/15 text-[0.55rem] font-semibold text-(--ui-accent)">
-                    {u.nickname.charAt(0)}
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#7c3aed]/20 to-[#a78bfa]/20 text-xs font-bold text-[#7c3aed] flex-shrink-0">
+                    {u.nickname.charAt(0).toUpperCase()}
                   </span>
-                  <span className="font-medium text-foreground">{u.nickname}</span>
-                  <span className="ml-auto text-[0.6rem] text-(--ui-text-tertiary)">{u.role}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="text-sm font-medium text-foreground block truncate">{u.nickname}</span>
+                    <span className="text-[0.6rem] text-(--ui-text-tertiary)">{u.role} · #{u.uid}{u.saved ? ' · 历史登录' : ''}</span>
+                  </span>
+                  <span className="text-[0.55rem] text-[#7c3aed] font-medium flex-shrink-0">登录 →</span>
                 </button>
               ))}
             </div>
           </div>
         )}
-        <Input
-          onChange={e => setNick(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && !showRegister && handleLogin()}
-          placeholder="用户名"
-          value={nick}
-        />
-        <Input
-          onChange={e => setPassword(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && !showRegister && handleLogin()}
-          placeholder="密码"
-          type="password"
-          value={password}
-        />
-        {showRegister ? (
-          <>
-            <div className="flex flex-wrap gap-1.5">
-              {ROLES.map(r => (
-                <button
-                  key={r}
-                  className={cn(
-                    'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
-                    role === r
-                      ? 'bg-(--ui-accent) text-(--ui-accent-foreground)'
-                      : 'bg-(--ui-bg-quaternary) text-(--ui-text-secondary) hover:bg-(--ui-control-hover-background)'
-                  )}
-                  onClick={() => setRole(r)}
-                >{r}</button>
-              ))}
+
+        {/* Manual login form */}
+        {!showRegister && combinedUsers.length > 0 && (
+          <div className="relative mb-5">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-(--ui-stroke-tertiary)" /></div>
+            <div className="relative flex justify-center text-xs"><span className="bg-(--ui-bg-surface) px-3 text-(--ui-text-tertiary)">或手动输入</span></div>
+          </div>
+        )}
+
+        {!showRegister ? (<>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[0.65rem] font-medium text-(--ui-text-secondary) block mb-1">用户名</label>
+              <Input onChange={e => setNick(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()} placeholder="输入用户名" value={nick}
+                className="h-10 rounded-xl border-(--ui-stroke-tertiary)" />
             </div>
-            <Button className="w-full" disabled={loading || !nick.trim()} onClick={handleRegister} size="sm">
-              {loading ? '注册中...' : '注册新用户'}
+            <div>
+              <label className="text-[0.65rem] font-medium text-(--ui-text-secondary) block mb-1">密码</label>
+              <Input onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()} placeholder="输入密码" type="password" value={password}
+                className="h-10 rounded-xl border-(--ui-stroke-tertiary)" />
+              <p className="text-[0.55rem] text-(--ui-text-tertiary) mt-1">默认密码: a@123321</p>
+            </div>
+          </div>
+          <div className="mt-5 space-y-2.5">
+            <Button className="w-full h-10 rounded-xl text-sm font-semibold bg-gradient-to-r from-[#7c3aed] to-[#a78bfa] hover:from-[#6d28d9] hover:to-[#8b5cf6] transition-all shadow-md shadow-purple-500/20" disabled={loading || !nick.trim()} onClick={() => handleLogin()} size="sm">
+              {loading ? '登录中...' : '登 录'}
             </Button>
-            <button className="w-full text-center text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={() => setShowRegister(false)}>
+            <button className="w-full text-center text-xs text-(--ui-text-secondary) hover:text-foreground transition-colors py-1" onClick={() => setShowRegister(true)}>
+              没有账号？立即注册
+            </button>
+          </div>
+        </>) : (<>
+          {/* Registration form */}
+          <div className="space-y-3">
+            <div>
+              <label className="text-[0.65rem] font-medium text-(--ui-text-secondary) block mb-1">用户名</label>
+              <Input onChange={e => setNick(e.target.value)} placeholder="选择用户名" value={nick} className="h-10 rounded-xl border-(--ui-stroke-tertiary)" />
+            </div>
+            <div>
+              <label className="text-[0.65rem] font-medium text-(--ui-text-secondary) block mb-1">密码</label>
+              <Input onChange={e => setPassword(e.target.value)} placeholder="设置密码" type="password" value={password} className="h-10 rounded-xl border-(--ui-stroke-tertiary)" />
+            </div>
+            <div>
+              <label className="text-[0.65rem] font-medium text-(--ui-text-secondary) block mb-1.5">角色</label>
+              <div className="flex flex-wrap gap-1.5">
+                {ROLES.map(r => (
+                  <button key={r} className={cn('rounded-full px-3 py-1.5 text-xs font-medium transition-all',
+                    role === r ? 'bg-[#7c3aed] text-white shadow-sm' : 'bg-(--ui-bg-quaternary) text-(--ui-text-secondary) hover:bg-(--ui-control-hover-background)')}
+                    onClick={() => setRole(r)}>{r}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="mt-5 space-y-2.5">
+            <Button className="w-full h-10 rounded-xl text-sm font-semibold bg-gradient-to-r from-[#7c3aed] to-[#a78bfa] shadow-md shadow-purple-500/20" disabled={loading || !nick.trim()} onClick={useCallback(async () => {
+              if (!nick.trim()) return; setLoading(true); setError('')
+              const err = await onRegister(nick.trim(), role, password); if (err) setError(err); setLoading(false)
+            }, [nick, role, password, onRegister])} size="sm">
+              {loading ? '注册中...' : '创建账号'}
+            </Button>
+            <button className="w-full text-center text-xs text-(--ui-text-secondary) hover:text-foreground transition-colors py-1" onClick={() => setShowRegister(false)}>
               ← 返回登录
             </button>
-          </>
-        ) : (
-          <Button className="w-full" disabled={loading || !nick.trim()} onClick={handleLogin} size="sm">
-            {loading ? '登录中...' : '登录'}
-          </Button>
-        )}
-        {!showRegister && (
-          <button className="w-full text-center text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={() => setShowRegister(true)}>
-            没有账号？立即注册
-          </button>
-        )}
+          </div>
+        </>)}
       </div>
     </div>
   )
@@ -946,7 +985,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
   if (!identity) {
     return (
       <MasterDetail>
-        <LoginPanel existingUsers={existingUsers} onLogin={handleLogin} onRefreshUsers={refreshUsers} onRegister={handleRegister} />
+        <LoginPanel existingUsers={existingUsers} onLogin={handleLogin} onRefreshUsers={refreshUsers} onRegister={handleRegister} savedIdentities={identity ? [identity] : []} />
       </MasterDetail>
     )
   }
