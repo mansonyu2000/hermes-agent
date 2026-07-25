@@ -80,17 +80,15 @@ header 由 `python bin/agent-role.py` 启动时自动生成，包含 uid/nick/ro
 
 ### 可用子智能体类型（`subagent_type` 参数，共 8 个）
 
-| 类型 | 用途 |
-|------|------|
-| `code-reviewer` | 五维代码审查 |
-| `security-auditor` | 安全漏洞审计 |
-| `test-engineer` | 测试编写/审查 |
-| `web-performance-auditor` | Web 性能审计 |
-| `Explore` | 只读搜索，理解代码结构 |
-| `Plan` | 软件架构设计计划 |
-| `general-purpose` | 复杂多步研究/搜索 |
-| `document-manager-agent` | 文档治理 + 双系统同步 |
-| `orchestrator-agent` | 8 阶段全流程调度 |
+| agent-skills persona | 实际 spawn 名 | 用途 |
+|------|------|------|
+| code-reviewer | **`Code Reviewer`** | 五维代码审查 |
+| security-auditor | **`Security Engineer`** | 安全漏洞审计 |
+| test-engineer | **`Test Results Analyzer`** | 测试编写/审查 |
+| web-performance-auditor | **`Performance Benchmarker`** | 性能审计 |
+| 内置 | **`Explore`** | 只读搜索 |
+| 内置 | **`Plan`** | 架构设计计划 |
+| 内置 | **`general-purpose`** | 复杂多步研究 |
 
 **4. 交作业** — commit message 必须含证据标记：
 - `feat:` → `brainstorm:` + `tdd:` + `verified:`
