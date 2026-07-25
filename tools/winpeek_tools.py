@@ -687,6 +687,33 @@ def _handle_mim_my_device(args: dict) -> str:
         return json.dumps({"error": "MIM Hub not loaded"})
 
 
+# ── MIM: My Agents (all agents belonging to a User) ──
+
+
+def _handle_mim_my_agents(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_my_agents", args)
+    if forwarded is not None:
+        return forwarded
+    uid = int(args.get("uid", 0))
+    if not uid:
+        return json.dumps({"error": "uid required"})
+    try:
+        from gateway.winpeek_hub import identity
+        # Find all agents whose manager_uid = uid (belong to this User)
+        all_users = identity.list_all()
+        agents = [
+            {"uid": u["uid"], "nickname": u["nickname"], "role": u["role"],
+             "agent_type": u.get("agent_type", ""), "host": u.get("host", ""),
+             "peeka_name": u.get("peeka_name", ""), "identity_type": u.get("identity_type", ""),
+             "manager_uid": u.get("manager_uid", 0)}
+            for u in all_users
+            if u.get("manager_uid") == uid and u.get("identity_type") == "mim-agent"
+        ]
+        return json.dumps({"uid": uid, "agents": agents, "count": len(agents)})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
 # ── Register ──
 
 registry.register(
@@ -764,7 +791,25 @@ registry.register(
     description="MIM auto-detect my device",
 )
 
-logger.info("WinPeek MIM tools: +user_register +device_check +device_register +my_device")
+registry.register(
+    name="winpeek_mim_my_agents",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_my_agents",
+        "description": "List all MIM agents belonging to a Peeka User (by master_uid).",
+        "parameters": {
+            "type": "object",
+            "properties": {"uid": {"type": "integer", "description": "Peeka User uid"}},
+            "required": ["uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_my_agents(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM list user's agents",
+)
+
+logger.info("WinPeek MIM tools: +user_register +device_check +device_register +my_device +my_agents")
 
 # ── Portrait: 画像分析工具 ──────────────────────────
 
