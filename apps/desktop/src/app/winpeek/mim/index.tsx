@@ -38,6 +38,8 @@ interface Contact {
   bio?: string
   skills?: string
   manager_uid?: number
+  identity_type?: string
+  gender?: string
   lastMessage?: string
   lastTime?: string
   unread: number
@@ -112,18 +114,23 @@ function setActiveUid(uid: number | null) {
 
 /* ── Login / Register Form ───────────────────── */
 
-function LoginPanel({ existingUsers, onLogin, onRegister }: {
+function LoginPanel({ existingUsers, onLogin, onRegister, onRegisterUser, myDevice }: {
   existingUsers: {uid: number; nickname: string; role: string}[]
   onLogin: (name: string, password: string) => Promise<string | null>
   onRegister: (name: string, role: string, password: string) => Promise<string | null>
   onRefreshUsers: () => void
+  onRegisterUser: (name: string, gender: string, password: string) => Promise<string | null>
+  myDevice: { hostname: string; device: any; humanUsers: {uid:number;nickname:string;gender:string;role:string}[] } | null
 }) {
   const [nick, setNick] = useState('')
   const [password, setPassword] = useState('123321')
   const [showRegister, setShowRegister] = useState(false)
+  const [showUserRegister, setShowUserRegister] = useState(false)
   const [role, setRole] = useState<string>('Developer')
+  const [gender, setGender] = useState<string>('male')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showDeviceWizard, setShowDeviceWizard] = useState(false)
 
   const handleLogin = useCallback(async () => {
     if (!nick.trim()) { return }
@@ -150,6 +157,57 @@ function LoginPanel({ existingUsers, onLogin, onRegister }: {
           <p className="text-xs text-(--ui-text-tertiary)">登录或注册以使用消息功能</p>
         </div>
         {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
+        {/* Device detection — first-run wizard */}
+        {myDevice && !myDevice.device && !showRegister && !showUserRegister && !showDeviceWizard && (
+          <div className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-secondary) p-3 text-xs">
+            <p className="font-medium text-foreground">🖥️ 首次使用 — 检测到新电脑</p>
+            <p className="mt-1 text-(--ui-text-secondary)">主机名: <span className="font-mono text-foreground">{myDevice.hostname}</span></p>
+            <p className="text-(--ui-text-secondary)">该电脑尚未注册。请选择此电脑的主人。</p>
+            {myDevice.humanUsers.length > 0 && (
+              <div className="mt-2">
+                <div className="mb-1 text-[0.6rem] text-(--ui-text-tertiary)">已有用户</div>
+                {myDevice.humanUsers.map(u => (
+                  <button key={u.uid} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-(--ui-control-hover-background)"
+                    onClick={async () => { setLoading(true); setError('')
+                      const params: any = { hostname: myDevice.hostname, owner_uid: u.uid }
+                      try {
+                        const data: any = await onLogin(u.nickname, password)
+                        if (!data) { await (window as any).__gatewayRequest?.('winpeek_mim_device_register', params); setShowDeviceWizard(false) }
+                      } catch(e) {} finally { setLoading(false) }
+                    }}>
+                    <span>{u.gender === 'female' ? '🚺' : '🚹'}</span>
+                    <span className="font-medium text-foreground">{u.nickname}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <Button className="mt-2 w-full" size="xs" variant="secondary" onClick={() => setShowUserRegister(true)}>
+              + 注册新用户 (真人)
+            </Button>
+          </div>
+        )}
+        {/* User Registration (真人, with gender) */}
+        {showUserRegister && (
+          <div className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-secondary) p-3 text-xs">
+            <p className="font-medium text-foreground">👤 注册新用户（真人）</p>
+            <Input className="mt-2" onChange={e => setNick(e.target.value)} placeholder="名字（如: 于杨敏）" value={nick} />
+            <div className="mt-2 flex gap-2">
+              <button className={cn('flex-1 rounded-md px-2 py-1.5 text-xs border transition-colors', gender === 'male' ? 'border-(--ui-accent) bg-(--ui-accent)/10 text-foreground' : 'border-(--ui-stroke-tertiary) text-(--ui-text-secondary)')} onClick={() => setGender('male')}>🚹 男</button>
+              <button className={cn('flex-1 rounded-md px-2 py-1.5 text-xs border transition-colors', gender === 'female' ? 'border-(--ui-accent) bg-(--ui-accent)/10 text-foreground' : 'border-(--ui-stroke-tertiary) text-(--ui-text-secondary)')} onClick={() => setGender('female')}>🚺 女</button>
+            </div>
+            <p className="mt-1 text-[0.6rem] text-(--ui-text-tertiary)">密码: a@123321（自动生成）</p>
+            <div className="mt-2 flex gap-2">
+              <Button className="flex-1" size="xs" disabled={loading || !nick.trim()} onClick={async () => {
+                setLoading(true); setError('')
+                const err = await onRegisterUser(nick.trim(), gender, 'a@123321')
+                if (err) setError(err)
+                else { setShowUserRegister(false); setShowDeviceWizard(true) }
+                setLoading(false)
+              }}>{loading ? '...' : '注册用户'}</Button>
+              <Button className="flex-1" size="xs" variant="secondary" onClick={() => setShowUserRegister(false)}>返回</Button>
+            </div>
+          </div>
+        )}
         {/* Existing users — quick select */}
         {existingUsers.length > 0 && !showRegister && (
           <div>
@@ -561,6 +619,16 @@ export function MimView({ onClose }: { onClose: () => void }) {
   activeContactRef.current = activeContact
 
   // ── Persist active uid when it changes ──
+  // ── Device detection ──
+  const [myDevice, setMyDevice] = useState<{ hostname: string; device: any; humanUsers: any[] } | null>(null)
+
+  // Detect device on mount
+  useEffect(() => {
+    gatewayRequest<any>('winpeek_mim_my_device', {}).then(data => {
+      if (data) setMyDevice(data)
+    }).catch(() => {})
+  }, [gatewayRequest])
+
   const switchToIdentity = useCallback((uid: number) => {
     setActiveUidState(uid)
     setActiveUid(uid)
@@ -626,6 +694,31 @@ export function MimView({ onClose }: { onClose: () => void }) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       return `无法连接到网关: ${msg}`
+    }
+  }, [gatewayRequest, refreshUsers])
+
+  const handleRegisterUser = useCallback(async (name: string, gender: string, password: string): Promise<string | null> => {
+    try {
+      const data: any = await gatewayRequest('winpeek_mim_user_register', { name, gender, password })
+      if (data.ok && data.identity) {
+        const id: SavedIdentity = {
+          uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role,
+          host: 'local',
+        }
+        setIdentities(prev => {
+          const filtered = prev.filter(i => i.uid !== id.uid)
+          const next = [...filtered, id]
+          saveIdentities(next)
+          return next
+        })
+        setActiveUidState(id.uid)
+        setActiveUid(id.uid)
+        refreshUsers()
+        return null
+      }
+      return data.error || '注册失败'
+    } catch (e) {
+      return `无法连接到网关: ${e instanceof Error ? e.message : String(e)}`
     }
   }, [gatewayRequest, refreshUsers])
 
@@ -816,7 +909,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
     }
     return (
       <MasterDetail>
-        <LoginPanel existingUsers={existingUsers} onLogin={handleLogin} onRefreshUsers={refreshUsers} onRegister={handleRegister} />
+        <LoginPanel existingUsers={existingUsers} onLogin={handleLogin} onRefreshUsers={refreshUsers} onRegister={handleRegister} onRegisterUser={handleRegisterUser} myDevice={myDevice} />
       </MasterDetail>
     )
   }
