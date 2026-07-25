@@ -122,25 +122,18 @@ function LoginPanel({ existingUsers, onLogin, onRegister, onRegisterUser, myDevi
   onRegisterUser: (name: string, gender: string, password: string) => Promise<string | null>
   myDevice: { hostname: string; device: any; humanUsers: {uid:number;nickname:string;gender:string;role:string}[] } | null
 }) {
-  const [nick, setNick] = useState('')
-  const [password, setPassword] = useState('123321')
-  const [showRegister, setShowRegister] = useState(false)
-  const [showUserRegister, setShowUserRegister] = useState(false)
+  const hostnum = Math.floor(Math.random() * 900) + 100
+  const defaultNick = myDevice?.hostname ? `${myDevice.hostname}${hostnum}` : `user${hostnum}`
+  const [nick, setNick] = useState(defaultNick)
+  const [password] = useState('a@123321')
   const [role, setRole] = useState<string>('Developer')
-  const [gender, setGender] = useState<string>('male')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [showDeviceWizard, setShowDeviceWizard] = useState(false)
+  const [step, setStep] = useState<'begin' | 'newUser' | 'mim'>('begin')
+  const [gender, setGender] = useState<string>('male')
+  const [, refresh] = useState(0)
 
-  const handleLogin = useCallback(async () => {
-    if (!nick.trim()) { return }
-    setLoading(true); setError('')
-    const err = await onLogin(nick.trim(), password)
-    if (err) setError(err)
-    setLoading(false)
-  }, [nick, password, onLogin])
-
-  const handleRegister = useCallback(async () => {
+  const doMimRegister = useCallback(async () => {
     if (!nick.trim()) { return }
     setLoading(true); setError('')
     const err = await onRegister(nick.trim(), role, password)
@@ -154,127 +147,97 @@ function LoginPanel({ existingUsers, onLogin, onRegister, onRegisterUser, myDevi
         <div className="text-center">
           <div className="mb-2 text-4xl">💬</div>
           <h2 className="text-lg font-semibold text-foreground">WinPeek MIM</h2>
-          <p className="text-xs text-(--ui-text-tertiary)">登录或注册以使用消息功能</p>
+          <p className="text-xs text-(--ui-text-tertiary)">
+            {step === 'begin' && '欢迎使用 Peeka'}
+            {step === 'newUser' && '注册 Peeka User（真人）'}
+            {step === 'mim' && '注册本机 MIM 身份'}
+          </p>
         </div>
         {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
-        {/* Device detection — first-run wizard */}
-        {myDevice && !myDevice.device && !showRegister && !showUserRegister && !showDeviceWizard && (
-          <div className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-secondary) p-3 text-xs">
-            <p className="font-medium text-foreground">🖥️ 首次使用 — 检测到新电脑</p>
-            <p className="mt-1 text-(--ui-text-secondary)">主机名: <span className="font-mono text-foreground">{myDevice.hostname}</span></p>
-            <p className="text-(--ui-text-secondary)">该电脑尚未注册。请选择此电脑的主人。</p>
-            {myDevice.humanUsers.length > 0 && (
-              <div className="mt-2">
-                <div className="mb-1 text-[0.6rem] text-(--ui-text-tertiary)">已有用户</div>
+
+        {/* Step 0: 是否已注册 Peeka User？ */}
+        {step === 'begin' && (<>
+          <p className="text-xs text-(--ui-text-secondary) leading-relaxed">
+            Peeka User 是你在整个 Peeka 体系中的真人身份。每台电脑的 MIM Agent 属于一个 Peeka User。
+          </p>
+          {myDevice?.humanUsers && myDevice.humanUsers.length > 0 ? (
+            <div>
+              <div className="mb-1 text-[0.65rem] font-medium text-(--ui-text-secondary)">已注册的 Peeka User — 点击选择</div>
+              <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-(--ui-stroke-tertiary) p-1">
                 {myDevice.humanUsers.map(u => (
-                  <button key={u.uid} className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-(--ui-control-hover-background)"
-                    onClick={async () => { setLoading(true); setError('')
-                      const params: any = { hostname: myDevice.hostname, owner_uid: u.uid }
-                      try {
-                        const data: any = await onLogin(u.nickname, password)
-                        if (!data) { await (window as any).__gatewayRequest?.('winpeek_mim_device_register', params); setShowDeviceWizard(false) }
-                      } catch(e) {} finally { setLoading(false) }
+                  <button key={u.uid} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-(--ui-control-hover-background)"
+                    onClick={async () => {
+                      setLoading(true); setError('')
+                      const err = await onLogin(u.nickname, password)
+                      if (!err) { setStep('mim'); setNick(defaultNick) }
+                      else setError(err)
+                      setLoading(false)
                     }}>
                     <span>{u.gender === 'female' ? '🚺' : '🚹'}</span>
                     <span className="font-medium text-foreground">{u.nickname}</span>
+                    <span className="ml-auto text-[0.6rem] text-(--ui-text-tertiary)">{u.role}</span>
                   </button>
                 ))}
               </div>
-            )}
-            <Button className="mt-2 w-full" size="xs" variant="secondary" onClick={() => setShowUserRegister(true)}>
-              + 注册新用户 (真人)
-            </Button>
-          </div>
-        )}
-        {/* User Registration (真人, with gender) */}
-        {showUserRegister && (
-          <div className="rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-secondary) p-3 text-xs">
-            <p className="font-medium text-foreground">👤 注册新用户（真人）</p>
-            <Input className="mt-2" onChange={e => setNick(e.target.value)} placeholder="名字（如: 于杨敏）" value={nick} />
-            <div className="mt-2 flex gap-2">
-              <button className={cn('flex-1 rounded-md px-2 py-1.5 text-xs border transition-colors', gender === 'male' ? 'border-(--ui-accent) bg-(--ui-accent)/10 text-foreground' : 'border-(--ui-stroke-tertiary) text-(--ui-text-secondary)')} onClick={() => setGender('male')}>🚹 男</button>
-              <button className={cn('flex-1 rounded-md px-2 py-1.5 text-xs border transition-colors', gender === 'female' ? 'border-(--ui-accent) bg-(--ui-accent)/10 text-foreground' : 'border-(--ui-stroke-tertiary) text-(--ui-text-secondary)')} onClick={() => setGender('female')}>🚺 女</button>
+              <p className="mt-1 text-center text-[0.6rem] text-(--ui-text-tertiary)">或者</p>
             </div>
-            <p className="mt-1 text-[0.6rem] text-(--ui-text-tertiary)">密码: a@123321（自动生成）</p>
-            <div className="mt-2 flex gap-2">
-              <Button className="flex-1" size="xs" disabled={loading || !nick.trim()} onClick={async () => {
-                setLoading(true); setError('')
-                const err = await onRegisterUser(nick.trim(), gender, 'a@123321')
-                if (err) setError(err)
-                else { setShowUserRegister(false); setShowDeviceWizard(true) }
-                setLoading(false)
-              }}>{loading ? '...' : '注册用户'}</Button>
-              <Button className="flex-1" size="xs" variant="secondary" onClick={() => setShowUserRegister(false)}>返回</Button>
-            </div>
-          </div>
-        )}
-        {/* Existing users — quick select */}
-        {existingUsers.length > 0 && !showRegister && (
-          <div>
-            <div className="mb-1.5 text-[0.65rem] font-medium text-(--ui-text-secondary)">已有用户</div>
-            <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-(--ui-stroke-tertiary) p-1">
-              {existingUsers.map(u => (
-                <button
-                  key={u.uid}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-(--ui-control-hover-background)"
-                  onClick={async () => { setNick(u.nickname); setLoading(true); setError(''); const e = await onLogin(u.nickname, password); if (e) setError(e); setLoading(false) }}
-                >
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-(--ui-accent)/15 text-[0.55rem] font-semibold text-(--ui-accent)">
-                    {u.nickname.charAt(0)}
-                  </span>
-                  <span className="font-medium text-foreground">{u.nickname}</span>
-                  <span className="ml-auto text-[0.6rem] text-(--ui-text-tertiary)">{u.role}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        <Input
-          onChange={e => setNick(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && !showRegister && handleLogin()}
-          placeholder="用户名"
-          value={nick}
-        />
-        <Input
-          onChange={e => setPassword(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && !showRegister && handleLogin()}
-          placeholder="密码"
-          type="password"
-          value={password}
-        />
-        {showRegister ? (
-          <>
-            <div className="flex flex-wrap gap-1.5">
-              {ROLES.map(r => (
-                <button
-                  key={r}
-                  className={cn(
-                    'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
-                    role === r
-                      ? 'bg-(--ui-accent) text-(--ui-accent-foreground)'
-                      : 'bg-(--ui-bg-quaternary) text-(--ui-text-secondary) hover:bg-(--ui-control-hover-background)'
-                  )}
-                  onClick={() => setRole(r)}
-                >{r}</button>
-              ))}
-            </div>
-            <Button className="w-full" disabled={loading || !nick.trim()} onClick={handleRegister} size="sm">
-              {loading ? '注册中...' : '注册新用户'}
-            </Button>
-            <button className="w-full text-center text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={() => setShowRegister(false)}>
-              ← 返回登录
-            </button>
-          </>
-        ) : (
-          <Button className="w-full" disabled={loading || !nick.trim()} onClick={handleLogin} size="sm">
-            {loading ? '登录中...' : '登录'}
+          ) : (
+            <p className="text-xs text-(--ui-text-tertiary)">你还没有注册过 Peeka User</p>
+          )}
+          <Button className="w-full" size="sm" onClick={() => { setNick(''); setStep('newUser') }}>
+            + 注册新 Peeka User（真人）
           </Button>
-        )}
-        {!showRegister && (
-          <button className="w-full text-center text-xs text-(--ui-text-tertiary) hover:text-foreground" onClick={() => setShowRegister(true)}>
-            没有账号？立即注册
-          </button>
-        )}
+        </>)}
+
+        {/* Step 1: 注册新 Peeka User */}
+        {step === 'newUser' && (<>
+          <Input onChange={e => setNick(e.target.value)} placeholder="名字（如: 于杨敏）" value={nick} />
+          <div className="flex gap-2">
+            <button className={cn('flex-1 rounded-md px-2 py-1.5 text-xs border transition-colors',
+              gender === 'male' ? 'border-(--ui-accent) bg-(--ui-accent)/10 text-foreground' : 'border-(--ui-stroke-tertiary) text-(--ui-text-secondary)')}
+              onClick={() => setGender('male')}>🚹 男</button>
+            <button className={cn('flex-1 rounded-md px-2 py-1.5 text-xs border transition-colors',
+              gender === 'female' ? 'border-(--ui-accent) bg-(--ui-accent)/10 text-foreground' : 'border-(--ui-stroke-tertiary) text-(--ui-text-secondary)')}
+              onClick={() => setGender('female')}>🚺 女</button>
+          </div>
+          <p className="text-[0.6rem] text-(--ui-text-tertiary)">密码: a@123321</p>
+          <div className="flex gap-2">
+            <Button className="flex-1" size="sm" disabled={loading || !nick.trim()} onClick={async () => {
+              setLoading(true); setError('')
+              const err = await onRegisterUser(nick.trim(), gender, 'a@123321')
+              if (err) setError(err)
+              else { setNick(defaultNick); setStep('mim'); refresh(v => v + 1) }
+              setLoading(false)
+            }}>{loading ? '...' : '注册 Peeka User'}</Button>
+            <Button className="flex-1" size="sm" variant="secondary" onClick={() => setStep('begin')}>返回</Button>
+          </div>
+        </>)}
+
+        {/* Step 2: 注册本机 MIM Agent */}
+        {step === 'mim' && (<>
+          <p className="text-xs text-(--ui-text-secondary) leading-relaxed">
+            为这台电脑注册 MIM 身份。该身份自动绑定到你选择的 Peeka User。
+          </p>
+          {myDevice && (
+            <p className="text-[0.6rem] text-(--ui-text-tertiary)">主机名: {myDevice.hostname}</p>
+          )}
+          <Input onChange={e => setNick(e.target.value)} onKeyDown={e => e.key === 'Enter' && doMimRegister()}
+            placeholder="MIM 用户名" value={nick} />
+          <p className="text-[0.6rem] text-(--ui-text-tertiary)">密码: a@123321（自动生成）</p>
+          <div className="flex flex-wrap gap-1.5">
+            {ROLES.map(r => (
+              <button key={r} className={cn('rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                role === r ? 'bg-(--ui-accent) text-(--ui-accent-foreground)' : 'bg-(--ui-bg-quaternary) text-(--ui-text-secondary) hover:bg-(--ui-control-hover-background)')}
+                onClick={() => setRole(r)}>{r}</button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Button className="flex-1" disabled={loading || !nick.trim()} onClick={doMimRegister} size="sm">
+              {loading ? '注册中...' : '注册 MIM'}
+            </Button>
+            <Button className="flex-1" size="sm" variant="secondary" onClick={() => setStep('begin')}>返回</Button>
+          </div>
+        </>)}
       </div>
     </div>
   )
