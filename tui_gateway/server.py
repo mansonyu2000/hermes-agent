@@ -14798,3 +14798,45 @@ def _(rid, params: dict) -> dict:
     result = _handle_get_invite_code(params)
     try: data = json.loads(result); return _ok(rid, data)
     except Exception: return _ok(rid, {"result": result})
+
+
+# ── MIM Identity: User + Device ──
+
+@method("winpeek_mim_user_register")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_mim_user_register
+    result = _handle_mim_user_register(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_device_check")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_mim_device_check
+    result = _handle_mim_device_check(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_device_register")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_mim_device_register
+    result = _handle_mim_device_register(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_my_device")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_mim_my_device
+    result = _handle_mim_my_device(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_my_agents")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_mim_my_agents
+    result = _handle_mim_my_agents(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
