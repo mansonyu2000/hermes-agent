@@ -581,6 +581,151 @@ registry.register(
 )
 
 logger.info("WinPeek MIM tools: +user_info")
+
+# ── MIM: User (真人) Registration ──
+
+
+def _handle_mim_user_register(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_user_register", args)
+    if forwarded is not None:
+        return forwarded
+    name = (args.get("name") or args.get("nickname") or "").strip()
+    gender = (args.get("gender") or "").strip()
+    password = args.get("password", "a@123321")
+    if not name or gender not in ("male", "female"):
+        return json.dumps({"error": "name and gender (male/female) required"})
+    try:
+        from gateway.winpeek_hub import identity
+        # Check if name already exists → login
+        result = identity.login(name, password)
+        if not result:
+            result = identity.register_user(name, gender, password)
+        if not result:
+            return json.dumps({"error": f"User {name} already registered — wrong password"})
+        # Set active session so subsequent sends use this identity
+        from gateway.winpeek_hub.chat import set_active_session
+        set_active_session(result["uid"], result["nickname"])
+        return json.dumps({"ok": True, "identity": result})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+# ── MIM: Device Check ──
+
+
+def _handle_mim_device_check(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_device_check", args)
+    if forwarded is not None:
+        return forwarded
+    hostname = (args.get("hostname") or "").strip()
+    if not hostname:
+        return json.dumps({"error": "hostname required"})
+    try:
+        from gateway.winpeek_hub import identity
+        device = identity.check_device(hostname)
+        return json.dumps({"device": device})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+# ── MIM: Device Register ──
+
+
+def _handle_mim_device_register(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_device_register", args)
+    if forwarded is not None:
+        return forwarded
+    hostname = (args.get("hostname") or "").strip()
+    owner_uid = int(args.get("owner_uid", 0))
+    if not hostname or not owner_uid:
+        return json.dumps({"error": "hostname and owner_uid required"})
+    try:
+        from gateway.winpeek_hub import identity
+        import platform
+        # Gather basic device info
+        os_name = platform.system()
+        os_version = platform.version()
+        cpu_model = platform.processor() or ""
+        device = identity.check_device(hostname)
+        if device:
+            return json.dumps({"ok": True, "device": device, "already_registered": True})
+        result = identity.register_device(
+            hostname, owner_uid,
+            os_name=os_name, os_version=os_version,
+            cpu_model=cpu_model, device_type="pc",
+        )
+        if not result:
+            return json.dumps({"error": f"Device {hostname} already registered"})
+        return json.dumps({"ok": True, "device": result})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+# ── Register ──
+
+registry.register(
+    name="winpeek_mim_user_register",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_user_register",
+        "description": "Register a human user (真人). Requires name + gender (male/female). Password defaults to a@123321.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Display name"},
+                "gender": {"type": "string", "description": "male or female"},
+                "password": {"type": "string", "description": "Login password (default a@123321)"},
+            },
+            "required": ["name", "gender"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_user_register(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM human user registration",
+)
+
+registry.register(
+    name="winpeek_mim_device_check",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_device_check",
+        "description": "Check if a device (hostname) is already registered. Returns device info or null.",
+        "parameters": {
+            "type": "object",
+            "properties": {"hostname": {"type": "string"}},
+            "required": ["hostname"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_device_check(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM device check by hostname",
+)
+
+registry.register(
+    name="winpeek_mim_device_register",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_device_register",
+        "description": "Register a device (电脑) to machines table. Requires hostname + owner_uid.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "hostname": {"type": "string"},
+                "owner_uid": {"type": "integer"},
+            },
+            "required": ["hostname", "owner_uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_device_register(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM device registration",
+)
+
+logger.info("WinPeek MIM tools: +user_register +device_check +device_register")
+
 # ── Portrait: 画像分析工具 ──────────────────────────
 
 def _portrait_calc_metrics(chats, friend):
