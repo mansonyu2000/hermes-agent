@@ -190,12 +190,18 @@ async def _lifespan(app: "FastAPI"):
     asyncio.get_event_loop().run_in_executor(None, _warm_gateway_module)
 
     # ── WinPeek MIM Hub auto-start ─────────────────────────────────────
-    # Load the WinPeek Hub (MQTT + MySQL chat engine) when the backend
-    # starts. This enables multi-instance MIM messaging without requiring
-    # the full gateway process.
+    # Load the WinPeek Hub (MQTT + MySQL chat engine) synchronously at
+    # startup. Must not use run_in_executor — the hub's thread-safety
+    # checks (threading.Lock) are designed for synchronous callers.
     try:
         from gateway.winpeek_hub.hub_bridge import try_load_hub
-        asyncio.get_event_loop().run_in_executor(None, try_load_hub)
+        ok = try_load_hub()
+        if ok:
+            from gateway.winpeek_hub.mqtt_adapter import status
+            st = status()
+            _log.info("WinPeek Hub started: uid=%s connected=%s", st.get("uid"), st.get("connected"))
+        else:
+            _log.info("WinPeek Hub skipped (disabled or already loaded)")
     except Exception as e:
         _log.info("WinPeek Hub load skipped: %s", e)
 
