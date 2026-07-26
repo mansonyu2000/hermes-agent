@@ -135,6 +135,19 @@ def _on_message(client, userdata, msg):
     except Exception:
         pass
 
+    # .inject file — Hermes CLI passive popup (build/lib/cli.py:14052)
+    try:
+        import os as _os
+        from pathlib import Path as _Path
+        inject_path = _Path.home() / ".winpeek" / "inbox" / ".inject"
+        inject_path.parent.mkdir(parents=True, exist_ok=True)
+        formatted = f"{from_name}[{from_uid}] said: {body}"
+        inject_path.write_text(formatted, encoding="utf-8")
+    except Exception:
+        pass
+    except Exception:
+        pass
+
     if _message_handler:
         try:
             _message_handler(from_uid, from_name, body)
