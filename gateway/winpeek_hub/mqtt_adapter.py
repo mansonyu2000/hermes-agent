@@ -22,7 +22,6 @@ import os
 import socket
 import threading
 import time
-from pathlib import Path
 from typing import Optional
 
 try:
@@ -143,21 +142,6 @@ def _on_message(client, userdata, msg):
             "content": body,
             "time": payload.get("ts", time.strftime("%Y-%m-%dT%H:%M:%S")),
         })
-    except Exception:
-        pass
-
-    # .inject file — Hermes CLI passive popup (build/lib/cli.py:14052)
-    try:
-        import re as _re
-        inject_path = Path.home() / ".winpeek" / "inbox" / ".inject"
-        inject_path.parent.mkdir(parents=True, exist_ok=True)
-        # Sanitize: strip control chars, newlines, null bytes to prevent
-        # command injection into agent chatbox
-        safe_body = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', body)[:1000]
-        safe_name = _re.sub(r'[\x00-\x1f\[\]]', '', str(from_name))[:60]
-        formatted = f"[MIM] {safe_name}(uid={from_uid}) said: {safe_body}"
-        inject_path.write_text(formatted, encoding="utf-8")
-        logger.info(f"MIM .inject written: {formatted[:80]}")
     except Exception:
         pass
 
