@@ -95,7 +95,8 @@ def _on_connect(client, userdata, flags, reason_code, properties):
         client.subscribe("comms/inbox/#", qos=1)
         client.subscribe("comms/outbox/#", qos=1)
         client.subscribe("comms/group/#", qos=1)
-        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, inbox+outbox+group=all")
+        client.subscribe("comms/say/#", qos=1)
+        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, say+inbox+outbox+group=all")
     else:
         logger.warning(f"MIM connect failed: code={reason_code}")
 
@@ -109,6 +110,15 @@ def _on_message(client, userdata, msg):
     # ── Outbox: Agent → Daemon relay ──
     if msg.topic.startswith("comms/outbox/"):
         _handle_outbox(msg.topic, payload)
+        return
+
+    # ── Say relay: comms/say/{uid} → comms/inbox/{uid} (MIM message center) ──
+    if msg.topic.startswith("comms/say/"):
+        to_uid = int(msg.topic.rsplit("/", 1)[-1])
+        if to_uid:
+            payload_str = json.dumps(payload, ensure_ascii=False)
+            client.publish(f"comms/inbox/{to_uid}", payload_str, qos=1)
+            logger.info(f"MIM say→inbox relay: uid={to_uid} from={payload.get('from','?')}")
         return
 
     from_uid = payload.get("from_uid", "")
