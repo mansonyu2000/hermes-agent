@@ -73,6 +73,28 @@ GROUP_TOPIC_PREFIX = "comms/group"
 
 _client: Optional[mqtt.Client] = None
 _message_handler = None
+_is_relay_master: bool = False  # only one process per machine does say→inbox relay
+
+
+def _try_acquire_relay_lock() -> bool:
+    """PID-file relay lock. Only one process subscribes to comms/say/#."""
+    from pathlib import Path
+    lock_f = Path.home() / ".hermes" / "winpeek" / ".mqtt_relay_master.pid"
+    lock_f.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if lock_f.exists():
+            old_pid = int(lock_f.read_text().strip() or "0")
+            if old_pid:
+                try:
+                    os.kill(old_pid, 0)  # signal 0 = check if alive
+                except OSError:
+                    pass  # dead — we can take over
+                else:
+                    return False  # still alive — we are a follower
+        lock_f.write_text(str(os.getpid()))
+        return True
+    except Exception:
+        return True  # if anything fails, assume master
 
 
 def is_configured() -> bool:
@@ -95,8 +117,11 @@ def _on_connect(client, userdata, flags, reason_code, properties):
         client.subscribe("comms/inbox/#", qos=1)
         client.subscribe("comms/outbox/#", qos=1)
         client.subscribe("comms/group/#", qos=1)
-        client.subscribe("comms/say/#", qos=1)
-        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, say+inbox+outbox+group=all")
+        if _is_relay_master:
+            client.subscribe("comms/say/#", qos=1)
+            logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, RELAY MASTER")
+        else:
+            logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, follower (relay by another process)")
     else:
         logger.warning(f"MIM connect failed: code={reason_code}")
 
@@ -209,7 +234,7 @@ def _handle_outbox(topic: str, payload: dict):
 
 def connect():
     """连接 MQTT Broker (后台线程, 非阻塞, 幂等)"""
-    global _client
+    global _client, _is_relay_master
     # Idempotent: disconnect existing client before creating new one
     if _client is not None:
         try:
@@ -217,6 +242,8 @@ def connect():
         except Exception:
             pass
         _client = None
+
+    _is_relay_master = _try_acquire_relay_lock()
     _resolve_identity()
     if not is_available():
         logger.info(f"MIM skipped: paho={HAS_PAHO} uid={UID} name={NAME}")
@@ -238,10 +265,19 @@ def connect():
 
 
 def disconnect():
-    global _client
+    global _client, _is_relay_master
     if _client:
         _client.disconnect()
         _client = None
+    # Release PID lock
+    if _is_relay_master:
+        from pathlib import Path
+        lock_f = Path.home() / ".hermes" / "winpeek" / ".mqtt_relay_master.pid"
+        try:
+            lock_f.unlink(missing_ok=True)
+        except Exception:
+            pass
+        _is_relay_master = False
 
 
 # ── 发送 ──────────────────────────────────────────
