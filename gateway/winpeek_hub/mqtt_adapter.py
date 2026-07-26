@@ -22,6 +22,7 @@ import os
 import socket
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -142,6 +143,18 @@ def _on_message(client, userdata, msg):
             "content": body,
             "time": payload.get("ts", time.strftime("%Y-%m-%dT%H:%M:%S")),
         })
+    except Exception:
+        pass
+
+    # Phase 2.1: .inject 文件 — Hermes CLI 被动弹出
+    #   Hermes CLI 主循环轮询 ~/.winpeek/inbox/.inject (build/lib/cli.py:14052)
+    #   有内容 → _pending_input.put() → Agent 立即响应
+    try:
+        inject_path = Path.home() / ".winpeek" / "inbox" / ".inject"
+        inject_path.parent.mkdir(parents=True, exist_ok=True)
+        formatted = f"{from_name}[{from_uid}] said: {body}"
+        inject_path.write_text(formatted, encoding="utf-8")
+        logger.info(f"MIM .inject written: {formatted[:80]}")
     except Exception:
         pass
 

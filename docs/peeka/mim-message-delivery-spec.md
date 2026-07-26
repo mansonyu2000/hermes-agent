@@ -253,20 +253,14 @@ msg = build_digest_message(entries)
 
 | # | 任务 | 文件 | 状态 |
 |---|------|------|:--:|
-| 2.1 | Gateway 写完 inbox 后主动写 `.inject` 文件 | `mqtt_adapter.py` or `chat.py` | ⏳ |
+| 2.1 | Gateway inbox 到达后写 `.inject` 文件 | `mqtt_adapter.py:_on_message()` | ⏳ |
 | 2.2 | 复用 `winpeek_mqtt.py` MQTT 推送 (主路径, 已有) | `cli.py:15194-15207` | ✅ |
 | 2.3 | Daemon 监控 outbox 有新文件 → 自动调用 `say` 发送 | `daemon.py` | ⏳ |
 | 2.4 | L1/L2 digest 在 Agent 上线时送达 | `winpeek_mim_read_digest` RPC | ✅ F3 已实现 |
 
-### Phase 3: 过程3 被动投递 — Claude Code
-
-| # | 任务 | 文件 | 状态 |
-|---|------|------|:--:|
-| 3.1 | L3 消息触发 RPA 窗口注入 | `engine.py:deliver_mim_message()` | ✅ 已有 |
-| 3.2 | ConPTY 注入 (无需窗口激活) | `conpty_inject.py` | ✅ 已有 |
-| 3.3 | dialog_bridge 独立进程兜底 | `bridge-agent.py` | ✅ 已有 |
-
 ### Phase 4: Daemon 增强
+
+> Claude Code 投递方案：见 `docs/peeka/cc-delivery-spec.md`（独立文档）
 
 | # | 任务 | 文件 | 状态 |
 |---|------|------|:--:|
