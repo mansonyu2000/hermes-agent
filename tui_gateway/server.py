@@ -1247,8 +1247,92 @@ def handle_request(req: dict) -> dict | None:
     rid, method, params = normalized
     fn = _methods.get(method)
     if not fn:
+        fn = _auto_discover_winpeek(method)
+    if not fn:
+        logger.warning("RPC unknown method: %s", method)
         return _err(rid, -32601, f"unknown method: {method}")
-    return fn(rid, params)
+    try:
+        logger.debug("RPC dispatching: method=%s id=%s", method, rid)
+        return fn(rid, params)
+    except Exception as e:
+        _log_rpc_error(method, params, e)
+        return _err(rid, -32603, str(e))
+
+
+_WINPEEK_CACHED: "dict[str, object] | None" = None
+_WINPEEK_MTIME: float = 0
+
+
+def _auto_discover_winpeek(method: str):
+    """Lazily load winpeek RPCs from the tools registry on first unknown call.
+
+    Watches ``tools/winpeek_tools.py`` modification time — when you edit and
+    save that file, the next RPC call auto-reloads the registry.  No gateway
+    restart needed for hot-reload development.
+
+    Returns a handler ``(rid, params) -> dict``, or None if *method* is not a
+    known winpeek RPC.
+    """
+    global _WINPEEK_CACHED, _WINPEEK_MTIME
+    if not method.startswith("winpeek_"):
+        return None
+
+    try:
+        import tools.winpeek_tools as wt_mod  # noqa: F401
+        if hasattr(wt_mod, "__file__") and wt_mod.__file__:
+            mtime = Path(wt_mod.__file__).stat().st_mtime
+        else:
+            mtime = time.time()  # can't stat → force reload
+    except ImportError:
+        _WINPEEK_CACHED = {}
+        return None
+
+    if _WINPEEK_CACHED is None or mtime > _WINPEEK_MTIME:
+        from tools.registry import registry as _tool_registry
+
+        _WINPEEK_CACHED = {
+            name: entry.handler
+            for name, entry in _tool_registry._tools.items()
+            if name.startswith("winpeek_")
+        }
+        _WINPEEK_MTIME = mtime
+        logger.info(
+            "Auto-loaded %d winpeek RPCs from tools registry (mtime=%.0f)",
+            len(_WINPEEK_CACHED), mtime,
+        )
+
+    handler_fn = _WINPEEK_CACHED.get(method)
+    if handler_fn is None:
+        return None
+
+    # Build a standard @method-compatible wrapper and cache it in _methods so the
+    # next call for this method hits the fast path (no registry lookup).
+    def dynamic_handler(rid, params: dict, _h=handler_fn) -> dict:
+        try:
+            result = _h(params)
+            try:
+                data = json.loads(result)
+                return _ok(rid, data)
+            except (json.JSONDecodeError, TypeError):
+                return _ok(rid, {"result": result})
+        except Exception as e:
+            _log_rpc_error(method, params, e)
+            return _err(rid, -32000, str(e))
+
+    _methods[method] = dynamic_handler
+    return dynamic_handler
+
+
+_SENSITIVE_RPC_KEYS = frozenset({'password', 'old_password', 'new_password', 'token', 'secret', 'api_key', 'credential', 'passwd', 'auth_token'})
+
+def _log_rpc_error(method: str, params: dict, exc: Exception) -> None:
+    """Log RPC dispatch errors for debugging. Redacts sensitive fields."""
+    try:
+        safe = {k: ('***' if k.lower() in _SENSITIVE_RPC_KEYS else v) for k, v in params.items()}
+        params_str = json.dumps(safe, default=str, ensure_ascii=False)[:500]
+    except Exception:
+        params_str = str(params)[:500]
+    logger.exception("RPC dispatch error: method=%s params=%s error=%s", method, params_str, exc)
 
 
 def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
@@ -1281,6 +1365,7 @@ def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
             try:
                 resp = handle_request(req)
             except Exception as exc:
+                _log_rpc_error(method, _params, exc)
                 resp = _err(req.get("id"), -32000, f"handler error: {exc}")
             if resp is not None:
                 t.write(resp)
@@ -14784,10 +14869,58 @@ def _(rid, params: dict) -> dict:
     except Exception: return _ok(rid, {"result": result})
 
 
+@method("winpeek_squad_delete")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_squad_delete
+    result = _handle_squad_delete(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_person_delete")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_person_delete
+    result = _handle_person_delete(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_machine_delete")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_machine_delete
+    result = _handle_machine_delete(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_agent_delete")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_agent_delete
+    result = _handle_agent_delete(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
 @method("winpeek_register_with_squad")
 def _(rid, params: dict) -> dict:
     from tools.winpeek_tools import _handle_register_with_squad
     result = _handle_register_with_squad(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_change_password")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_mim_change_password
+    result = _handle_mim_change_password(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_update_profile")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_mim_update_profile
+    result = _handle_mim_update_profile(params)
     try: data = json.loads(result); return _ok(rid, data)
     except Exception: return _ok(rid, {"result": result})
 
@@ -14830,6 +14963,14 @@ def _(rid, params: dict) -> dict:
 def _(rid, params: dict) -> dict:
     from tools.winpeek_tools import _handle_mim_my_device
     result = _handle_mim_my_device(params)
+    try: data = json.loads(result); return _ok(rid, data)
+    except Exception: return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_online")
+def _(rid, params: dict) -> dict:
+    from tools.winpeek_tools import _handle_mim_online
+    result = _handle_mim_online(params)
     try: data = json.loads(result); return _ok(rid, data)
     except Exception: return _ok(rid, {"result": result})
 

@@ -17,11 +17,18 @@ import json
 import logging
 import os
 import time
+
 from typing import Any
 
 from tools.registry import registry
 
 logger = logging.getLogger(__name__)
+
+_SENSITIVE_KEYS = frozenset({'password', 'old_password', 'new_password', 'token', 'secret', 'api_key', 'credential', 'passwd', 'auth_token'})
+
+def _sanitize(args: dict) -> dict:
+    """Return a copy of args with sensitive fields redacted for safe logging."""
+    return {k: ('***' if k.lower() in _SENSITIVE_KEYS else v) for k, v in args.items()}
 
 
 # ═══════════════════════════════════════════════════════
@@ -77,6 +84,7 @@ def _handle_collect_msgs(args: dict) -> str:
         return json.dumps({"ok": True, "inserted": ins, "duplicates": dup})
 
     except Exception as e:
+        logger.exception("handler failed: %s", str(e))
         return json.dumps({"ok": False, "error": str(e)})
 
 
@@ -95,6 +103,7 @@ def _handle_collect_contacts(args: dict) -> str:
         return json.dumps({"ok": True, "contacts_collected": count})
 
     except Exception as e:
+        logger.exception("handler failed: %s", str(e))
         return json.dumps({"ok": False, "error": str(e)})
 
 
@@ -321,6 +330,7 @@ def _mim_center_call(method_name: str, args: dict) -> "str | None":
         finally:
             conn.close()
     except Exception as e:
+        logger.exception("handler failed: %s", str(e))
         return json.dumps({"error": f"MIM center unreachable ({type(e).__name__}): {e}"})
 
 
@@ -329,16 +339,17 @@ def _handle_mim_login(args: dict) -> str:
     if forwarded is not None:
         return forwarded
     nickname = args.get("nickname", "").strip()
-    role = args.get("role", "Developer")
-    password = args.get("password", "123321")  # default password
+    password = args.get("password", "")
     if not nickname:
         return json.dumps({"error": "nickname required"})
+    if not password:
+        return json.dumps({"error": "password required"})
     try:
         from gateway.winpeek_hub import identity
         from gateway.winpeek_hub.chat import set_active_session
     except ImportError as e:
         return json.dumps({"error": f"MIM Hub not loaded: {e}"})
-    result = identity.login(nickname, password) or identity.register(nickname, role, password=password)
+    result = identity.login(nickname, password)
     if not result:
         return json.dumps({"error": f"login failed — wrong nickname or password"})
     set_active_session(result["uid"], result["nickname"])
@@ -504,9 +515,10 @@ def _handle_mim_history(args: dict) -> str:
     if forwarded is not None:
         return forwarded
     peer_uid = int(args.get("peer_uid", 0))
+    gid = int(args.get("gid", 0))
     limit = int(args.get("limit", 50))
-    if not peer_uid:
-        return json.dumps({"error": "peer_uid required"})
+    if not peer_uid and not gid:
+        return json.dumps({"error": "peer_uid or gid required"})
     try:
         from gateway.winpeek_hub.chat import get_history, active_uid
     except ImportError:
@@ -514,7 +526,7 @@ def _handle_mim_history(args: dict) -> str:
     uid = int(args.get("uid") or 0) or active_uid()
     if not uid:
         return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
-    return json.dumps({"messages": get_history(uid, peer_uid, limit)})
+    return json.dumps({"messages": get_history(uid, peer_uid, gid, limit)})
 
 registry.register(
     name="winpeek_mim_history",
@@ -811,6 +823,333 @@ registry.register(
 
 logger.info("WinPeek MIM tools: +user_register +device_check +device_register +my_device +my_agents")
 
+
+# ── MIM: Register with Squad ──
+
+def _handle_register_with_squad(args: dict) -> str:
+    uid = int(args.get("uid", 0))
+    logger.info("RPC call: winpeek_register_with_squad uid=%s is_new=%s name=%s", uid, args.get("is_new_squad"), args.get("squad_name", "?"))
+    forwarded = _mim_center_call("winpeek_register_with_squad", args)
+    if forwarded is not None:
+        return forwarded
+    uid = int(args.get("uid", 0))
+    if not uid:
+        return json.dumps({"ok": False, "error": "uid required"})
+    try:
+        from gateway.winpeek_hub import organization
+        result = organization.register_with_squad(
+            uid=uid,
+            squad_id=int(args.get("squad_id", 0)),
+            is_new_squad=bool(args.get("is_new_squad", False)),
+            squad_name=str(args.get("squad_name", "")),
+            squad_desc=str(args.get("squad_desc", "")),
+            person_name=str(args.get("person_name", "")),
+            email=str(args.get("email", "")),
+            phone=str(args.get("phone", "")),
+            hostname=str(args.get("hostname", "")),
+            invite_code=str(args.get("invite_code", "")),
+            industry=str(args.get("industry", "")),
+            address=str(args.get("address", "")),
+            website=str(args.get("website", "")),
+            contact_email=str(args.get("contact_email", "")),
+            contact_phone=str(args.get("contact_phone", "")),
+            legal_person=str(args.get("legal_person", "")),
+        )
+        return json.dumps(result)
+    except ImportError:
+        logger.exception("MIM Hub import failed for register_with_squad")
+        return json.dumps({"ok": False, "error": "MIM Hub not loaded"})
+    except Exception as e:
+        logger.exception("register_with_squad failed: uid=%s", uid)
+        return json.dumps({"ok": False, "error": str(e)})
+
+
+registry.register(
+    name="winpeek_register_with_squad",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_register_with_squad",
+        "description": "Register a Peeka user with a squad (organization). Create new squad or join existing one.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "User uid"},
+                "is_new_squad": {"type": "boolean", "description": "Create new squad if true"},
+                "squad_name": {"type": "string", "description": "New squad name"},
+                "squad_desc": {"type": "string", "description": "Squad description"},
+                "squad_id": {"type": "integer", "description": "Existing squad id to join"},
+                "invite_code": {"type": "string", "description": "Invite code to join"},
+                "person_name": {"type": "string", "description": "Person display name"},
+                "email": {"type": "string", "description": "Email"},
+                "hostname": {"type": "string", "description": "Machine hostname"},
+                "industry": {"type": "string", "description": "Industry"},
+                "address": {"type": "string", "description": "Address"},
+                "website": {"type": "string", "description": "Website URL"},
+                "contact_email": {"type": "string", "description": "Contact email"},
+                "contact_phone": {"type": "string", "description": "Contact phone"},
+                "legal_person": {"type": "string", "description": "Legal person name"},
+            },
+            "required": ["uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_register_with_squad(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM register with squad (create or join)",
+)
+
+logger.info("WinPeek MIM tools: +register_with_squad")
+
+
+# ── MIM: Change Password ──
+
+def _handle_mim_change_password(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_change_password", args)
+    if forwarded is not None:
+        return forwarded
+    uid = int(args.get("uid", 0))
+    old_password = args.get("old_password", "")
+    new_password = args.get("new_password", "")
+    if not uid or not old_password or not new_password:
+        return json.dumps({"error": "uid, old_password and new_password required"})
+    try:
+        from gateway.winpeek_hub import identity
+        user = identity.get_by_uid(uid)
+        if not user:
+            return json.dumps({"error": "user not found"})
+        check = identity.login(user["nickname"], old_password)
+        if not check:
+            return json.dumps({"error": "old password incorrect"})
+        ok = identity.set_password(uid, new_password)
+        return json.dumps({"ok": ok, "error": None if ok else "failed to update password"})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+registry.register(
+    name="winpeek_mim_change_password",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_change_password",
+        "description": "Change password for a MIM user. Requires old password verification.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "User uid"},
+                "old_password": {"type": "string", "description": "Current password"},
+                "new_password": {"type": "string", "description": "New password to set"},
+            },
+            "required": ["uid", "old_password", "new_password"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_change_password(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM change password",
+)
+
+
+# ── MIM: Update Profile ──
+
+def _handle_mim_update_profile(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_update_profile", args)
+    if forwarded is not None:
+        return forwarded
+    uid = int(args.get("uid", 0))
+    if not uid:
+        return json.dumps({"error": "uid required"})
+    allowed = {"nickname", "title", "bio", "skills", "role", "gender"}
+    updates = {}
+    for k in allowed:
+        if k in args and args[k] is not None:
+            updates[k] = args[k]
+    if not updates:
+        return json.dumps({"error": "no fields to update"})
+    try:
+        from gateway.winpeek_hub.db import get_conn
+        conn = get_conn()
+        if conn is None:
+            return json.dumps({"error": "DB unavailable"})
+        try:
+            with conn.cursor() as cur:
+                if "nickname" in updates:
+                    cur.execute("SELECT uid FROM users WHERE nickname = %s AND uid != %s",
+                                (updates["nickname"], uid))
+                    if cur.fetchone():
+                        return json.dumps({"error": "nickname already taken"})
+                sets = ", ".join("`%s` = %%s" % k for k in updates)
+                cur.execute("UPDATE users SET %s WHERE uid = %%s" % sets,
+                            list(updates.values()) + [uid])
+                conn.commit()
+            return json.dumps({"ok": True})
+        finally:
+            conn.close()
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    except Exception as e:
+        logger.exception("handler failed: %s", str(e))
+        return json.dumps({"error": str(e)})
+
+
+registry.register(
+    name="winpeek_mim_update_profile",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_update_profile",
+        "description": "Update MIM user profile fields (nickname, title, bio, skills, role).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "User uid"},
+                "nickname": {"type": "string", "description": "New display name"},
+                "title": {"type": "string", "description": "Job title"},
+                "bio": {"type": "string", "description": "Self-introduction"},
+                "skills": {"type": "string", "description": "Comma-separated skills"},
+                "role": {"type": "string", "description": "Role"},
+            },
+            "required": ["uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_update_profile(args),
+    check_fn=lambda: True,
+    requires_env=[],
+    description="MIM update user profile",
+)
+
+logger.info("WinPeek MIM tools: +change_password +update_profile")
+
+
+# ── Org CRUD complete handlers ────────────────────────────────────────
+
+def _make_org_handler(rpc_name: str, org_fn_name: str, param_map: dict = None):
+    """Factory for organization.py → json wrapper handlers.
+
+    org_fn_name: actual function name in organization.py (e.g. 'list_squads')
+    param_map: {frontend_key: backend_param_name} for mismatched names.
+               e.g. {"uid": "requester_uid"} when frontend sends 'uid' but
+               the org.py function expects 'requester_uid'.
+    """
+    pmap = param_map or {}
+    def handler(args: dict) -> str:
+        logger.info("RPC call: %s uid=%s", rpc_name, args.get('uid', args.get('requester_uid', '?')))
+        forwarded = _mim_center_call(rpc_name, args)
+        if forwarded is not None:
+            return forwarded
+        try:
+            from gateway.winpeek_hub import organization
+            fn = getattr(organization, org_fn_name)
+            import inspect
+            sig = inspect.signature(fn)
+            call_kwargs = {}
+            remaining = dict(args)
+            has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+
+            for p_name, p in sig.parameters.items():
+                if p.kind == inspect.Parameter.VAR_KEYWORD:
+                    # Pass all remaining unmapped args into **kwargs
+                    for k in list(remaining.keys()):
+                        if k not in call_kwargs:
+                            call_kwargs[k] = remaining.pop(k)
+                    continue
+                if p.kind == inspect.Parameter.VAR_POSITIONAL:
+                    continue
+                # Apply param_map: frontend_key → backend_param_name
+                frontend_key = pmap.get(p_name, p_name)
+                if frontend_key in args:
+                    val = args[frontend_key]
+                    if val is not None:
+                        call_kwargs[p_name] = val
+                    remaining.pop(frontend_key, None)
+
+            # Any leftover unmapped args → **kwargs if fn accepts them
+            if has_var_kw:
+                call_kwargs.update(remaining)
+
+            result = fn(**call_kwargs)
+            return json.dumps(result)
+        except ImportError:
+            logger.exception("MIM Hub import failed for %s", rpc_name)
+            return json.dumps({"error": "MIM Hub not loaded"})
+        except Exception as e:
+            logger.exception("Handler %s failed: args=%s", rpc_name, json.dumps(_sanitize(args), default=str)[:500])
+            return json.dumps({"ok": False, "error": str(e)})
+    return handler
+
+
+# Batch-register all squad/person/machine/agent CRUD handlers
+# Format: (rpc_name, org_function_name, description, param_map)
+# param_map: {frontend_key: backend_param_name} for mismatched names
+CRUD_HANDLERS = [
+    ('winpeek_squad_list',       'list_squads',       'List all squads',                          None),
+    ('winpeek_squad_upsert',     'upsert_squad',      'Create or update a squad',                 None),
+    ('winpeek_squad_delete',     'delete_squad',      'Delete a squad',                           {"requester_uid": "uid"}),
+    ('winpeek_squad_search',     'search_squads',     'Search squads by name',                    None),
+    ('winpeek_person_list',      'list_persons',      'List persons in a squad',                  None),
+    ('winpeek_person_upsert',    'upsert_person',     'Create or update a person',                None),
+    ('winpeek_person_delete',    'delete_person',     'Delete a person',                          None),
+    ('winpeek_person_approve',   'approve_person',    'Approve or reject a person',               None),
+    ('winpeek_machine_list',     'list_machines',     'List machines/devices',                    None),
+    ('winpeek_machine_delete',   'delete_machine',    'Delete a machine',                         None),
+    ('winpeek_machine_approve',  'approve_machine',   'Approve or reject a machine',              None),
+    ('winpeek_machine_detail',   'get_machine_detail','Get machine detail',                       None),
+    ('winpeek_agent_list',       'list_agents',       'List agents',                              None),
+    ('winpeek_agent_upsert',     'upsert_agent',      'Create or update an agent',                {"id": "agent_id"}),
+    ('winpeek_agent_delete',     'delete_agent',      'Delete an agent',                          None),
+    ('winpeek_org_tree',         'get_org_tree',      'Get full org hierarchy',                   None),
+    ('winpeek_org_status',       'get_org_status',    'Get org status for a user',                {"winpeek_uid": "uid"}),
+    ('winpeek_pending_list',     'get_pending',       'Get pending approvals',                    {"requester_uid": "uid"}),
+    ('winpeek_join_squad',       'join_squad',        'Join an existing squad',                   None),
+]
+
+MISSING_HANDLERS = [
+    ('winpeek_scan_register',    'scan_and_register_machine', 'Scan and register machine',         None),
+    ('winpeek_mim_set_master',   'link_account',              'Set master account',                None),
+]
+
+for rpc_name, org_fn, desc, pmap in CRUD_HANDLERS + MISSING_HANDLERS:
+    handler = _make_org_handler(rpc_name, org_fn, pmap)
+    handler_name = f'_handle_{rpc_name.replace("winpeek_", "")}'
+    globals()[handler_name] = handler
+    registry.register(
+        name=rpc_name,
+        toolset="winpeek_rpa",
+        schema={
+            "name": rpc_name,
+            "description": desc,
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": True},
+        },
+        handler=lambda args, h=handler, **kw: h(args),
+        check_fn=lambda: True,
+        requires_env=[],
+        description=desc,
+    )
+
+# Explicit handler for invite codes (not in organization.py)
+def _handle_get_invite_code(args: dict) -> str:
+    try:
+        from gateway.winpeek_hub import identity
+        users = identity.list_all()
+        # Extract invite codes from org membership
+        from gateway.winpeek_hub import organization
+        status = organization.get_org_status(int(args.get("uid", 0)))
+        codes = []
+        if status.get("linked") and status.get("squad", {}).get("invite_code"):
+            codes.append({"code": status["squad"]["invite_code"], "squad": status["squad"]["name"]})
+        return json.dumps({"invite_codes": codes})
+    except Exception as e:
+        logger.exception("handler failed: %s", str(e))
+        return json.dumps({"ok": False, "error": str(e)})
+
+registry.register(
+    name="winpeek_my_invite_codes",
+    toolset="winpeek_rpa",
+    schema={"name":"winpeek_my_invite_codes","description":"Get my invite codes","parameters":{"type":"object","properties":{"uid":{"type":"integer"}}}},
+    handler=lambda args, **kw: _handle_get_invite_code(args),
+    check_fn=lambda: True, requires_env=[],
+    description="Get invite codes",
+)
+
+logger.info(f"WinPeek MIM tools: +org CRUD ({len(CRUD_HANDLERS)} handlers +machine_detail +scan_register +mim_set_master +invite_codes)")
 # ── Portrait: 画像分析工具 ──────────────────────────
 
 def _portrait_calc_metrics(chats, friend):
@@ -879,6 +1218,7 @@ def _handle_wechat_accounts(args: dict) -> str:
             charset="utf8mb4",
             cursorclass=pymysql.cursors.DictCursor)
     except Exception as e:
+        logger.exception("handler failed: %s", str(e))
         return json.dumps({"error": f"MySQL: {e}"})
 
     try:
@@ -905,6 +1245,7 @@ def _handle_wechat_accounts(args: dict) -> str:
             })
         return json.dumps({"ok": True, "accounts": accounts})
     except Exception as e:
+        logger.exception("handler failed: %s", str(e))
         return json.dumps({"error": str(e)})
     finally:
         conn.close()
@@ -927,6 +1268,7 @@ def _handle_portrait_list(args: dict) -> str:
             charset="utf8mb4",
             cursorclass=pymysql.cursors.DictCursor)
     except Exception as e:
+        logger.exception("handler failed: %s", str(e))
         return json.dumps({"error": f"MySQL连接失败: {e}"})
 
     try:
@@ -1045,6 +1387,7 @@ def _handle_portrait_list(args: dict) -> str:
 
         return json.dumps({"ok": True, "count": len(results), "items": results[:limit]})
     except Exception as e:
+        logger.exception("handler failed: %s", str(e))
         return json.dumps({"error": str(e)})
     finally:
         conn.close()
@@ -1067,6 +1410,7 @@ def _handle_portrait_detail(args: dict) -> str:
             charset="utf8mb4",
             cursorclass=pymysql.cursors.DictCursor)
     except Exception as e:
+        logger.exception("handler failed: %s", str(e))
         return json.dumps({"error": f"MySQL连接失败: {e}"})
 
     try:
@@ -1140,6 +1484,7 @@ def _handle_portrait_detail(args: dict) -> str:
             }
         })
     except Exception as e:
+        logger.exception("handler failed: %s", str(e))
         return json.dumps({"error": str(e)})
     finally:
         conn.close()

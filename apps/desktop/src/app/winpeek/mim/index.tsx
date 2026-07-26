@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { Streamdown } from 'streamdown'
+import { SETTINGS_ROUTE } from '../../routes'
 
 import { formatMessageTimestamp } from '@/components/assistant-ui/thread/timestamp'
 import { CopyButton } from '@/components/ui/copy-button'
@@ -82,13 +84,13 @@ const ROLES = ['Developer', 'Architect', 'Ops', 'QA', 'PM', 'Director', 'Boss'] 
 
 function loadSavedIdentity(): WinPeekIdentity | null {
   try {
-    const raw = localStorage.getItem('mim-identity')
-    return raw ? JSON.parse(raw) : null
+    const arr = loadAllIdentities()
+    if (arr.length === 0) return null
+    const auid = Number(localStorage.getItem('mim-active-uid') || 0)
+    return arr.find(x => x.uid === auid) || arr[arr.length - 1] || null
   } catch { return null }
 }
 function saveIdentity(id: WinPeekIdentity) {
-  localStorage.setItem('mim-identity', JSON.stringify(id))
-  // Also maintain the multi-identity store
   try {
     const raw = localStorage.getItem('mim-identities')
     const arr: WinPeekIdentity[] = raw ? JSON.parse(raw) : []
@@ -96,6 +98,7 @@ function saveIdentity(id: WinPeekIdentity) {
     if (idx >= 0) arr[idx] = id
     else arr.push(id)
     localStorage.setItem('mim-identities', JSON.stringify(arr))
+    localStorage.setItem('mim-active-uid', String(id.uid))
   } catch {}
 }
 function removeIdentity(uid: number) {
@@ -104,9 +107,10 @@ function removeIdentity(uid: number) {
     let arr: WinPeekIdentity[] = raw ? JSON.parse(raw) : []
     arr = arr.filter(x => x.uid !== uid)
     localStorage.setItem('mim-identities', JSON.stringify(arr))
-    // If removing the active one, clear mim-identity too
-    const active = loadSavedIdentity()
-    if (active?.uid === uid) localStorage.removeItem('mim-identity')
+    const auid = Number(localStorage.getItem('mim-active-uid') || 0)
+    if (auid === uid) {
+      localStorage.removeItem('mim-active-uid')
+    }
   } catch {}
 }
 function loadAllIdentities(): WinPeekIdentity[] {
@@ -121,7 +125,7 @@ function loadAllIdentities(): WinPeekIdentity[] {
 function LoginPanel({ existingUsers, onLogin, onRegister, savedIdentities }: {
   existingUsers: {uid: number; nickname: string; role: string}[]
   onLogin: (name: string, password: string) => Promise<string | null>
-  onRegister: (name: string, role: string, password: string) => Promise<string | null>
+  onRegister: (name: string, gender: string, role: string, password: string) => Promise<string | null>
   onRefreshUsers: () => void
   savedIdentities: WinPeekIdentity[]
 }) {
@@ -129,6 +133,7 @@ function LoginPanel({ existingUsers, onLogin, onRegister, savedIdentities }: {
   const [password, setPassword] = useState('a@123321')
   const [showRegister, setShowRegister] = useState(false)
   const [role, setRole] = useState<string>('Developer')
+  const [gender, setGender] = useState<string>('male')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -240,6 +245,16 @@ function LoginPanel({ existingUsers, onLogin, onRegister, savedIdentities }: {
               <Input onChange={e => setPassword(e.target.value)} placeholder="设置密码" type="password" value={password} className="h-10 rounded-xl border-(--ui-stroke-tertiary)" />
             </div>
             <div>
+              <label className="text-[0.65rem] font-medium text-(--ui-text-secondary) block mb-1.5">性别</label>
+              <div className="flex gap-2">
+                {['male', 'female'].map(g => (
+                  <button key={g} className={cn('rounded-full px-4 py-1.5 text-xs font-medium transition-all',
+                    gender === g ? 'bg-[#7c3aed] text-white shadow-sm' : 'bg-(--ui-bg-quaternary) text-(--ui-text-secondary) hover:bg-(--ui-control-hover-background)')}
+                    onClick={() => setGender(g)}>{g === 'male' ? '🚹 男' : '🚺 女'}</button>
+                ))}
+              </div>
+            </div>
+            <div>
               <label className="text-[0.65rem] font-medium text-(--ui-text-secondary) block mb-1.5">角色</label>
               <div className="flex flex-wrap gap-1.5">
                 {ROLES.map(r => (
@@ -253,8 +268,8 @@ function LoginPanel({ existingUsers, onLogin, onRegister, savedIdentities }: {
           <div className="mt-5 space-y-2.5">
             <Button className="w-full h-10 rounded-xl text-sm font-semibold bg-gradient-to-r from-[#7c3aed] to-[#a78bfa] shadow-md shadow-purple-500/20" disabled={loading || !nick.trim()} onClick={useCallback(async () => {
               if (!nick.trim()) return; setLoading(true); setError('')
-              const err = await onRegister(nick.trim(), role, password); if (err) setError(err); setLoading(false)
-            }, [nick, role, password, onRegister])} size="sm">
+              const err = await onRegister(nick.trim(), gender, role, password); if (err) setError(err); setLoading(false)
+            }, [nick, gender, role, password, onRegister])} size="sm">
               {loading ? '注册中...' : '创建账号'}
             </Button>
             <button className="w-full text-center text-xs text-(--ui-text-secondary) hover:text-foreground transition-colors py-1" onClick={() => setShowRegister(false)}>
@@ -275,7 +290,7 @@ function ProfilePanel({ identity, onLogout, onBack }: { identity: WinPeekIdentit
   const skills = identity.skills ? identity.skills.split(',').filter(Boolean) : []
 
   useEffect(() => {
-    rq('winpeek_org_status', {}).then((d: any) => {
+    rq('winpeek_org_status', { uid: identity.uid }).then((d: any) => {
       if (d?.linked && d?.squad) setSquad(d.squad)
     }).catch(() => {})
   }, [rq])
@@ -606,8 +621,8 @@ function GroupSettingsPanel({
 export function MimView({ onClose }: { onClose: () => void }) {
   const { t } = useI18n()
   const { requestGateway: gatewayRequest } = useGatewayRequest()
+  const nav = useNavigate()
   const [identity, setIdentity] = useState<WinPeekIdentity | null>(loadSavedIdentity)
-  const [showProfile, setShowProfile] = useState(false)
   const [viewContactUid, setViewContactUid] = useState<number | null>(null)
 
   const [contacts, setContacts] = useState<Contact[]>([])
@@ -644,6 +659,25 @@ export function MimView({ onClose }: { onClose: () => void }) {
     }).catch(() => {})
   }, [gatewayRequest, identity])
 
+  // ── Listen for account switches from PeekaPopup / Settings ──
+  useEffect(() => {
+    const onPeekaChanged = () => {
+      const id = loadSavedIdentity()
+      if (id) {
+        if (!identity || id.uid !== identity.uid) {
+          setIdentity(id)
+        }
+      } else {
+        setIdentity(null)
+        setContacts([])
+        setMessages([])
+        setActiveContactId(null)
+      }
+    }
+    window.addEventListener('peeka-changed', onPeekaChanged)
+    return () => window.removeEventListener('peeka-changed', onPeekaChanged)
+  }, [identity])
+
   // ── Load existing users for login page ──
   useEffect(() => { refreshUsers() }, [refreshUsers])
 
@@ -661,9 +695,8 @@ export function MimView({ onClose }: { onClose: () => void }) {
         saveIdentity(id)
         setIdentity(id)
         refreshUsers()
-        const d2: any = await gatewayRequest('winpeek_org_status', {}).catch(() => ({}))
-        setNeedRegistration(!d2?.linked)
-        setOrgChecked(true)
+        window.dispatchEvent(new CustomEvent('peeka-changed'))
+        const d2: any = await gatewayRequest('winpeek_org_status', { uid: data.identity.uid }).catch(() => ({}))
         setNeedRegistration(!d2?.linked)
         setOrgChecked(true)
         return null
@@ -675,17 +708,15 @@ export function MimView({ onClose }: { onClose: () => void }) {
     }
   }, [gatewayRequest, refreshUsers])
 
-  const handleRegister = useCallback(async (name: string, role: string, password: string): Promise<string | null> => {
+  const handleRegister = useCallback(async (name: string, gender: string, role: string, password: string): Promise<string | null> => {
     try {
-      const data: any = await gatewayRequest('winpeek_mim_login', { nickname: name, role, password })
+      const data: any = await gatewayRequest('winpeek_mim_user_register', { name, gender, role, password })
       if (data.ok && data.identity) {
         const id: WinPeekIdentity = { uid: data.identity.uid, name: data.identity.nickname, role: data.identity.role, host: 'local' }
         saveIdentity(id)
         setIdentity(id)
         refreshUsers()
-        const d2: any = await gatewayRequest('winpeek_org_status', {}).catch(() => ({}))
-        setNeedRegistration(!d2?.linked)
-        setOrgChecked(true)
+        window.dispatchEvent(new CustomEvent('peeka-changed'))
         return null
       }
       return data.error || '注册失败，请重试'
@@ -707,8 +738,11 @@ export function MimView({ onClose }: { onClose: () => void }) {
     if (!identity) return
     gatewayRequest<any>('winpeek_mim_contacts', { uid: identity.uid }).then(data => {
       const list: Contact[] = []
-      if (data.contacts) {
-        for (const c of data.contacts) {
+      // Backend wraps contacts as {contacts: [...], groups: [...]}
+      const contactArr = data?.contacts?.contacts || data?.contacts || []
+      const groupArr = data?.contacts?.groups || data?.groups || []
+      if (Array.isArray(contactArr)) {
+        for (const c of contactArr) {
           list.push({
             id: String(c.uid), name: c.nickname, uid: c.uid,
             role: c.role, online: c.online !== false,
@@ -717,8 +751,8 @@ export function MimView({ onClose }: { onClose: () => void }) {
           })
         }
       }
-      if (data.groups) {
-        for (const g of data.groups) {
+      if (Array.isArray(groupArr)) {
+        for (const g of groupArr) {
           list.push({
             id: `g-${g.gid}`, name: g.title, uid: 0, online: true,
             lastMessage: g.last_message || '', lastTime: g.last_time || '',
@@ -969,23 +1003,14 @@ export function MimView({ onClose }: { onClose: () => void }) {
     if (e.key === 'Enter' && !e.shiftKey && !isComposing) { e.preventDefault(); handleSend() }
   }, [handleSend, isComposing])
 
-  // ── Registration check ──
-  if (identity && orgChecked && needRegistration) {
-    return (
-      <MasterDetail>
-        <RegistrationWizard
-          identity={{ uid: identity.uid, name: identity.name, role: identity.role }}
-          onDone={() => { setNeedRegistration(false); setOrgChecked(false) }}
-        />
-      </MasterDetail>
-    )
-  }
+  // Org registration moved to Settings > Peeka > Organization.
+  // MIM chat works independently — no org is required.
 
-  // ── Not logged in ──
+  // ── Not logged in → login/register inline ──
   if (!identity) {
     return (
       <MasterDetail>
-        <LoginPanel existingUsers={existingUsers} onLogin={handleLogin} onRefreshUsers={refreshUsers} onRegister={handleRegister} savedIdentities={identity ? [identity] : []} />
+        <LoginPanel existingUsers={existingUsers} onLogin={handleLogin} onRefreshUsers={refreshUsers} onRegister={handleRegister} savedIdentities={loadAllIdentities()} />
       </MasterDetail>
     )
   }
@@ -999,14 +1024,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
     )
   }
 
-  // ── Profile view ──
-  if (showProfile) {
-    return (
-      <MasterDetail>
-        <ProfilePanel identity={identity} onLogout={handleLogout} onBack={() => setShowProfile(false)} />
-      </MasterDetail>
-    )
-  }
+  // Profile moved to /peeka?tab=profile
 
   // ── Group settings view ──
   if (showGroupSettings && activeContact?.isGroup) {
@@ -1015,7 +1033,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
         <ListColumn>
           <div className="flex h-full flex-col">
             <header className="flex items-center justify-between border-b border-(--ui-stroke-tertiary) px-3 py-2.5">
-              <button className="flex items-center gap-2 text-left hover:opacity-80" onClick={() => setShowProfile(true)}>
+              <button className="flex items-center gap-2 text-left hover:opacity-80" onClick={() => nav(`${SETTINGS_ROUTE}?tab=peeka:profile`)}>
                 <div className="flex h-6 w-6 items-center justify-center rounded-full bg-(--ui-accent)/15 text-[0.6rem] font-semibold text-(--ui-accent)">{identity.name.charAt(0)}</div>
                 <div>
                   <div className="text-xs font-semibold text-foreground">{identity.name}</div>
@@ -1081,7 +1099,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
       <ListColumn>
         <div className="flex h-full flex-col">
           <header className="flex items-center justify-between border-b border-(--ui-stroke-tertiary) px-3 py-2.5">
-            <button className="flex items-center gap-2 text-left hover:opacity-80" onClick={() => setShowProfile(true)}>
+            <button className="flex items-center gap-2 text-left hover:opacity-80" onClick={() => nav(`${SETTINGS_ROUTE}?tab=peeka:profile`)}>
               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-(--ui-accent)/15 text-[0.6rem] font-semibold text-(--ui-accent)">
                 {identity.name.charAt(0)}
               </div>
@@ -1328,7 +1346,7 @@ export function MimView({ onClose }: { onClose: () => void }) {
                         {/* Bubble */}
                         <div className={cn('inline-block max-w-[70%] rounded-lg px-2.5 py-1.5 text-sm',
                           msg.isSelf
-                            ? 'bg-(--dt-user-bubble) text-foreground border border-border/50'
+                            ? 'bg-[#7c3aed] text-white'
                             : 'bg-(--ui-bg-tertiary) text-foreground')}>
                           <div className="[&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/10 [&_pre]:p-2 [&_pre]:text-[0.75rem] [&_code]:rounded [&_code]:bg-black/10 [&_code]:px-1 [&_code]:text-[0.8em] [&_p]:mb-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
                             <Streamdown>{msg.content}</Streamdown>

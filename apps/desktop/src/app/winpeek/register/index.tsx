@@ -55,7 +55,7 @@ export function RegistrationWizard({
 
   const checkStatus = useCallback(async () => {
     try {
-      const d: any = await rq('winpeek_org_status', {})
+      const d: any = await rq('winpeek_org_status', { uid: identity.uid })
       setOrgStatus(d)
       if (d?.linked) { onDone(); return }
     } catch { /* not loaded yet */ }
@@ -77,6 +77,7 @@ export function RegistrationWizard({
     setSubmitting(true)
     try {
       const d: any = await rq('winpeek_register_with_squad', {
+        uid: identity.uid,
         is_new_squad: true, squad_name: squadName.trim(), squad_desc: squadDesc.trim(),
         person_name: identity.name, hostname: '',
         industry: squadIndustry.trim(), address: squadAddr.trim(),
@@ -96,6 +97,7 @@ export function RegistrationWizard({
     setSubmitting(true)
     try {
       const params: any = {
+        uid: identity.uid,
         is_new_squad: false,
         person_name: joinName.trim() || identity.name,
         email: joinEmail.trim(), hostname: '',
@@ -116,21 +118,26 @@ export function RegistrationWizard({
   return (
     <div className="flex h-full items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-4">
-        <div className="text-center">
-          <div className="mb-2 text-4xl">🏢</div>
-          <h2 className="text-lg font-semibold text-foreground">组织注册</h2>
-          <p className="mt-1 text-xs text-(--ui-text-tertiary)">
+        {/* Header — gradient style matching LoginPanel */}
+        <div className="text-center mb-2">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-[#7c3aed] to-[#a78bfa] mb-3 shadow-lg shadow-purple-500/20">
+            <span className="text-2xl">🏢</span>
+          </div>
+          <h2 className="text-lg font-bold text-foreground">组织注册</h2>
+          <p className="mt-1 text-xs text-(--ui-text-secondary)">
             {orgStatus?.hostname ? `设备: ${orgStatus.hostname}` : '首次登录，请选择组织'}
           </p>
         </div>
 
         {/* Tabs */}
-        <div className="flex rounded-lg bg-(--ui-bg-tertiary) p-0.5">
+        <div className="flex rounded-xl bg-(--ui-bg-tertiary) p-1">
           {(['create', 'join'] as const).map(t => (
             <button
               key={t}
-              className={cn('flex-1 rounded-md py-1.5 text-xs font-medium transition-colors',
-                tab === t ? 'bg-(--ui-bg-surface) text-foreground shadow-sm' : 'text-(--ui-text-tertiary)')}
+              className={cn('flex-1 rounded-lg py-2 text-xs font-medium transition-all duration-150',
+                tab === t
+                  ? 'bg-(--ui-bg-surface) text-foreground shadow-sm border border-(--ui-stroke-tertiary)'
+                  : 'text-(--ui-text-tertiary) hover:text-(--ui-text-secondary)')}
               onClick={() => setTab(t)}
             >{t === 'create' ? '创建组织' : '加入组织'}</button>
           ))}
@@ -148,8 +155,8 @@ export function RegistrationWizard({
               <Input className="mt-1" onChange={e => setSquadDesc(e.target.value)}
                 placeholder="简短描述" value={squadDesc} />
             </div>
-            <button type="button" className="w-full text-center text-[0.6rem] text-(--ui-text-quaternary) hover:text-(--ui-accent)" onClick={() => setShowMoreFields(!showMoreFields)}>
-              {showMoreFields ? '收起更多字段' : '+ 更多组织信息（行业、地址、网站、联系方式）'}
+            <button type="button" className="w-full text-center text-[0.65rem] text-(--ui-accent) hover:text-[#6d28d9] transition-colors py-1" onClick={() => setShowMoreFields(!showMoreFields)}>
+              {showMoreFields ? '▲ 收起更多信息' : '▼ 更多组织信息（行业、地址、网站…）'}
             </button>
             {showMoreFields && (
               <div className="space-y-3 rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-surface) p-3">
@@ -189,7 +196,7 @@ export function RegistrationWizard({
                 </div>
               </div>
             )}
-            <Button className="w-full" disabled={!squadName.trim() || submitting}
+            <Button className="w-full h-10 rounded-xl text-sm font-semibold bg-gradient-to-r from-[#7c3aed] to-[#a78bfa] hover:from-[#6d28d9] hover:to-[#8b5cf6] shadow-md shadow-purple-500/20 transition-all" disabled={!squadName.trim() || submitting}
               onClick={handleCreate} size="sm">
               {submitting ? '创建中...' : `创建并加入 · ${squadName ? squadName.slice(0, 12) : ''}`}
             </Button>

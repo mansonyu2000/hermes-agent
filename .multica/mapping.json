@@ -1,0 +1,53 @@
+{
+  "project": "winpeek",
+  "workspace_id": "default",
+  "docs_root": "docs/",
+  "mappings": [
+    {
+      "local_path": "docs/reference-library/",
+      "multica_label": "参考资料萃取库",
+      "sync_on": "stage_1_done"
+    },
+    {
+      "local_path": "docs/requirements/",
+      "multica_label": "需求规格书",
+      "sync_on": "stage_2_done"
+    },
+    {
+      "local_path": "docs/plan/",
+      "multica_label": "开发任务清单",
+      "sync_on": "stage_3_done",
+      "create_issues": true
+    },
+    {
+      "local_path": "docs/design/ui/",
+      "multica_label": "UI设计规范",
+      "sync_on": "stage_4_done"
+    },
+    {
+      "local_path": "docs/design/architecture/",
+      "multica_label": "架构设计方案",
+      "sync_on": "stage_5_done"
+    },
+    {
+      "local_path": "docs/code/",
+      "multica_label": "代码产物",
+      "sync_on": "stage_6_done"
+    },
+    {
+      "local_path": "docs/test/",
+      "multica_label": "测试报告",
+      "sync_on": "stage_7_done"
+    },
+    {
+      "local_path": "docs/deploy/",
+      "multica_label": "部署交付文档",
+      "sync_on": "stage_8_done"
+    }
+  ],
+  "sync_strategy": {
+    "local": "immediate_every_stage",
+    "multica": "every_stage_progress_update",
+    "zentao": "milestone_only_stage_2_and_8"
+  }
+}

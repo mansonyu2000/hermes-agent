@@ -12,6 +12,7 @@ export type SettingsView =
   | 'providers'
   | 'sessions'
   | `config:${string}`
+  | `peeka:${string}`
 export type EnvPatch = Partial<Pick<EnvVarInfo, 'is_set' | 'redacted_value'>>
 
 export interface SettingsPageProps {

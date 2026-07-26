@@ -248,7 +248,8 @@ def upsert_squad(name: str, requester_uid: int = 0, **fields) -> dict:
     conn = get_conn()
     if conn is None: return {"ok": False, "error": "DB unavailable"}
     allowed = {"description", "meta", "address", "industry", "founded_at",
-               "legal_person", "contact_phone", "website", "contact_email"}
+               "legal_person", "contact_phone", "website", "contact_email",
+               "org_type", "business_scope"}
     vals = {"name": name}
     for k in allowed:
         if k in fields and fields[k] is not None:
@@ -256,18 +257,21 @@ def upsert_squad(name: str, requester_uid: int = 0, **fields) -> dict:
     now = _now()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, owner_person_id FROM squads WHERE name = %s", (name,))
+            # Match by squad_id first (for edit), then by name (for create/new name)
+            squad_id = fields.get("squad_id")
+            if squad_id:
+                cur.execute("SELECT id, owner_person_id FROM squads WHERE id = %s", (squad_id,))
+            else:
+                cur.execute("SELECT id, owner_person_id FROM squads WHERE name = %s", (name,))
             existing = cur.fetchone()
             if existing:
-                # managed_by_uid: only squad owner can set
-                if "managed_by_uid" in fields and fields["managed_by_uid"] is not None:
-                    oid = existing.get("owner_person_id")
-                    if not oid or not requester_uid:
-                        return {"ok": False, "error": "Only squad owner can set managed_by_uid"}
-                    cur.execute("SELECT 1 FROM users WHERE master_uid = %s AND uid = %s", (oid, requester_uid))
-                    if not cur.fetchone():
-                        return {"ok": False, "error": "Only squad owner can set managed_by_uid"}
-                    vals["managed_by_uid"] = fields["managed_by_uid"]
+                # owner_person_id: only current owner can transfer ownership
+                transfer_to = fields.get("owner_person_id")
+                if transfer_to is not None:
+                    cur_owner = existing.get("owner_person_id")
+                    if not cur_owner or not _is_squad_admin(requester_uid, existing["id"], cur):
+                        return {"ok": False, "error": "Only the current owner can transfer ownership"}
+                    vals["owner_person_id"] = transfer_to
                 sid = existing["id"]
                 sets = ", ".join(f"`{k}` = %s" for k in vals)
                 cur.execute(f"UPDATE squads SET {sets}, updated_at = %s WHERE id = %s",
@@ -450,20 +454,23 @@ def get_machine_detail(machine_id: int, requester_uid: int = 0) -> dict | None:
 
 
 def get_org_status(winpeek_uid: int) -> dict:
-    """Check if a uid is linked to a squad (via machines.squad_id or users.master_uid)."""
+    """Check if a uid is linked to a squad (via machines.squad_id or users.master_uid).
+    Returns is_owner: True if this user's person is the squad owner."""
     conn = get_conn()
     if conn is None: return {"linked": False, "squads": []}
     try:
         with conn.cursor() as cur:
-            # 1) check machines.squad_id
-            cur.execute("SELECT id, squad_id, hostname FROM machines WHERE winpeek_uid = %s ORDER BY last_seen DESC LIMIT 1", (winpeek_uid,))
+            # 1) check machines.squad_id — machine.person_id is the authoritative link
+            cur.execute("SELECT id, squad_id, hostname, person_id FROM machines WHERE winpeek_uid = %s ORDER BY last_seen DESC LIMIT 1", (winpeek_uid,))
             m = cur.fetchone()
             mid = m["id"] if m else None
             hn = m["hostname"] if m else ""
+            person_id = m.get("person_id") if m else None
             if m and m.get("squad_id"):
                 cur.execute("SELECT * FROM squads WHERE id = %s", (m["squad_id"],))
                 s = cur.fetchone()
-                return {"linked": True, "machine_id": mid, "squad": _row(s) if s else None, "hostname": hn}
+                is_owner = bool(s and person_id and str(s.get("owner_person_id")) == str(person_id))
+                return {"linked": True, "machine_id": mid, "squad": _row(s) if s else None, "hostname": hn, "is_owner": is_owner}
             # 2) check users.master_uid → persons.squad_id
             cur.execute("""
                 SELECT s.* FROM users u
@@ -473,7 +480,9 @@ def get_org_status(winpeek_uid: int) -> dict:
             """, (winpeek_uid,))
             row = cur.fetchone()
             if row:
-                return {"linked": True, "machine_id": mid, "squad": _row(row), "hostname": hn, "via_master": True}
+                sd = _row(row)
+                is_owner = bool(sd and person_id and str(sd.get("owner_person_id")) == str(person_id))
+                return {"linked": True, "machine_id": mid, "squad": sd, "hostname": hn, "via_master": True, "is_owner": is_owner}
             # 3) not linked → list available
             cur.execute("SELECT * FROM squads ORDER BY name")
             squads = [_row(s) for s in cur.fetchall()]
@@ -594,7 +603,7 @@ def link_account(person_id: int, uid: int, is_main: int = 0) -> dict:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE users SET master_uid = %s WHERE uid = %s"
+                "INSERT INTO winpeek_accounts (person_id, uid, is_main) VALUES (%s, %s, %s) "
                 "ON DUPLICATE KEY UPDATE is_main = VALUES(is_main)",
                 (person_id, uid, is_main))
             conn.commit()
@@ -612,9 +621,10 @@ def list_accounts_for_person(person_id: int) -> list[dict]:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT wa.*, u.nickname, u.role
-                FROM users u
+                FROM winpeek_accounts wa
                 LEFT JOIN users u ON wa.uid = u.uid
-                WHERE u.master_uid = %s
+                WHERE wa.person_id = %s
+                ORDER BY wa.is_main DESC
             """, (person_id,))
             return [_row(r) for r in cur.fetchall()]
     finally:
@@ -691,7 +701,7 @@ def upsert_agent(name: str, requester_uid: int = 0, **fields) -> dict:
 
 
 def _is_squad_admin(uid: int, squad_id: int, cur) -> bool:
-    """Check if uid is the squad owner (via owner_person_id → winpeek_accounts)."""
+    """Check if uid is the squad owner (via owner_person_id → winpeek_accounts → uid)."""
     cur.execute("SELECT owner_person_id FROM squads WHERE id = %s", (squad_id,))
     s = cur.fetchone()
     if not s:
@@ -699,7 +709,10 @@ def _is_squad_admin(uid: int, squad_id: int, cur) -> bool:
     oid = s.get("owner_person_id")
     if not oid:
         return False
-    cur.execute("SELECT 1 FROM users WHERE master_uid = %s AND uid = %s", (oid, uid))
+    # Check if any winpeek_account entry for this uid links to a person whose id = owner_person_id
+    cur.execute(
+        "SELECT 1 FROM winpeek_accounts wa WHERE wa.uid = %s AND wa.person_id = %s",
+        (uid, oid))
     return bool(cur.fetchone())
 
 
@@ -1014,6 +1027,105 @@ def _row(r) -> dict:
             v = v.strftime("%Y-%m-%d %H:%M:%S")
         d[k] = v
     return d
+
+
+# ── Delete operations ──
+
+def delete_squad(squad_id: int, requester_uid: int, leave_only: bool = False) -> dict:
+    """Delete a squad. If leave_only, only removes the requester_uid's person+machine links.
+    Full delete requires the requester to be the squad owner."""
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM squads WHERE id = %s", (squad_id,))
+            squad = cur.fetchone()
+            if not squad:
+                return {"ok": False, "error": "Squad not found"}
+            if leave_only:
+                cur.execute("DELETE FROM persons WHERE squad_id = %s AND id IN (SELECT person_id FROM winpeek_accounts WHERE uid = %s)", (squad_id, requester_uid))
+                cur.execute("DELETE FROM machines WHERE squad_id = %s AND winpeek_uid = %s", (squad_id, requester_uid))
+            else:
+                if not _is_squad_admin(requester_uid, squad_id, cur):
+                    return {"ok": False, "error": "Not authorized — must be organization owner"}
+                cur.execute("DELETE FROM machines WHERE squad_id = %s", (squad_id,))
+                cur.execute("DELETE FROM persons WHERE squad_id = %s", (squad_id,))
+                cur.execute("DELETE FROM squads WHERE id = %s", (squad_id,))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def delete_person(person_id: int, requester_uid: int) -> dict:
+    """Delete a person from their squad. requester must be squad admin."""
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT squad_id FROM persons WHERE id = %s", (person_id,))
+            row = cur.fetchone()
+            if not row:
+                return {"ok": False, "error": "Person not found"}
+            sqid = row["squad_id"]
+            if not sqid or not _is_squad_admin(requester_uid, sqid, cur):
+                return {"ok": False, "error": "Not authorized"}
+            cur.execute("DELETE FROM winpeek_accounts WHERE person_id = %s", (person_id,))
+            cur.execute("DELETE FROM persons WHERE id = %s", (person_id,))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def delete_machine(machine_id: int, requester_uid: int) -> dict:
+    """Delete a machine/device. requester must be squad admin."""
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT squad_id FROM machines WHERE id = %s", (machine_id,))
+            row = cur.fetchone()
+            if not row:
+                return {"ok": False, "error": "Machine not found"}
+            sqid = row["squad_id"]
+            if not sqid or not _is_squad_admin(requester_uid, sqid, cur):
+                return {"ok": False, "error": "Not authorized"}
+            cur.execute("DELETE FROM machines WHERE id = %s", (machine_id,))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def delete_agent(agent_id: int, requester_uid: int) -> dict:
+    """Delete an agent. requester must own the agent or be squad admin."""
+    conn = get_conn()
+    if conn is None: return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM ai_agents WHERE id = %s", (agent_id,))
+            agent = cur.fetchone()
+            if not agent:
+                return {"ok": False, "error": "Agent not found"}
+            agent_uid = agent.get("uid") or agent.get("winpeek_uid", 0)
+            squad_id = agent.get("squad_id", 0)
+            if agent_uid != requester_uid:
+                if not squad_id or not _is_squad_admin(requester_uid, squad_id, cur):
+                    return {"ok": False, "error": "Not authorized"}
+            cur.execute("DELETE FROM ai_agents WHERE id = %s", (agent_id,))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
 
 
 def _to_float(v: Any) -> float | None:

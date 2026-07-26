@@ -1,0 +1,33 @@
+{
+  "project": "winpeek",
+  "zentao_project_id": 6,
+  "zentao_base_url": "https://pm.test.com/zentao",
+  "docs_root": "docs/",
+  "mappings": [
+    {
+      "local_path": "docs/reference-library/",
+      "zentao_module": "文档管理",
+      "zentao_doc_lib": "参考资料萃取"
+    },
+    {
+      "local_path": "docs/requirements/",
+      "zentao_module": "需求管理",
+      "zentao_url": "https://pm.test.com/zentao/story-browse-6.html"
+    },
+    {
+      "local_path": "docs/plan/",
+      "zentao_module": "任务管理",
+      "zentao_url": "https://pm.test.com/zentao/task-browse-6.html"
+    },
+    {
+      "local_path": "docs/design/",
+      "zentao_module": "文档管理",
+      "zentao_doc_lib": "设计文档"
+    },
+    {
+      "local_path": "docs/test/",
+      "zentao_module": "测试管理",
+      "zentao_url": "https://pm.test.com/zentao/testcase-browse-6.html"
+    }
+  ]
+}
