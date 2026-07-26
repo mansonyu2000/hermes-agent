@@ -58,20 +58,23 @@ zentao_stories: [117, 118, 119, 120]
 
 ## Phase P3: 消息→Agent 送达 (F3) → Story #120
 
-- [ ] F3.1 Agent inbox — 消息路由到文件系统 `[zentao:#54]`
-  - 后端: `peeka_router.py` → `route_incoming()` 增强 → 写入 inbox 文件
-  - 格式: `~/.hermes/winpeek/inbox/{agent_uid}/unread/{msg_id}.json`
+- [x] F3.1 Agent inbox — 消息路由到文件系统 `[zentao:#54]` ✅
+  - 后端: `chat.py` → `send_message()` → `route_incoming()` L3 → `write_to_inbox()`
+  - 格式: `~/.hermes/winpeek/inbox/{agent_uid}/unread/{mid}.json`
 
-- [ ] F3.2 Agent 自主读信 — peeka_router 3层转发 `[zentao:#55]`
-  - 后端: `peeka_router.py` → Layer 3 消息分发
-  - daemon: `apps/winpeek_injector/daemon.py` → inbox 轮询
+- [x] F3.2 Agent 自主读信 — peeka_router 3层转发 `[zentao:#55]` ✅
+  - RPC: `winpeek_mim_check_inbox` + `winpeek_mim_poll` (读内存队列+文件inbox)
+  - 后端: `peeka_router.py` → Layer 3 → `assemble_context()`
+  - daemon: inbox 管理 + reliability 追踪 + chase 催问
 
-- [ ] F3.3 Agent 自动回复 — LLM自由回复 + 模板 `[zentao:#56]`
-  - 后端: `chat.py` → `send_message()` → Agent 回复
-  - 路由日志: 新建 `message_routes` 表
+- [x] F3.3 Agent 自动回复 — LLM自由回复 + 模板 `[zentao:#56]` ✅
+  - RPC: `winpeek_mim_send` → `chat.send_message()` → 完整路由
+  - 新增: `winpeek_mim_read_digest` (启动时读取L1/L2摘要)
+  - 新增: `winpeek_mim_mark_replied` (标记已回复,关闭追踪)
 
-- [ ] F3.4 前端状态指示 — Agent已读/回复状态 `[zentao:#57]`
-  - 前端: 消息旁显示 "Agent 已读" / "Agent 已回复" 标签
+- [x] F3.4 前端状态指示 — Agent已读/回复状态 `[zentao:#57]` ✅
+  - RPC: `winpeek_mim_agent_status` (在线状态+inbox数+pending chase)
+  - RPC: `winpeek_mim_local_agents` (本地Agent发现,已暴露@method)
 
 ## Phase P4: 安全 + 测试
 
