@@ -116,20 +116,26 @@ def _on_message(client, userdata, msg):
     if msg.topic.startswith("comms/say/"):
         to_uid = int(msg.topic.rsplit("/", 1)[-1])
         if to_uid:
+            # Trace: append relay hop
+            trace = list(payload.get("_trace", []))
+            trace.append(f"relay@{UID}")
+            payload["_trace"] = trace
             payload_str = json.dumps(payload, ensure_ascii=False)
             client.publish(f"comms/inbox/{to_uid}", payload_str, qos=1)
-            logger.info(f"MIM say→inbox relay: uid={to_uid} from={payload.get('from','?')}")
+            logger.info(f"MIM say→inbox relay: uid={to_uid} trace={'→'.join(trace)}")
         return
 
     from_uid = payload.get("from_uid", "")
     from_name = payload.get("from", "?")
     body = payload.get("body", "")
     gid = payload.get("gid")
+    trace = list(payload.get("_trace", []))
+    trace.append(f"inbox@{UID}")
 
     if str(from_uid) == str(UID):
         return
 
-    logger.info(f"[{from_name} ({from_uid})]: {body[:80]}")
+    logger.info(f"[{from_name} ({from_uid})]: {body[:60]} trace={'→'.join(trace)}")
 
     # Route into chat queue
     try:
@@ -141,6 +147,7 @@ def _on_message(client, userdata, msg):
             "gid": gid,
             "content": body,
             "time": payload.get("ts", time.strftime("%Y-%m-%dT%H:%M:%S")),
+            "_trace": trace,
         })
     except Exception:
         pass
@@ -243,6 +250,7 @@ def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
         "to_uid": str(target_uid),
         "body": text,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "_trace": [f"say@{UID}"],
     }, ensure_ascii=False)
     try:
         result = _client.publish(topic, payload, qos=1)
