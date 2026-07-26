@@ -152,81 +152,114 @@ if os.path.exists(inject_path):
 - 读取后立即删除文件（`os.unlink`），不会重复处理
 - 不在源码 `cli.py` 中，在打包版本 `build/lib/cli.py` 中
 
-## 5. 完整消息流
+## 5. 端到端消息流 — 三个过程
+
+### 过程 1: say 消息 → MIM 服务器 (MySQL + Gateway + MQTT)
 
 ```
-Agent A: say 2022 "任务完成"
+Agent A 执行: say 2022 "任务完成"
   │
   ▼
 say.py → MQTT comms/say/2022
   │
   ▼
-Gateway mqtt_adapter.py:
+Gateway mqtt_adapter.py (_on_message, line 115-122):
   1. 收到 comms/say/# 消息
-  2. say→inbox relay → 发布 comms/inbox/2022     ← 2026-07-27 实现
-  3. 收到 comms/inbox/2022 → chat.enqueue()       ← 已有
-  │
-  ▼ 缺口
-  4. ⏳ 写 ~/.winpeek/inbox/.inject 文件
+  2. say→inbox relay → 发布 comms/inbox/2022
   │
   ▼
-Hermes 主循环:
-  5. 轮询 ~/.winpeek/inbox/.inject                ← 已有
-  6. 读取 → _pending_input.put() → 立即响应        ← 已有
+MQTT Broker → 投递到所有订阅 comms/inbox/2022 的客户端
 ```
 
-## 6. 新的MIM 客户端测试工作流
+**关键文件**: `say.py` (53行), `mqtt_adapter.py` §2.3 (say→inbox relay)
 
-另外，我们的桌面应用本身也可以连接我们的服务端，如果客户端也需要测试，采用下面的流程，这些也需要新增，这是我们之前没有想到的。
+### 过程 2: MQTT → 本机统一信箱 (Peeka Daemon)
 
-4.1. 桌面应用 Websocket 连接（实时收消息）
-`
+```
+Gateway 发布 comms/inbox/{uid}
+  │
+  ├─→ [路径A] winpeek_mqtt.py 监听器 (hermes CLI)
+  │     MQTT paho daemon线程 → _inbox_queue → drain_inbox()
+  │     文件: hermes-agent/ hermes_cli/winpeek_mqtt.py (225行)
+  │
+  ├─→ [路径B] .inject 文件 (所有 Agent 通用)
+  │     Gateway 写入 ~/.winpeek/inbox/.inject
+  │     Hermes 主循环轮询 → 读到即删
+  │     文件: hermes-agent/build/lib/cli.py:14052
+  │
+  └─→ [路径C] 文件 inbox (Daemon 管理, 已实现)
+        ~/.hermes/winpeek/inbox/{uid}/unread/{mid}.json
+        文件: apps/winpeek_injector/daemon.py §inbox management (lines 365-445)
+```
+
+> **待统一**: 当前三种信箱路径分散 (`~/.winpeek/inbox/.inject`, `~/.hermes/winpeek/inbox/`, MQTT `_inbox_queue`)。
+> 计划统一到: `~/.peeka/data/messages/{uid}/inbox/` 和 `~/.peeka/data/messages/{uid}/outbox/`，每个 uid 独立文件夹。
+> Peeka Daemon 负责管理这些目录的创建、清理和消息预处理。
+
+### 过程 3: 信箱 → Agent 对话框 (主动弹出)
+
+**Hermes (开源, 可修改 chatbox) — 3 种方案并存:**
+
+| 方案 | 机制 | 文件 | 时效 |
+|------|------|------|:--:|
+| MQTT 直接推送 | paho-mqtt daemon线程 → `_inbox_queue` → `drain_inbox()` → `_pending_input.put()` → Agent 当作用户输入立即处理 | `cli.py:15194-15207` | **实时** |
+| .inject 文件轮询 | 主循环每次空闲迭代读 `~/.winpeek/inbox/.inject` → `_pending_input.put()` | `build/lib/cli.py:14052` | **实时** |
+| MQTT 启动监听 | 启动时 `start_mqtt_listener()` + `drain_inbox()` 检查启动前积压消息 | `cli.py:6199-6207` | **启动时** |
+
+> Hermes MQTT 方案 (方案1) 是目前主路径。不依赖定时轮询，消息到达即推送。
+> 方案2 (.inject) 为备用兼容路径。
+
+**Claude Code (闭源, 不可修改 chatbox) — 空投注入:**
+
+| 方案 | 机制 | 文件 |
+|------|------|------|
+| RPA 窗口注入 | 激活 CC 窗口 → 点击 chatbox → 粘贴文本 → 按 Enter | `apps/winpeek_injector/engine.py:deliver_to_agent()` |
+| ConPTY 句柄注入 | 复制 ConDrv 句柄 → 直接写文本到终端输入通道 (无需窗口激活) | `apps/winpeek_injector/conpty_inject.py` |
+| dialog_bridge | 独立进程, MQTT 监听 + RPA 驱动 CC 窗口 | `apps/desktop/src/dialog_bridge/bridge-agent.py` (979行) |
+
+> dialog_bridge 是最早的 CC 消息注入方案 (SWARM-TECH-SPEC.md:38): "CC is a terminal interaction program, has no programming API to inject text into its chatbox. Therefore RPA is used."
+
+## 6. 桌面应用 WS + REST 测试接口
+
+桌面应用连接服务端进行测试：
+
+**WebSocket 实时连接:**
+```
 ws://127.0.0.1:2000/ws
-{
-  type: "hello",
-  params: {
-    nodeId: "'$WINPEEK_UID'",
-    name: "'$WINPEEK_NAME'",
-    hostname: "'$HOSTNAME'",
-    role: "'$ROLE'",
-    clientType: "agent"
-  }
-}
+→ { type: "hello", params: { nodeId, name, hostname, role, clientType: "agent" } }
+```
 
-4.2 REST接口
-
-4.2.1 执行"你好"命令
-`
-curl -X POST http://127.0.0.1:2000/api/chat/send -H "Content-Type: application/json" -d '{"from_uid": '$WINPEEK_UID', "from_name": "'$WINPEEK_NAME'", "to_uid": '$WINPEEK_UID', "body": "你好"}'
-`
-
-4.2.2 设置活跃窗口
-`
-curl -X POST http://127.0.0.1:2000/api/set-active-window -H "Content-Type: application/json" -d '{"windowTitle": "Claude Code"}'
-`
+**REST 接口:**
+```
+POST /api/chat/send    — 发送消息
+POST /api/set-active-window — 设置活跃窗口
+```
 
 ## 7. 当前状态 (2026-07-27)
 
-| # | 功能 | 状态 |
-|---|------|:--:|
-| 1 | say→inbox relay | ✅ 已实现 |
-| 2 | 订阅 comms/say/# | ✅ 已实现 |
-| 3 | 重启 Gateway 加载新代码 | ⏳ |
-| 4 | inbox 到达后写 .inject 文件 | ⏳ 待实现 |
+| # | 功能 | 过程 | 状态 |
+|---|------|:--:|:--:|
+| 1 | say→inbox relay (Gateway MQTT) | 过程1 | ✅ 已实现 |
+| 2 | 订阅 comms/say/# | 过程1 | ✅ 已实现 |
+| 3 | 重启 Gateway 加载新代码 | 过程1 | ⏳ |
+| 4 | 统一信箱路径 (~/.peeka/data/messages/{uid}/) | 过程2 | ⏳ 待实现 |
+| 5 | Gateway inbox到达后写 .inject / MQTT推送 | 过程2→3 | ⏳ 待实现 |
+| 6 | Hermes MQTT listener (winpeek_mqtt.py) | 过程3 | ✅ 已有 |
+| 7 | Claude Code RPA 空投 | 过程3 | ✅ 已有 |
 
 ## 8. 代码引用
 
 | 文件 | 仓库 | 作用 |
 |------|------|------|
-| `gateway/winpeek_hub/mqtt_adapter.py` | hermes-agent-cc | 消息中心(say→inbox relay, 300行) |
-| `gateway/winpeek_hub/chat.py` | hermes-agent-cc | 消息引擎(send/poll/enqueue) |
-| `gateway/winpeek_hub/hub_bridge.py` | hermes-agent-cc | Gateway 生命周期集成 |
-| `gateway/winpeek_hub/peeka_router.py` | hermes-agent-cc | 3层消息路由(L1/L2/L3) |
-| `tools/winpeek_tools.py` | hermes-agent-cc | MIM RPC tools (login/send/poll/contacts) |
-| `apps/winpeek_injector/daemon.py` | hermes-agent-cc | Agent 发现 + inbox 文件管理 + 可靠性追踪 |
-| `~/winpeek/setup_mqtt/agent/say.py` | 本地安装 | 全局 say 命令 (53行) |
-| `PeekabooWin/bin/say.py` | PeekabooWin | say 完整版 (160行, 自动识人) |
-| `build/lib/cli.py:14052` | hermes-agent (上游) | .inject 轮询 (被动投递核心) |
+| `gateway/winpeek_hub/mqtt_adapter.py` | hermes-agent-cc | 过程1: 消息中心 (say→inbox relay, 300行) |
+| `gateway/winpeek_hub/chat.py` | hermes-agent-cc | 过程1: 消息引擎 (send/poll/enqueue) |
+| `apps/winpeek_injector/daemon.py` | hermes-agent-cc | 过程2: Daemon (信箱管理+Agent发现+可靠性追踪) |
+| `hermes-agent/hermes_cli/winpeek_mqtt.py` | 上游 | 过程2: MQTT 被动监听器 (225行) |
+| `hermes-agent/cli.py:15194-15207` | 上游 | 过程3: drain_inbox → _pending_input (Hermes主动弹出) |
+| `hermes-agent/build/lib/cli.py:14052` | 上游 | 过程3: .inject 文件轮询 (备用路径) |
+| `apps/winpeek_injector/engine.py` | hermes-agent-cc | 过程3: RPA/ConPTY 窗口注入 (CC空投) |
+| `apps/desktop/src/dialog_bridge/bridge-agent.py` | hermes-agent-cc | 过程3: CC dialog_bridge (最早的空投方案) |
+| `~/winpeek/setup_mqtt/agent/say.py` | 本地安装 | 过程1: 全局 say 命令 (53行) |
 
 ## 附录 A: 关键节点说明
 
