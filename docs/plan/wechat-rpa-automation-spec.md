@@ -1,7 +1,8 @@
 # WeChat RPA — 自动化桌面软件规格说明书
 
 > **版本**: v1.0 · **日期**: 2026-07-22
-> **来源文档**: `website/docs/winpeek/wechat-automation/`
+> **关联文档**: [`website/docs/winpeek/wechat-automation/`](../website/docs/winpeek/wechat-automation/README.md) — 设计文档总索引
+> **骨架来源**: [`wechat-automation-menu.md`](../website/docs/winpeek/wechat-automation/wechat-automation-menu.md) — 菜单体系 + 行动闭环
 > **遵循**: `pipeline:spec` (`.agents/skills/spec-driven-development/SKILL.md`)
 
 ---
