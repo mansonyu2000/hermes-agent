@@ -22,6 +22,7 @@ import os
 import socket
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -95,7 +96,8 @@ def _on_connect(client, userdata, flags, reason_code, properties):
         client.subscribe("comms/inbox/#", qos=1)
         client.subscribe("comms/outbox/#", qos=1)
         client.subscribe("comms/group/#", qos=1)
-        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, inbox+outbox+group=all")
+        client.subscribe("comms/say/#", qos=1)
+        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, say+inbox+outbox+group=all")
     else:
         logger.warning(f"MIM connect failed: code={reason_code}")
 
@@ -109,6 +111,15 @@ def _on_message(client, userdata, msg):
     # ── Outbox: Agent → Daemon relay ──
     if msg.topic.startswith("comms/outbox/"):
         _handle_outbox(msg.topic, payload)
+        return
+
+    # ── Say relay: comms/say/{uid} → comms/inbox/{uid} (MIM message center) ──
+    if msg.topic.startswith("comms/say/"):
+        to_uid = int(msg.topic.rsplit("/", 1)[-1])
+        if to_uid:
+            payload_str = json.dumps(payload, ensure_ascii=False)
+            client.publish(f"comms/inbox/{to_uid}", payload_str, qos=1)
+            logger.info(f"MIM say→inbox relay: uid={to_uid} from={payload.get('from','?')}")
         return
 
     from_uid = payload.get("from_uid", "")
@@ -137,14 +148,11 @@ def _on_message(client, userdata, msg):
 
     # .inject file — Hermes CLI passive popup (build/lib/cli.py:14052)
     try:
-        import os as _os
-        from pathlib import Path as _Path
-        inject_path = _Path.home() / ".winpeek" / "inbox" / ".inject"
+        inject_path = Path.home() / ".winpeek" / "inbox" / ".inject"
         inject_path.parent.mkdir(parents=True, exist_ok=True)
         formatted = f"{from_name}[{from_uid}] said: {body}"
         inject_path.write_text(formatted, encoding="utf-8")
-    except Exception:
-        pass
+        logger.info(f"MIM .inject written: {formatted[:80]}")
     except Exception:
         pass
 

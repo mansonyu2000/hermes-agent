@@ -47,6 +47,7 @@ Peeka 是 Hermes 的多实例身份与通讯系统，2026-07-26 交付 v4。
 **技术文档**: [peeka/settings-v1-dev-doc.md](peeka/settings-v1-dev-doc.md) — 完整架构/代码位置/RPC清单/身份同步/编译验证。
 **验收报告**: [peeka/settings-v1-acceptance.md](peeka/settings-v1-acceptance.md) — 15/15 E2E 通过。
 **MIM Spec**: [peeka/mim-chat-v1-spec.md](peeka/mim-chat-v1-spec.md) — MIM聊天系统V1需求规格。
+**MIM 架构**: [peeka/mim-architecture-dev-doc.md](peeka/mim-architecture-dev-doc.md) — 4组件消息链路 (say→Hub→bridge→Hermes)。
 **任务索引**: [tasks/README.md](../tasks/README.md) — 按模块分层的任务清单。
 
 ### v4 Bug 修复清单
