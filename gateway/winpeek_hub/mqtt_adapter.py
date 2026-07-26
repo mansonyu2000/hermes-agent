@@ -223,10 +223,11 @@ def disconnect():
 # ── 发送 ──────────────────────────────────────────
 
 def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
-    """Publish to comms/say/{target_uid} — Hub internal forwarding."""
+    """Publish to comms/say/{target_uid} + comms/inbox/{target_uid} (passive delivery)."""
     if not _client or target_uid <= 0:
         return False
-    topic = f"{SAY_TOPIC_PREFIX}/{target_uid}"
+    say_topic = f"{SAY_TOPIC_PREFIX}/{target_uid}"
+    inbox_topic = f"comms/inbox/{target_uid}"
     payload = json.dumps({
         "from_uid": str(UID),
         "from": NAME,
@@ -235,9 +236,10 @@ def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }, ensure_ascii=False)
     try:
-        result = _client.publish(topic, payload, qos=1)
+        _client.publish(say_topic, payload, qos=1)
+        _client.publish(inbox_topic, payload, qos=1)
         logger.info(f"MIM → {target_name or target_uid}: {text[:60]}")
-        return result.rc == mqtt.MQTT_ERR_SUCCESS
+        return True
     except Exception as e:
         logger.warning(f"MIM send failed: {e}")
         return False
