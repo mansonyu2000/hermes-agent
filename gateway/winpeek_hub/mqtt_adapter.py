@@ -146,9 +146,7 @@ def _on_message(client, userdata, msg):
     except Exception:
         pass
 
-    # Phase 2.1: .inject 文件 — Hermes CLI 被动弹出
-    #   Hermes CLI 主循环轮询 ~/.winpeek/inbox/.inject (build/lib/cli.py:14052)
-    #   有内容 → _pending_input.put() → Agent 立即响应
+    # .inject file — Hermes CLI passive popup (build/lib/cli.py:14052)
     try:
         import re as _re
         inject_path = Path.home() / ".winpeek" / "inbox" / ".inject"
