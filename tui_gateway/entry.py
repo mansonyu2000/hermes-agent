@@ -346,6 +346,15 @@ def main():
         global _mcp_discovery_thread
         _mcp_discovery_thread = _mcp_thread
 
+    # WinPeek MQTT inbox listener — passive delivery for all agents
+    _mqtt_ok = False
+    try:
+        from hermes_cli.winpeek_mqtt import start_mqtt_listener, drain_inbox, format_inbox_summary
+        start_mqtt_listener()  # uid from agent.conf
+        _mqtt_ok = True
+    except Exception:
+        pass
+
     if not write_json({
         "jsonrpc": "2.0",
         "method": "event",
@@ -354,7 +363,26 @@ def main():
         _log_exit("startup write failed (broken stdout pipe before first event)")
         sys.exit(0)
 
+    _last_inbox_drain = 0
     for raw in sys.stdin:
+        # Periodic WinPeek inbox drain (every 3s)
+        if _mqtt_ok and time.time() - _last_inbox_drain > 3:
+            _last_inbox_drain = time.time()
+            try:
+                from hermes_cli.winpeek_mqtt import drain_inbox, format_inbox_summary
+                inbox_msgs = drain_inbox()
+                if inbox_msgs:
+                    write_json({
+                        "jsonrpc": "2.0",
+                        "method": "event",
+                        "params": {
+                            "type": "user_notification",
+                            "payload": {"text": format_inbox_summary(inbox_msgs)},
+                        },
+                    })
+            except Exception:
+                pass
+
         line = raw.strip()
         if not line:
             continue
