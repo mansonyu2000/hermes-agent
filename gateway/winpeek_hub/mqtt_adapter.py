@@ -233,11 +233,10 @@ def disconnect():
 # ── 发送 ──────────────────────────────────────────
 
 def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
-    """Publish to comms/say/{target_uid} + comms/inbox/{target_uid} (passive delivery)."""
+    """Publish to comms/say/{target_uid} (relay handles say→inbox forwarding)."""
     if not _client or target_uid <= 0:
         return False
-    say_topic = f"{SAY_TOPIC_PREFIX}/{target_uid}"
-    inbox_topic = f"comms/inbox/{target_uid}"
+    topic = f"{SAY_TOPIC_PREFIX}/{target_uid}"
     payload = json.dumps({
         "from_uid": str(UID),
         "from": NAME,
@@ -246,38 +245,11 @@ def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }, ensure_ascii=False)
     try:
-        _client.publish(say_topic, payload, qos=1)
-        _client.publish(inbox_topic, payload, qos=1)
+        result = _client.publish(topic, payload, qos=1)
         logger.info(f"MIM → {target_name or target_uid}: {text[:60]}")
-        return True
-    except Exception as e:
-        logger.warning(f"MIM send failed: {e}")
-        return False
-
-
-def publish_inbox(
-    to_uid: int,
-    from_uid: int,
-    from_name: str,
-    body: str,
-    mid: str = "",
-    gid: str = "",
-) -> bool:
-    """Publish to comms/inbox/{to_uid} — for Hermes TUI passive listener."""
-    if not _client or to_uid <= 0:
-        return False
-    payload = json.dumps({
-        "from_uid": str(from_uid),
-        "from": from_name,
-        "body": body[:500],
-        "mid": mid,
-        "gid": gid,
-    }, ensure_ascii=False)
-    try:
-        result = _client.publish(f"comms/inbox/{to_uid}", payload, qos=1)
         return result.rc == mqtt.MQTT_ERR_SUCCESS
     except Exception as e:
-        logger.warning(f"MIM inbox publish failed: {e}")
+        logger.warning(f"MIM send failed: {e}")
         return False
 
 
