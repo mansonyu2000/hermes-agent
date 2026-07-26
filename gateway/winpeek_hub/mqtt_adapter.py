@@ -74,7 +74,6 @@ GROUP_TOPIC_PREFIX = "comms/group"
 
 _client: Optional[mqtt.Client] = None
 _message_handler = None
-_seen_fingerprints: set[str] = set()  # MQTT dedup
 
 
 def is_configured() -> bool:
@@ -108,16 +107,6 @@ def _on_message(client, userdata, msg):
         payload = json.loads(msg.payload.decode())
     except json.JSONDecodeError:
         return
-
-    # ── Dedup: MQTT QoS 1 may replay messages ──
-    from_uid_raw = str(payload.get("from_uid", ""))
-    body_preview = str(payload.get("body", ""))[:80]
-    fp = f"{msg.topic}|{from_uid_raw}|{body_preview}"
-    if fp in _seen_fingerprints:
-        return
-    _seen_fingerprints.add(fp)
-    if len(_seen_fingerprints) > 500:
-        _seen_fingerprints.clear()  # simple ring-buffer reset
 
     # ── Outbox: Agent → Daemon relay ──
     if msg.topic.startswith("comms/outbox/"):
