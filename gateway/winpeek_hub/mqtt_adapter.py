@@ -150,9 +150,14 @@ def _on_message(client, userdata, msg):
     #   Hermes CLI 主循环轮询 ~/.winpeek/inbox/.inject (build/lib/cli.py:14052)
     #   有内容 → _pending_input.put() → Agent 立即响应
     try:
+        import re as _re
         inject_path = Path.home() / ".winpeek" / "inbox" / ".inject"
         inject_path.parent.mkdir(parents=True, exist_ok=True)
-        formatted = f"{from_name}[{from_uid}] said: {body}"
+        # Sanitize: strip control chars, newlines, null bytes to prevent
+        # command injection into agent chatbox
+        safe_body = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', body)[:1000]
+        safe_name = _re.sub(r'[\x00-\x1f\[\]]', '', str(from_name))[:60]
+        formatted = f"[MIM] {safe_name}(uid={from_uid}) said: {safe_body}"
         inject_path.write_text(formatted, encoding="utf-8")
         logger.info(f"MIM .inject written: {formatted[:80]}")
     except Exception:
