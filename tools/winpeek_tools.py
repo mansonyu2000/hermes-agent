@@ -962,13 +962,10 @@ def _handle_mim_update_profile(args: dict) -> str:
     password = args.get("password", "")
     if not password:
         return json.dumps({"error": "password required to update profile"})
-    try:
-        from gateway.winpeek_hub import identity
-        user = identity.get_by_uid(uid)
-        if not user or not identity.login(user.get("nickname", ""), password):
-            return json.dumps({"error": "authentication failed"})
-    except ImportError:
-        pass  # identity module not available; fall through to Hub forward
+    from gateway.winpeek_hub import identity
+    user = identity.get_by_uid(uid)
+    if not user or not identity.login(user.get("nickname", ""), password):
+        return json.dumps({"error": "authentication failed"})
     allowed = {"nickname", "title", "bio", "skills", "role", "gender"}
     updates = {}
     for k in allowed:
