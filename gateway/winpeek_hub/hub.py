@@ -45,10 +45,30 @@ def register_node(uid: int, name: str, role: str = "Agent", host: str = "local")
     return state["nodes"][node_id]
 
 def heartbeat(uid: int):
-    """Update last_seen timestamp."""
+    """Update last_seen timestamp. Auto-register if not yet known."""
     state = _read_state()
     node_id = str(uid)
-    if node_id in state["nodes"]:
+    if node_id not in state["nodes"]:
+        # Lookup name from identity DB
+        name = f"uid_{uid}"
+        try:
+            from gateway.winpeek_hub import identity
+            user = identity.get_by_uid(uid)
+            if user:
+                name = user.get("nickname", name)
+        except Exception:
+            pass
+        # Auto-register from MQTT activity
+        state["nodes"][node_id] = {
+            "uid": uid,
+            "name": name,
+            "role": "Agent",
+            "host": "mqtt",
+            "status": "online",
+            "last_seen": datetime.now().isoformat(),
+            "first_seen": datetime.now().isoformat(),
+        }
+    else:
         state["nodes"][node_id]["last_seen"] = datetime.now().isoformat()
         state["nodes"][node_id]["status"] = "online"
     _write_state(state)

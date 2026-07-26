@@ -119,6 +119,14 @@ def _on_message(client, userdata, msg):
             payload_str = json.dumps(payload, ensure_ascii=False)
             client.publish(f"comms/inbox/{to_uid}", payload_str, qos=1)
             logger.info(f"MIM say→inbox relay: uid={to_uid}")
+        # Proof of life — sender on MQTT = online
+        try:
+            from_uid = int(str(payload.get("from_uid", "0")))
+            if from_uid:
+                from gateway.winpeek_hub import hub
+                hub.heartbeat(from_uid)
+        except Exception:
+            pass
         return
 
     from_uid = payload.get("from_uid", "")
@@ -128,6 +136,13 @@ def _on_message(client, userdata, msg):
 
     if str(from_uid) == str(UID):
         return
+
+    # MQTT activity = proof of life — mark sender as online
+    try:
+        from gateway.winpeek_hub import hub
+        hub.heartbeat(int(from_uid))
+    except Exception:
+        pass
 
     logger.info(f"[{from_name} ({from_uid})]: {body[:60]}")
 
