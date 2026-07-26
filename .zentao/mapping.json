@@ -28,6 +28,14 @@
       "local_path": "docs/test/",
       "zentao_module": "测试管理",
       "zentao_url": "https://pm.test.com/zentao/testcase-browse-6.html"
+    },
+    {
+      "local_path": "tasks/mim-chat-v1-todo.md",
+      "zentao_module": "任务管理",
+      "zentao_execution_id": 28,
+      "zentao_story_id": 115,
+      "sync_direction": "bidirectional",
+      "note": "MIM聊天V1 — 13 tasks created 2026-07-26"
     }
   ]
 }

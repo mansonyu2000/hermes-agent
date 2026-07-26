@@ -1,6 +1,6 @@
 # 文档总索引
 
-> 自动维护 · 最后更新: 2026-07-22
+> 自动维护 · 最后更新: 2026-07-26
 
 ## 技能栈
 
@@ -146,3 +146,28 @@ ai_agents (AI Agent)
 - 流水线状态: [governance/pipeline-status.json](governance/pipeline-status.json)
 - 禅道映射: `.zentao/mapping.json`
 - Multica 映射: `.multica/mapping.json`
+
+## 开发工作流 (2026-07-26 完善)
+
+### 目录结构
+
+| 目录 | 用途 | 状态 |
+|------|------|:--:|
+| `docs/reference-library/` | 参考资料萃取（SubAgent #1 输出） | ✅ |
+| `docs/requirements/` | 需求文档 | ✅ |
+| `docs/plan/` | 实施计划 | ✅ |
+| `docs/design/` | 设计文档 | ✅ |
+| `docs/code/` | 代码产物暂存（SubAgent #6 输出） | ✅ |
+| `docs/test/` | 测试产物（SubAgent #7 输出） | ✅ |
+| `docs/deploy/` | 部署交付（SubAgent #8 输出） | ✅ |
+| `docs/templates/` | 文档模板 (spec/todo/acceptance) | ✅ |
+| `docs/guides/` | 开发指南 | ✅ |
+| `docs/governance/` | 治理规则 | ✅ |
+
+### 快速链接
+
+- **上手**: [guides/dev-setup.md](guides/dev-setup.md) | `AGENTS.md`
+- **任务**: [tasks/README.md](../tasks/README.md) | `ZENTAO_DB_HOST=192.168.3.23 zentao task list --execution=28`
+- **模板**: [spec](templates/spec-template.md) | [todo](templates/todo-template.md) | [acceptance](templates/acceptance-template.md)
+- **贡献**: [governance/CONTRIBUTING-WinPeek.md](governance/CONTRIBUTING-WinPeek.md)
+- **命令**: `/onboard` (一键上手) | `/status` (项目状态) | `/handoff` (交班)

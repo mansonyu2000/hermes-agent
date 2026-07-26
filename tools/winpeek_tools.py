@@ -958,6 +958,17 @@ def _handle_mim_update_profile(args: dict) -> str:
     uid = int(args.get("uid", 0))
     if not uid:
         return json.dumps({"error": "uid required"})
+    # IDOR fix: require password verification before allowing profile edits
+    password = args.get("password", "")
+    if not password:
+        return json.dumps({"error": "password required to update profile"})
+    try:
+        from gateway.winpeek_hub import identity
+        user = identity.get_by_uid(uid)
+        if not user or not identity.login(user.get("nickname", ""), password):
+            return json.dumps({"error": "authentication failed"})
+    except ImportError:
+        pass  # identity module not available; fall through to Hub forward
     allowed = {"nickname", "title", "bio", "skills", "role", "gender"}
     updates = {}
     for k in allowed:
@@ -996,18 +1007,20 @@ registry.register(
     toolset="winpeek_rpa",
     schema={
         "name": "winpeek_mim_update_profile",
-        "description": "Update MIM user profile fields (nickname, title, bio, skills, role).",
+        "description": "Update MIM user profile fields (nickname, title, bio, skills, role, gender). Requires password authentication.",
         "parameters": {
             "type": "object",
             "properties": {
                 "uid": {"type": "integer", "description": "User uid"},
+                "password": {"type": "string", "description": "Current password for authentication"},
                 "nickname": {"type": "string", "description": "New display name"},
                 "title": {"type": "string", "description": "Job title"},
                 "bio": {"type": "string", "description": "Self-introduction"},
                 "skills": {"type": "string", "description": "Comma-separated skills"},
                 "role": {"type": "string", "description": "Role"},
+                "gender": {"type": "string", "description": "Gender: male/female"},
             },
-            "required": ["uid"],
+            "required": ["uid", "password"],
         },
     },
     handler=lambda args, **kw: _handle_mim_update_profile(args),
