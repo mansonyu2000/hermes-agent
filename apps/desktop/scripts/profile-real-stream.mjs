@@ -47,7 +47,8 @@ class CDP {
 
 async function main() {
   const list = await (await fetch(`${CDP_HTTP}/json`)).json()
-  const target = list.find((t) => t.type === 'page' && /5174/.test(t.url))
+const DEV_PORT = process.env.HERMES_DESKTOP_DEV_PORT || '5175'
+  const target = list.find((t) => t.type === 'page' && t.url.includes(DEV_PORT))
   const cdp = await CDP.open(target.webSocketDebuggerUrl)
 
   const baseCount = await cdp.eval('document.querySelectorAll("[data-slot=aui_assistant-message-root]").length')

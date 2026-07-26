@@ -1,0 +1,15 @@
+{
+  "project": "mim-llm-chat",
+  "started": null,
+  "current_phase": null,
+  "stages": {
+    "1_extract": { "status": "pending", "solidified_flag": null },
+    "2_confirm": { "status": "pending", "solidified_flag": null },
+    "3_plan":    { "status": "pending", "solidified_flag": null },
+    "4_ui":      { "status": "pending", "solidified_flag": null },
+    "5_arch":    { "status": "pending", "solidified_flag": null },
+    "6_code":    { "status": "pending", "solidified_flag": null },
+    "7_test":    { "status": "pending", "solidified_flag": null },
+    "8_deploy":  { "status": "pending", "solidified_flag": null }
+  }
+}

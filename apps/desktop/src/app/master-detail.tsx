@@ -77,16 +77,21 @@ export function ListColumn({ children, header }: { children: ReactNode; header?:
 export function DetailColumn({
   actionBar,
   children,
-  footer
+  footer,
+  fullWidth = false,
 }: {
   actionBar?: ReactNode
   children: ReactNode
   footer?: ReactNode
+  fullWidth?: boolean
 }) {
+  const inner = fullWidth
+    ? children
+    : <div className="mx-auto max-w-2xl space-y-5 px-5 py-4">{children}</div>
   return (
     <main className="flex min-h-0 flex-col overflow-hidden">
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
-        <div className="mx-auto max-w-2xl space-y-5 px-5 py-4">{children}</div>
+      <div className={fullWidth ? 'flex min-h-0 flex-1 flex-col' : 'min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]'}>
+        {inner}
       </div>
       {footer && (
         <div className="mx-auto w-full max-w-2xl shrink-0 px-5 pb-3 pt-1.5 text-right text-[0.65rem] text-muted-foreground/50">

@@ -7,7 +7,7 @@ to identity DB, injects MIM MCP config, maintains heartbeat.
 Runs silently — no window, no tray (yet). Started by hub_bridge.try_load_hub().
 """
 
-import json, os, stat, time, threading
+import json, os, secrets, socket, stat, string, time, threading
 from datetime import datetime
 from pathlib import Path
 
@@ -49,6 +49,17 @@ AGENT_SCANNERS = [
         "config_format": "json",
         "default_window_title": "Qoder",
     },
+    {
+        "agent_type": "traecli",
+        "name": "Trae CLI",
+        "check_paths": [
+            HOME / ".trae" / "config.json",
+            HOME / ".trae" / "settings.json",
+        ],
+        "config_file": None,  # traecli V1: no MCP injection
+        "config_format": "json",
+        "default_window_title": "Trae CLI",
+    },
 ]
 
 # ═══════════════════════════════════════════════
@@ -72,8 +83,11 @@ MCP_BLOCK = {
 }
 
 # ═══════════════════════════════════════════════
-# Scanner + injector
+# Scanner + injector + daemon state (exposed to RPC)
 # ═══════════════════════════════════════════════
+
+# Module‑level state — set by start_daemon(), read by _handle_mim_local_agents
+_daemon_state: dict = {}
 
 def scan_installed_agents() -> list[dict]:
     """Return list of installed agents on this machine."""
@@ -94,7 +108,7 @@ def inject_mcp_config(config_path: Path) -> bool:
     Uses strict owner-only permissions (0o600) — settings files may
     contain credentials and must not be world-readable.
     """
-    if not config_path.exists():
+    if not config_path or not config_path.exists():
         return False
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -121,39 +135,505 @@ def inject_mcp_config(config_path: Path) -> bool:
 
 def register_and_inject():
     """One-time: scan + register + inject for all found agents."""
+    global _daemon_state
     agents = scan_installed_agents()
     results = []
+    hostname = socket.gethostname()
+    machine = hostname
 
     try:
         from gateway.winpeek_hub import identity
     except ImportError:
+        _daemon_state = {"machine": machine, "daemon_version": "1.0.0", "runtimes": []}
         return results
+
+    # ── Find owner User (真人) for this machine ──
+    device_owner_uid = 0
+    try:
+        device = identity.check_device(hostname)
+        if device and device.get("winpeek_uid"):
+            device_owner_uid = int(device["winpeek_uid"])
+    except Exception:
+        pass
+
+    def _gen_password() -> str:
+        """Generate agent password: a@ + 8 cryptographically random chars."""
+        chars = string.ascii_lowercase + string.digits
+        return "a@" + "".join(secrets.choice(chars) for _ in range(8))
 
     for scanner in agents:
         name = scanner["name"]
         agent_type = scanner["agent_type"]
+        password = ""
 
-        # Register identity if not exists
-        existing = identity.login(name)
+        # Look up existing identity by nickname
+        existing = None
+        for u in identity.list_all():
+            if u.get("nickname") == name:
+                uid = u["uid"]
+                # Try a@{uid} (old formula) first, then empty (legacy)
+                existing = identity.login(name, f"a@{uid}") or identity.login(name, "")
+                if existing:
+                    password = f"a@{uid}" if identity.login(name, f"a@{uid}") else ""
+                break
+
         if not existing:
-            existing = identity.register(name, "Agent", agent_type)
+            # Register new → generate a@ + 6 random chars
+            password = _gen_password()
+            existing = identity.register(name, "Agent", hostname, password)
+            if not existing:
+                # Fallback: register with empty, then set password
+                existing = identity.register(name, "Agent", hostname, "")
+                if existing:
+                    identity.set_password(existing["uid"], password)
+                    existing = identity.login(name, password) or existing
 
         uid = existing.get("uid") if existing else None
 
-        # Inject MCP config
+        # ── Bind agent to device owner (master_uid) ──
+        if uid and device_owner_uid:
+            try:
+                agent_info = identity.get_by_uid(uid)
+                if agent_info and not agent_info.get("manager_uid"):
+                    # Only set if not already bound
+                    from gateway.winpeek_hub.db import get_conn
+                    conn = get_conn()
+                    if conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "UPDATE users SET manager_uid = %s WHERE uid = %s",
+                                (device_owner_uid, uid))
+                            conn.commit()
+                        conn.close()
+                if agent_info:
+                    identity_type = agent_info.get("identity_type", "")
+                    if identity_type != "mim-agent":
+                        from gateway.winpeek_hub.db import get_conn
+                        conn2 = get_conn()
+                        if conn2:
+                            with conn2.cursor() as cur2:
+                                cur2.execute(
+                                    "UPDATE users SET identity_type = %s WHERE uid = %s",
+                                    ("mim-agent", uid))
+                                conn2.commit()
+                            conn2.close()
+            except Exception:
+                pass
+
+        # Inject MCP config (skip for types without config_file like traecli)
         injected = False
-        if scanner["config_file"]:
+        if scanner.get("config_file"):
             injected = inject_mcp_config(scanner["config_file"])
+
+        # Inject MIM identity block into agent prompt file (includes password!)
+        prompt_injected = False
+        if uid and scanner.get("agent_type"):
+            prompt_injected = _inject_agent_prompt(uid, existing, scanner, password)
+
+        # Initialize inbox for this agent
+        if uid:
+            _init_inbox(uid)
 
         results.append({
             "agent_type": agent_type,
             "name": name,
             "uid": uid,
             "config_injected": injected,
-            "config_file": str(scanner["config_file"]),
+            "prompt_injected": prompt_injected,
+            "config_file": str(scanner.get("config_file", "")),
         })
 
+    _daemon_state = {
+        "machine": machine,
+        "daemon_version": "1.0.0",
+        "runtimes": [
+            {"agent_type": r["agent_type"], "registered": r["uid"] is not None, "uid": r["uid"]}
+            for r in results
+        ],
+    }
     return results
+
+
+# ═══════════════════════════════════════════════
+# Agent prompt injection
+# ═══════════════════════════════════════════════
+
+# Prompt files by agent type — the file Daemon writes the MIM_IDENTITY_BLOCK into
+AGENT_PROMPT_FILES = {
+    "claude-code": HOME / ".claude" / "CLAUDE.md",
+    "hermes": HOME / ".hermes" / "AGENTS.md",   # NOT config.yaml (YAML!)
+    "qoder": HOME / ".qoder" / "AGENTS.md",
+}
+
+
+def _build_identity_block(uid: int, identity: dict, scanner: dict, password: str = "") -> str:
+    """Build the MIM_IDENTITY_BLOCK markdown for an agent."""
+    hostname = socket.gethostname()
+    peeka_name = identity.get("peeka_name", f"agent{uid}-{hostname}-hotime.cn")
+    role = identity.get("role", "Agent")
+    name = identity.get("nickname", scanner.get("name", ""))
+    squad = identity.get("squad_name", "")
+    manager_uid = identity.get("manager_uid", 0)
+
+    block = f"""
+<!-- MIM_IDENTITY_BLOCK — auto‑injected by Peeka Daemon, do not edit manually -->
+
+[MIM Identity]
+uid: {uid}
+name: {name}
+password: {password}
+role: {role}
+peeka_name: {peeka_name}
+squad: {squad or "(未加入组织)"}
+manager_uid: {manager_uid or 0}
+inbox_path: {HOME / '.hermes' / 'winpeek' / 'inbox' / str(uid)}
+hostname: {hostname}
+
+[MIM Commands]
+- 登录MIM: winpeek_mim_login(nickname="{name}", password="{password}")
+- 发送回复: say <uid> "消息内容"
+- 查阅收信箱: 查看 inbox_path/unread/ 目录
+- 查看联系人: curl http://192.168.3.44:2000/api/contacts
+- 有疑问: 先问本地 Daemon, 再问上级 (manager_uid={manager_uid})
+
+[MIM Rules]
+- 你是多 Agent 网络中的一员, Daemon 是你的本地管家
+- 收到 [MIM] 开头的消息后, 自主用 LLM 判断是否回复
+- 回复时执行 say <uid> "内容" 即可, Daemon 负责送达
+- Daemon 可能会催问未回复的消息, 请及时处理
+- 不必回复的消息: 广告(已过滤)、问候(Daemon 已代答)
+<!-- /MIM_IDENTITY_BLOCK -->
+"""
+    return block.strip()
+
+
+def _inject_agent_prompt(uid: int, identity: dict, scanner: dict, password: str = "") -> bool:
+    """Write MIM_IDENTITY_BLOCK into the agent's prompt/config file.
+
+    Idempotent — checks if block already exists before writing.
+    Keeps existing file content intact outside the block.
+    """
+    prompt_file = AGENT_PROMPT_FILES.get(scanner.get("agent_type"))
+    if not prompt_file:
+        return False
+
+    block = _build_identity_block(uid, identity, scanner, password)
+    marker_start = "<!-- MIM_IDENTITY_BLOCK"
+    marker_end = "<!-- /MIM_IDENTITY_BLOCK -->"
+
+    try:
+        if prompt_file.exists():
+            content = prompt_file.read_text(encoding="utf-8", errors="replace")
+            # Check if already injected
+            if marker_start in content:
+                # Replace existing block
+                lines = content.split("\n")
+                new_lines = []
+                skip = False
+                for line in lines:
+                    if marker_start in line:
+                        skip = True
+                        new_lines.append(block)
+                        continue
+                    if skip and marker_end in line:
+                        skip = False
+                        continue
+                    if not skip:
+                        new_lines.append(line)
+                new_content = "\n".join(new_lines)
+            else:
+                # Append at end
+                new_content = content.rstrip("\n") + "\n\n" + block + "\n"
+        else:
+            new_content = block + "\n"
+
+        prompt_file.parent.mkdir(parents=True, exist_ok=True)
+        prompt_file.write_text(new_content, encoding="utf-8")
+        _audit_log("prompt_inject", {"agent_type": scanner.get("agent_type"),
+                     "uid": uid, "file": str(prompt_file)})
+        return True
+    except Exception as e:
+        _audit_log("prompt_inject_failed", {"agent_type": scanner.get("agent_type"),
+                   "uid": uid, "error": str(e)})
+        return False
+
+
+# ═══════════════════════════════════════════════
+# Inbox management
+# ═══════════════════════════════════════════════
+
+INBOX_ROOT = HOME / ".hermes" / "winpeek" / "inbox"
+
+
+def _init_inbox(uid: int):
+    """Create inbox directories for an agent."""
+    for sub in ("unread", "delivered"):
+        (INBOX_ROOT / str(uid) / sub).mkdir(parents=True, exist_ok=True)
+    # Write/update manifest
+    _update_manifest(uid)
+
+
+def _update_manifest(uid: int):
+    """Update .manifest.json for an agent's inbox."""
+    inbox_dir = INBOX_ROOT / str(uid)
+    unread_dir = inbox_dir / "unread"
+    delivered_dir = inbox_dir / "delivered"
+    manifest = {
+        "uid": uid,
+        "updated_at": datetime.now().isoformat(),
+        "unread_count": len(list(unread_dir.glob("*.json"))) if unread_dir.exists() else 0,
+        "delivered_count": len(list(delivered_dir.glob("*.json"))) if delivered_dir.exists() else 0,
+    }
+    manifest_file = inbox_dir / ".manifest.json"
+    manifest_file.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def write_to_inbox(agent_uid: int, msg: dict):
+    """Write an incoming L3 message to the agent's unread inbox.
+
+    msg dict: {mid, from_uid, from_name, from_role, from_peeka_name,
+               relation, body, context, received_at, is_retry, retry_count}
+    """
+    _init_inbox(agent_uid)
+    mid = msg.get("mid", f"mim-{int(time.time()*1000)}")
+    file_path = INBOX_ROOT / str(agent_uid) / "unread" / f"{mid}.json"
+    file_path.write_text(json.dumps(msg, indent=2, ensure_ascii=False, default=str),
+                         encoding="utf-8")
+    _update_manifest(agent_uid)
+    _audit_log("inbox_write", {"agent_uid": agent_uid, "mid": mid})
+
+
+def read_inbox(agent_uid: int) -> list[dict]:
+    """Read all unread messages from an agent's inbox. Returns list of msg dicts."""
+    unread_dir = INBOX_ROOT / str(agent_uid) / "unread"
+    if not unread_dir.exists():
+        return []
+    messages = []
+    for f in sorted(unread_dir.glob("*.json")):
+        try:
+            msg = json.loads(f.read_text(encoding="utf-8"))
+            messages.append(msg)
+        except Exception:
+            pass
+    return messages
+
+
+def mark_delivered(agent_uid: int, mid: str):
+    """Move a message from unread/ to delivered/."""
+    unread_path = INBOX_ROOT / str(agent_uid) / "unread" / f"{mid}.json"
+    delivered_path = INBOX_ROOT / str(agent_uid) / "delivered" / f"{mid}.json"
+    if unread_path.exists():
+        delivered_path.parent.mkdir(parents=True, exist_ok=True)
+        unread_path.rename(delivered_path)
+        _update_manifest(agent_uid)
+        _audit_log("inbox_delivered", {"agent_uid": agent_uid, "mid": mid})
+
+
+def mark_replied(agent_uid: int, mid: str):
+    """Mark a delivered message as replied (write status into the file)."""
+    delivered_path = INBOX_ROOT / str(agent_uid) / "delivered" / f"{mid}.json"
+    if delivered_path.exists():
+        try:
+            msg = json.loads(delivered_path.read_text(encoding="utf-8"))
+            msg["status"] = "replied"
+            msg["replied_at"] = datetime.now().isoformat()
+            delivered_path.write_text(json.dumps(msg, indent=2, ensure_ascii=False, default=str),
+                                      encoding="utf-8")
+            _audit_log("inbox_replied", {"agent_uid": agent_uid, "mid": mid})
+        except Exception:
+            pass
+
+
+# ═══════════════════════════════════════════════
+# Reliability tracking
+# ═══════════════════════════════════════════════
+
+# Track: {mid: {"agent_uid": int, "to_uid": int, "sent_at": str, "retry_count": int, "status": str}}
+_reliability_tracker: dict[str, dict] = {}
+_reliability_lock = threading.Lock()
+
+
+def track_l3_message(mid: str, agent_uid: int, to_uid: int):
+    """Start tracking a layer-3 message for reliability."""
+    with _reliability_lock:
+        _reliability_tracker[mid] = {
+            "agent_uid": agent_uid,
+            "to_uid": to_uid,
+            "sent_at": datetime.now().isoformat(),
+            "retry_count": 0,
+            "status": "unread",
+            "last_action": datetime.now().isoformat(),
+        }
+    _audit_log("reliability_track", {"mid": mid, "agent_uid": agent_uid, "to_uid": to_uid})
+
+
+def update_reliability(mid: str, status: str):
+    """Update reliability status for a tracked message."""
+    with _reliability_lock:
+        if mid in _reliability_tracker:
+            _reliability_tracker[mid]["status"] = status
+            _reliability_tracker[mid]["last_action"] = datetime.now().isoformat()
+    _audit_log("reliability_update", {"mid": mid, "status": status})
+
+
+def get_pending_reliability() -> list[dict]:
+    """Get messages that are still pending (需要催问)."""
+    now = datetime.now()
+    pending = []
+    with _reliability_lock:
+        for mid, info in _reliability_tracker.items():
+            if info["status"] in ("unread", "delivered"):
+                try:
+                    sent_at = datetime.fromisoformat(info["sent_at"])
+                    elapsed = (now - sent_at).total_seconds()
+                    # 5 minutes → first chase, 15 minutes → second chase
+                    if elapsed > 300 and info["retry_count"] < 1:
+                        pending.append({**info, "mid": mid, "chase_level": 1})
+                    elif elapsed > 900 and info["retry_count"] < 2:
+                        pending.append({**info, "mid": mid, "chase_level": 2})
+                except Exception:
+                    pass
+    return pending
+
+
+def incr_retry(mid: str):
+    """Increment retry count."""
+    with _reliability_lock:
+        if mid in _reliability_tracker:
+            _reliability_tracker[mid]["retry_count"] += 1
+            _reliability_tracker[mid]["last_action"] = datetime.now().isoformat()
+
+
+# ═══════════════════════════════════════════════
+# Audit logging
+# ═══════════════════════════════════════════════
+
+AUDIT_LOG_DIR = HOME / ".hermes" / "winpeek" / "audit"
+_audit_lock = threading.Lock()
+_audit_buffer: list[str] = []
+
+
+def _audit_log(event: str, detail: dict):
+    """Write an audit log entry. Thread-safe, buffered (flush every 10 entries)."""
+    entry = json.dumps({
+        "ts": datetime.now().isoformat(),
+        "event": event,
+        "detail": detail,
+    }, ensure_ascii=False)
+    with _audit_lock:
+        _audit_buffer.append(entry)
+        if len(_audit_buffer) >= 10:
+            _flush_audit()
+
+
+def _flush_audit():
+    """Flush audit buffer to disk."""
+    if not _audit_buffer:
+        return
+    AUDIT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    log_file = AUDIT_LOG_DIR / f"daemon-{date_str}.jsonl"
+    with open(log_file, "a", encoding="utf-8") as f:
+        for entry in _audit_buffer:
+            f.write(entry + "\n")
+    _audit_buffer.clear()
+
+
+def get_audit_log(date_str: str = None) -> list[dict]:
+    """Read audit log for a given date (default: today)."""
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    log_file = AUDIT_LOG_DIR / f"daemon-{date_str}.jsonl"
+    if not log_file.exists():
+        return []
+    entries = []
+    for line in log_file.read_text(encoding="utf-8").strip().split("\n"):
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            pass
+    return entries
+
+
+# ═══════════════════════════════════════════════
+# L1/L2 digest accumulator
+# ═══════════════════════════════════════════════
+
+_digest_entries: list[dict] = []
+_digest_lock = threading.Lock()
+
+def add_digest_entry(from_uid: int, from_name: str, body: str, reply: str, layer: int):
+    """Record an L1/L2 auto-reply for later digest notification to Agent."""
+    with _digest_lock:
+        _digest_entries.append({
+            "from_uid": from_uid,
+            "from_name": from_name,
+            "body": body,
+            "reply": reply,
+            "layer": layer,
+            "ts": datetime.now().isoformat(),
+        })
+
+
+def pop_digest_entries() -> list[dict]:
+    """Pop all accumulated digest entries (atomically). Returns list."""
+    with _digest_lock:
+        entries = list(_digest_entries)
+        _digest_entries.clear()
+    return entries
+
+
+def build_digest_message(entries: list[dict]) -> str:
+    """Build a human-readable digest message from entries."""
+    if not entries:
+        return ""
+    lines = ["[MIM管家] 我是 Peeka, 你的本地管家。\n  我不在的时候，帮你处理了以下消息:\n"]
+    for i, e in enumerate(entries, 1):
+        layer_label = "L1自动回复" if e["layer"] == 1 else "L2自答"
+        lines.append(f"  {i}. {e['from_name']}(uid={e['from_uid']}) 说: \"{e['body'][:40]}\"")
+        lines.append(f"     → 我回 ({layer_label}): \"{e['reply'][:40]}\"")
+    lines.append(f"\n  以上共 {len(entries)} 条，无需你回复。如需查看详情，告诉我。")
+    return "\n".join(lines)
+
+# ═══════════════════════════════════════════════
+# Peeka greeting templates (layer‑1 auto‑reply)
+# ═══════════════════════════════════════════════
+
+GREETING_TEMPLATES = {
+    "吃了没": "吃了，别担心。",
+    "吃饭了吗": "吃了，别担心。",
+    "早安": "早安，新的一天开始。",
+    "晚安": "晚安，早点休息。",
+    "谢谢": "不客气。",
+    "多谢": "不客气。",
+    "在吗": "在的，请说。",
+    "在不在": "在的，请说。",
+    "你好": "你好，请问有什么可以帮忙？",
+    "hello": "Hi there, how can I help?",
+}
+
+def match_greeting(body: str) -> str | None:
+    """Rule‑based greeting matching (substring match, 0 Token)."""
+    for phrase, reply in GREETING_TEMPLATES.items():
+        if phrase in body:
+            return reply
+    return None
+
+# Politeness counter: (from_uid, to_uid) → count
+_politeness_count: dict[tuple[int, int], int] = {}
+_politeness_lock = threading.Lock()
+
+def incr_politeness(from_uid: int, to_uid: int) -> int:
+    """Increment politeness count and return new value."""
+    key = (from_uid, to_uid)
+    with _politeness_lock:
+        _politeness_count[key] = _politeness_count.get(key, 0) + 1
+        return _politeness_count[key]
+
+def get_politeness(from_uid: int, to_uid: int) -> int:
+    """Read politeness count for a pair."""
+    with _politeness_lock:
+        return _politeness_count.get((from_uid, to_uid), 0)
 
 # ═══════════════════════════════════════════════
 # Background thread — heartbeat
@@ -175,6 +655,59 @@ def _heartbeat_loop(interval: int = 30):
             pass
         time.sleep(interval)
 
+def _reliability_scanner(interval: int = 60):
+    """Every N seconds, check for pending messages that need chase-reminding."""
+    global _running
+    while _running:
+        time.sleep(interval)
+        try:
+            pending = get_pending_reliability()
+            for item in pending:
+                mid = item["mid"]
+                agent_uid = item["agent_uid"]
+                chase_level = item["chase_level"]
+
+                # Read original message from inbox
+                inbox_dir = INBOX_ROOT / str(agent_uid)
+                unread_file = inbox_dir / "unread" / f"{mid}.json"
+                delivered_file = inbox_dir / "delivered" / f"{mid}.json"
+                msg_file = unread_file if unread_file.exists() else delivered_file
+
+                if not msg_file.exists():
+                    update_reliability(mid, "expired")
+                    continue
+
+                msg = json.loads(msg_file.read_text(encoding="utf-8"))
+                body = msg.get("body", "")
+                from_uid = msg.get("from_uid", 0)
+                from_name = msg.get("from_name", "?")
+
+                # Build chase reminder
+                chase_prefix = "⚠️ 第2次催问, 请尽快回复" if chase_level >= 2 else "[催问] 上次消息尚未回复, 请关注"
+                chase_body = f"[MIM] {chase_prefix}\n  {from_name}(uid={from_uid}) 说: \"{body[:100]}\""
+
+                # Re-deliver to agent
+                try:
+                    from apps.winpeek_injector.engine import deliver_to_agent
+                    ok = deliver_to_agent(f"agent{agent_uid}", chase_body)
+                    incr_retry(mid)
+                    if not ok:
+                        update_reliability(mid, "delivery_failed")
+                    _audit_log("reliability_chase", {
+                        "mid": mid, "agent_uid": agent_uid,
+                        "chase_level": chase_level, "ok": ok,
+                    })
+                except Exception as e:
+                    _audit_log("reliability_chase_error", {
+                        "mid": mid, "error": str(e),
+                    })
+
+            # Flush audit buffer
+            _flush_audit()
+        except Exception as e:
+            _audit_log("reliability_scanner_error", {"error": str(e)})
+
+
 def start_daemon():
     """Start the injector daemon. Idempotent."""
     global _running
@@ -184,14 +717,53 @@ def start_daemon():
     # 1. Register + inject
     results = register_and_inject()
     for r in results:
-        print(f"[injector] {r['name']}: uid={r['uid']} injected={r['config_injected']}")
+        parts = [f"[injector] {r['name']}: uid={r['uid']}"]
+        if r.get("config_injected"):
+            parts.append("mcp=injected")
+        if r.get("prompt_injected"):
+            parts.append("prompt=injected")
+        print(" ".join(parts))
 
     # 2. Start heartbeat
     _running = True
     t = threading.Thread(target=_heartbeat_loop, daemon=True)
     t.start()
-    print(f"[injector] daemon started ({len(results)} agents)")
+
+    # 3. Start reliability scanner (chase-reminder for unanswered L3 messages)
+    t2 = threading.Thread(target=_reliability_scanner, daemon=True)
+    t2.start()
+
+    print(f"[injector] daemon started ({len(results)} agents) + reliability scanner + inbox manager")
+
+    # 4. Initialize inboxes for all registered agents
+    for r in results:
+        if r.get("uid"):
+            _init_inbox(r["uid"])
+
+    _audit_log("daemon_start", {"agents": len(results), "machine": socket.gethostname()})
+
+def get_local_state() -> dict:
+    """Return daemon state snapshot (called by _handle_mim_local_agents)."""
+    state = dict(_daemon_state)
+    # Add inbox summary for all agents
+    inbox_summary = {}
+    if INBOX_ROOT.exists():
+        for agent_dir in INBOX_ROOT.iterdir():
+            if agent_dir.is_dir():
+                manifest_file = agent_dir / ".manifest.json"
+                if manifest_file.exists():
+                    try:
+                        inbox_summary[agent_dir.name] = json.loads(
+                            manifest_file.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+    state["inbox_summary"] = inbox_summary
+    state["reliability_pending"] = len(get_pending_reliability())
+    return state
+
 
 def stop_daemon():
     global _running
     _running = False
+    _flush_audit()
+    _audit_log("daemon_stop", {"machine": socket.gethostname()})

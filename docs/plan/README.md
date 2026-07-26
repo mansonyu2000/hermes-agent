@@ -36,7 +36,7 @@ Qoder-yu2  → 代码质量 + 全前端测试
 | Agent | 功能 | 计划文件 | 代码范围 |
 |-------|------|---------|---------|
 | **CC-yu2** | 微信自动化 CRM | [agent-cc-wechat.md](agent-cc-wechat.md) | `wechat/` + `winpeek_rpa/` + `tools/` |
-| **Hermes-htubs24** | MIM 聊天 | [agent-hermes-mim.md](agent-hermes-mim.md) | `mim/` + `winpeek_hub/` |
+| **Hermes-htubs24** | MIM 聊天 | [MIM 设计文档](../../website/docs/winpeek/mim-design/README) | `mim/` + `winpeek_hub/` |
 | **Qoder-yu2** | 质量 + 测试 | [agent-qoder-quality.md](agent-qoder-quality.md) | `scripts/` + `.gitlab-ci.yml` + `*.test.*` |
 | **待分配** | 电脑资产 | [agent-assets.md](agent-assets.md) | `assets/` + `software_scanner.py` |
 
@@ -96,15 +96,17 @@ Hermes Desktop (Electron + React + Vite)
 - [x] WeChat CRM 原型 (MasterDetail+3Tab+画像雷达图)
 - [x] 文档体系重组 (5层分离)
 - [x] MIM 需求文档 (mim-prd.md)
+- [x] MIM 架构设计 (mim-centralized-runtime-architecture.md)
+- [x] MIM 实施计划 (mim-v1-expert-team-implementation.md)
+- [x] MIM 设计文档集 (docs/design/mim/)
 - [x] 资产需求文档 (assets-prd.md)
 
 ### 未完成
 
 | 层 | 模块 | 差距 |
 |----|------|------|
-| **后端** | Hub REST API | identity.py 无 HTTP 路由（Gateway auth 拦截） |
-| **后端** | 消息历史API | 未实现 |
-| **前端** | MIM 实时接收 | 未对接 MQTT → WebSocket |
+| **后端** | MIM 中心化改造 | 转发层已存在（`_mim_center_call`），连接治理/daemon 升级/多身份前端待实现 |
+| **后端** | MIM 实时推送 | 已通过 JSON-RPC WebSocket 接入 |
 | **前端** | Assets 真实数据 | 未对接 software_scanner.py |
 | **前端** | WeChat CRM | 好友列表+5 Tab CC-yu2 开发中 |
 | **数据** | CRM 13 表建表 | 未执行 |

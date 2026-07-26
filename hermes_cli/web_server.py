@@ -189,6 +189,16 @@ async def _lifespan(app: "FastAPI"):
     # the server socket is already open and accepting probes.
     asyncio.get_event_loop().run_in_executor(None, _warm_gateway_module)
 
+    # ── WinPeek MIM Hub auto-start ─────────────────────────────────────
+    # Load the WinPeek Hub (MQTT + MySQL chat engine) when the backend
+    # starts. This enables multi-instance MIM messaging without requiring
+    # the full gateway process.
+    try:
+        from gateway.winpeek_hub.hub_bridge import try_load_hub
+        asyncio.get_event_loop().run_in_executor(None, try_load_hub)
+    except Exception as e:
+        _log.info("WinPeek Hub load skipped: %s", e)
+
     # Desktop-spawned backends (HERMES_DESKTOP=1) fire cron jobs themselves,
     # since the app has no gateway running the scheduler. Server `hermes
     # dashboard` is unaffected — it relies on its own gateway.
@@ -373,6 +383,12 @@ def _require_token(request: Request) -> None:
         # success and 401s otherwise, so a request that reached us is already
         # authenticated. Belt-and-braces: confirm the session is present.
         if getattr(request.state, "session", None) is not None:
+            return
+        # Desktop remote connections (HERMES_DESKTOP_REMOTE_TOKEN) send the
+        # session token as an X-Hermes-Session-Token header. Accept it as an
+        # alternative auth path in gated mode so Desktop clients on the LAN
+        # can connect without a browser-based dashboard login.
+        if _has_valid_session_token(request):
             return
         raise HTTPException(status_code=401, detail="Unauthorized")
     if not _has_valid_session_token(request):
@@ -14310,6 +14326,16 @@ def _ws_host_origin_reason(ws: "WebSocket") -> Optional[str]:
     if not parsed.netloc:
         return f"origin_mismatch origin={origin} bound={bound_host}"
 
+    # Loopback origins are pages served from this same machine — e.g. the
+    # Desktop dev renderer loads http://127.0.0.1:<vite-port> and dials a
+    # LAN-bound backend (ws://<lan-ip>:9119). A DNS-rebinding attacker's page
+    # always presents the attacker's *own* hostname as its Origin — never a
+    # loopback address — so trusting loopback origins keeps the rebinding
+    # defence intact. The upstream credential check (_ws_auth_reason) remains
+    # the real auth boundary, matching the non-web-origin trust above.
+    if (parsed.hostname or "").lower() in _LOOPBACK_HOSTS:
+        return None
+
     if not _is_accepted_host(parsed.netloc, bound_host):
         return f"origin_mismatch origin={origin} bound={bound_host}"
     return None
@@ -14360,8 +14386,13 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
     Loopback / ``--insecure``: legacy ``?token=<_SESSION_TOKEN>`` query
     parameter, constant-time compared.
 
-    Gated (public bind, no ``--insecure``): one of two credentials —
+    Gated (public bind, no ``--insecure``): one of three credentials —
 
+    * ``?token=<session-token>`` — a Desktop remote client presenting the
+      ``_SESSION_TOKEN`` (set via ``HERMES_DASHBOARD_SESSION_TOKEN`` or
+      auto-generated).  Accepted in gated mode so Desktop clients can
+      connect to non-loopback (e.g. LAN-IP) backends without an interactive
+      login flow.
     * ``?ticket=<single-use>`` — a browser-minted, single-use, 30s-TTL ticket
       consumed against the dashboard-auth ticket store. This is what the SPA
       (and native clients) use.
@@ -14372,9 +14403,11 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
       injected into the SPA — see ``dashboard_auth.ws_tickets`` for the
       threat model.
 
-    The legacy ``?token=`` path is unconditionally rejected in gated mode
-    (the SPA bundle isn't carrying the token any longer, and a leaked
-    ``_SESSION_TOKEN`` must not grant WS access once the gate is engaged).
+    The legacy ``?token=`` path is accepted in gated mode ONLY when the
+    token matches ``_SESSION_TOKEN`` exactly (constant-time comparison).
+    A mismatched token in gated mode still falls through to a ``no_credential``
+    rejection — the SPA bundle isn't carrying the token any longer, and a
+    leaked ``_SESSION_TOKEN`` must not grant WS access if it doesn't match.
 
     Audit-logs the rejection so operators can debug "WS keeps closing"
     issues from the log.
@@ -14406,6 +14439,17 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
                     path=ws.url.path,
                 )
                 return "internal_invalid", "internal"
+
+        # Desktop remote connections present the session token as a
+        # ?token= query parameter (buildGatewayWsUrl).  Accept it in
+        # gated mode so Desktop clients can connect to non-loopback
+        # (e.g. LAN-IP) backends without an interactive login flow.
+        # The caller must know _SESSION_TOKEN — either set explicitly
+        # via HERMES_DASHBOARD_SESSION_TOKEN or adopted from the
+        # backend's auto-generated value.
+        token = ws.query_params.get("token", "")
+        if token and hmac.compare_digest(token.encode(), _SESSION_TOKEN.encode()):
+            return None, "token"
 
         ticket = ws.query_params.get("ticket", "")
         if not ticket:

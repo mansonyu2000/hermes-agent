@@ -146,7 +146,7 @@ def check_doc_frontmatter(diff_base: str | None = None) -> list[str]:
         if not content.startswith("---"):
             errors.append(f"[DOC] {f} — 缺少 YAML frontmatter (--- ... ---)")
             continue
-        frontmatter = content.split("---", 2)[1] if content.count("---", 0, 10) >= 2 else ""
+        frontmatter = content.split("---", 2)[1] if content.count("---") >= 2 else ""
         for key in FRONTMATTER_REQUIRED:
             if key not in frontmatter:
                 errors.append(f"[DOC] {f} — 缺少 {key} frontmatter 字段")

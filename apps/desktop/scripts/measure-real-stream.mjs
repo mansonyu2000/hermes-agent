@@ -10,12 +10,13 @@
 // Does NOT cancel — lets the stream run to completion or hits TIMEOUT_MS.
 
 const CDP_HTTP = 'http://127.0.0.1:9222'
+const DEV_PORT = process.env.HERMES_DESKTOP_DEV_PORT || '5175'
 const PROMPT = process.env.PROMPT || 'count from 1 to 80, one number per line'
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS || 60000)
 
 async function getTarget() {
   const list = await (await fetch(`${CDP_HTTP}/json`)).json()
-  const t = list.find((t) => t.type === 'page' && /5174/.test(t.url))
+  const t = list.find((t) => t.type === 'page' && t.url.includes(DEV_PORT))
   if (!t) throw new Error('renderer not found')
   return t
 }

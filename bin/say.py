@@ -1,9 +1,14 @@
-"""say — Agent MQTT 消息 (自动识人)
+"""say — Agent 发信命令 (统一走 Daemon outbox)
 
 用法:
   say <to_uid> "消息内容"
   say 2022 "done, SHA a62eb1b"
-  say 2022 "报到" --gid 1048
+  say 2022 "auth 在 gateway/auth.py" --reply-to mim-xxx
+
+消息流:
+  Agent → say → MQTT comms/outbox/{my_uid}
+  → Daemon 监听到 → 补全 from 信息 + 归档
+  → MQTT comms/say/{to_uid} → 对方 Daemon → 投递
 
 身份自动识别 — 不需要 --uid，不用设环境变量。
 say 自动从配置文件推断"谁在说话"。
@@ -38,10 +43,11 @@ def _find_identity() -> tuple[int, str]:
 
     查找顺序:
       1. WINPEEK_IDENTITY 环境变量 → JSON 文件
-      2. cwd 往上找 .winpeek-identity.json (项目级)
-      3. ~/.hermes/data/agent.conf (Hermes — 默认身份)
-      4. ~/.claude/winpeek-identity.json (CC 兜底)
-      5. WINPEEK_UID 环境变量
+      2. MIM_UID + MIM_NAME 环境变量 (Daemon 注入, 最权威)
+      3. cwd 往上找 .winpeek-identity.json (项目级)
+      4. ~/.hermes/data/agent.conf (Hermes)
+      5. ~/.claude/winpeek-identity.json (CC)
+      6. WINPEEK_UID 环境变量
     """
 
     # 1. 显式指向
@@ -54,7 +60,12 @@ def _find_identity() -> tuple[int, str]:
                 if uid:
                     return uid, d.get("name") or d.get("agent_name") or _sys_name()
 
-    # 2. 从 cwd 往上找
+    # 2. MIM_UID + MIM_NAME (Daemon 注入, 权威来源)
+    mim_uid = int(os.environ.get("MIM_UID", "0"))
+    if mim_uid:
+        return mim_uid, os.environ.get("MIM_NAME", "") or _sys_name()
+
+    # 3. 从 cwd 往上找 .winpeek-identity.json
     try:
         for p in [Path.cwd()] + list(Path.cwd().parents)[:6]:
             idf = p / ".winpeek-identity.json"
@@ -66,7 +77,7 @@ def _find_identity() -> tuple[int, str]:
     except Exception:
         pass
 
-    # 3. Hermes agent.conf (默认身份 — 机器的主人)
+    # 3. Hermes agent.conf
     for conf in (
         Path.home() / ".hermes" / "data" / "agent.conf",
         Path.home() / ".winpeek" / "agent.conf",
@@ -78,7 +89,7 @@ def _find_identity() -> tuple[int, str]:
                 return uid, (d.get("agent_name") or d.get("name") or
                              os.environ.get("WINPEEK_NAME") or _sys_name())
 
-    # 4. CC 身份兜底
+    # 4. CC 身份
     cc = Path.home() / ".claude" / "winpeek-identity.json"
     if cc.exists():
         d = _read_json(cc)
@@ -86,7 +97,7 @@ def _find_identity() -> tuple[int, str]:
         if uid:
             return uid, d.get("name") or _sys_name()
 
-    # 5. 环境变量
+    # 5. WINPEEK_UID 环境变量
     env_uid = os.environ.get("WINPEEK_UID")
     if env_uid:
         return int(env_uid), _sys_name()
@@ -97,51 +108,55 @@ def _find_identity() -> tuple[int, str]:
 # ── 发送 ──────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="say — Agent MQTT 消息")
+    parser = argparse.ArgumentParser(description="say — Agent 发信 (→ Daemon outbox)")
     parser.add_argument("to_uid", help="目标 uid")
     parser.add_argument("text", help="消息内容")
-    parser.add_argument("--gid", "-g", help="群 gid", default="")
+    parser.add_argument("--reply-to", "-r", default="", help="回复哪条消息的 mid")
     parser.add_argument("--uid", "-u", type=int, default=None)
     parser.add_argument("--name", "-n", default=None)
     args = parser.parse_args()
 
     auto_uid, auto_name = _find_identity()
-    from_uid = args.uid if args.uid else auto_uid
-    from_name = args.name if args.name else auto_name
+    my_uid = args.uid if args.uid else auto_uid
+    my_name = args.name if args.name else auto_name
 
-    if not from_uid:
+    if not my_uid:
         print("[say] 找不到发送者 uid", file=sys.stderr)
-        print("  创建 ~/.hermes/data/agent.conf: {\"hermes_uid\": YOUR_UID}", file=sys.stderr)
+        print("  方式1: export MIM_UID=2032", file=sys.stderr)
+        print("  方式2: 创建 ~/.hermes/data/agent.conf: {\"hermes_uid\": 2032}", file=sys.stderr)
         sys.exit(1)
 
     payload = {
-        "from": from_name, "from_uid": from_uid,
-        "to_uid": args.to_uid, "body": args.text,
+        "to_uid": int(args.to_uid),
+        "body": args.text,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    if args.gid:
-        payload["gid"] = args.gid
+    if args.reply_to:
+        payload["reply_to_mid"] = args.reply_to
 
     host = os.environ.get("MQTT_HOST", "192.168.3.23")
+    topic = f"comms/outbox/{my_uid}"
 
-    # 方案A: MQTT
+    # Publish to outbox — Daemon picks it up, wraps, and forwards
     try:
         c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         c.connect(host, 1883, 5)
-        c.publish(f"comms/say/{args.to_uid}", json.dumps(payload), qos=1)
+        c.publish(topic, json.dumps(payload, ensure_ascii=False), qos=1)
         c.disconnect()
-        target = f"gid={args.gid}" if args.gid else f"uid={args.to_uid}"
-        print(f"[say] {from_name}[{from_uid}] → {target}")
+        reply_hint = f" (回复 {args.reply_to})" if args.reply_to else ""
+        print(f"[say] {my_name}[{my_uid}] → uid={args.to_uid}{reply_hint}")
+        print(f"     outbox → Daemon → comms/say/{args.to_uid}")
     except Exception as e:
-        # 方案B: REST API 兜底
+        # 兜底: 直连 REST API
         hub = os.environ.get("WINPEEK_HUB", "http://192.168.3.44:2000")
         try:
-            __import__("urllib.request").request.urlopen(
-                __import__("urllib.request").request.Request(
+            import urllib.request
+            urllib.request.urlopen(
+                urllib.request.Request(
                     f"{hub}/api/chat/post",
                     data=json.dumps({
-                        "from_node": str(from_uid),
-                        "from_name": from_name,
+                        "from_node": str(my_uid),
+                        "from_name": my_name,
                         "to_node": str(args.to_uid),
                         "content": args.text,
                     }).encode(),
@@ -150,7 +165,7 @@ def main():
                 ),
                 timeout=10,
             )
-            print(f"[say-API] {from_name}[{from_uid}] → uid={args.to_uid}")
+            print(f"[say-API] {my_name}[{my_uid}] → uid={args.to_uid}")
         except Exception as e2:
             print(f"[say] 失败: MQTT={e} API={e2}", file=sys.stderr)
             sys.exit(1)

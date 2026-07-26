@@ -27,12 +27,16 @@ _DB_CONFIG = {
 
 
 def get_conn():
-    """获取 MySQL 连接。"""
+    """获取 MySQL 连接（DictCursor，所有调用方统一使用）。
+
+    未安装 pymysql 或连接失败时返回 None — 调用方必须检查。
+    """
     try:
         import pymysql
-        return pymysql.connect(**_DB_CONFIG)
+        from pymysql.cursors import DictCursor
+        return pymysql.connect(**_DB_CONFIG, cursorclass=DictCursor)
     except ImportError:
-        logger.error("pymysql not installed. Run: pip install pymysql")
+        logger.warning("pymysql not installed. Run: pip install pymysql")
         return None
     except Exception as e:
         logger.error(f"MySQL connection failed: {e}")

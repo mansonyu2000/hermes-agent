@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { codiconIcon } from '@/components/ui/codicon'
@@ -6,7 +6,7 @@ import { Tip } from '@/components/ui/tooltip'
 import { getHermesConfigDefaults, getHermesConfigRecord, saveHermesConfig } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
-import { Archive, Bell, Download, Globe, Info, KeyRound, RefreshCw, Settings2, Upload, Wrench, Zap } from '@/lib/icons'
+import { Archive, Bell, Cpu, Download, Globe, Info, KeyRound, Lock, RefreshCw, Settings2, Upload, Users, Wrench, Zap } from '@/lib/icons'
 import { notifyError } from '@/store/notifications'
 
 import { useRouteEnumParam } from '../hooks/use-route-enum-param'
@@ -26,8 +26,26 @@ import { PROVIDER_VIEWS, ProvidersSettings, type ProviderView } from './provider
 import { SessionsSettings } from './sessions-settings'
 import type { SettingsPageProps, SettingsView as SettingsViewId } from './types'
 
+import {
+  AccountsTab,
+  AgentsTab,
+  DevicesTab,
+  OrganizationTab,
+  PasswordTab,
+  PeekaLoginPanel,
+  ProfileTab,
+  loadSavedIdentity,
+  removeIdentity,
+  saveIdentity,
+  type WinPeekIdentity,
+} from '../winpeek/peeka'
+import { useGatewayRequest } from '../gateway/hooks/use-gateway-request'
+
+const PEEKA_VIEWS = ['profile', 'accounts', 'password', 'organization', 'devices', 'agents'] as const
+
 const SETTINGS_VIEWS: readonly SettingsViewId[] = [
   ...SECTIONS.map(s => `config:${s.id}` as SettingsViewId),
+  ...PEEKA_VIEWS.map(v => `peeka:${v}` as SettingsViewId),
   'providers',
   'gateway',
   'keys',
@@ -40,6 +58,21 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
   const { t } = useI18n()
   const navigate = useNavigate()
   const { hash, pathname, search } = useLocation()
+  const { requestGateway: rq } = useGatewayRequest()
+
+  // Peeka identity state — synced across sidebar, MIM, and SettingsView
+  const [peekaIdent, setPeekaIdent] = useState<WinPeekIdentity | null>(loadSavedIdentity)
+  const refreshPeeka = useCallback(() => setPeekaIdent(loadSavedIdentity()), [])
+
+  useEffect(() => {
+    const onPeekaChanged = () => refreshPeeka()
+    window.addEventListener('peeka-changed', onPeekaChanged)
+    window.addEventListener('storage', onPeekaChanged) // cross-tab
+    return () => {
+      window.removeEventListener('peeka-changed', onPeekaChanged)
+      window.removeEventListener('storage', onPeekaChanged)
+    }
+  }, [refreshPeeka])
 
   // MCP moved out of Settings into Capabilities (/skills?tab=mcp). Keep old
   // `/settings?tab=mcp` deep links working — `useRouteEnumParam` would silently
@@ -125,6 +158,42 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         onSelect: () => setActiveView(view)
       }
     }),
+    // ── Peeka identity group ──
+    ...(peekaIdent ? [{
+      active: activeView.startsWith('peeka:'),
+      children: [
+        ...PEEKA_VIEWS.map(v => ({
+          active: activeView === `peeka:${v}`,
+          icon: v === 'profile' ? Info : v === 'password' ? Lock : v === 'organization' ? Globe : v === 'devices' ? Cpu : v === 'agents' ? Zap : Users,
+          id: `peeka:${v}`,
+          label: { profile: 'Personal Info', accounts: 'Account Switch', password: 'Change Password', organization: 'Organization', devices: 'My Devices', agents: 'My Agents' }[v],
+          onSelect: () => setActiveView(`peeka:${v}` as SettingsViewId),
+        })),
+        {
+          active: false,
+          icon: Lock,
+          id: 'peeka:logout',
+          label: `退出 (${peekaIdent.name})`,
+          onSelect: () => {
+            removeIdentity(peekaIdent.uid)
+            setPeekaIdent(null)
+            window.dispatchEvent(new CustomEvent('peeka-changed'))
+            window.location.reload()
+          },
+        },
+      ],
+      gapBefore: true,
+      icon: Users,
+      id: 'peeka',
+      label: 'Peeka',
+      onSelect: () => setActiveView('peeka:profile' as SettingsViewId),
+    }] : [{
+      active: activeView.startsWith('peeka:'),
+      icon: Users,
+      id: 'peeka',
+      label: 'Peeka',
+      onSelect: () => setActiveView('peeka:profile' as SettingsViewId),
+    }]),
     {
       active: activeView === 'notifications',
       icon: Bell,
@@ -253,6 +322,21 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
               onConfigSaved={onConfigSaved}
               onMainModelChanged={onMainModelChanged}
             />
+          ) : activeView.startsWith('peeka:') ? (
+            peekaIdent ? (
+              (() => {
+                const tab = activeView.slice('peeka:'.length)
+                if (tab === 'profile') return <ProfileTab identity={peekaIdent} rq={rq} onUpdate={id => { saveIdentity(id); refreshPeeka(); }} />
+                if (tab === 'accounts') return <AccountsTab currentUid={peekaIdent.uid} onSwitch={id => { saveIdentity(id); window.location.reload() }} />
+                if (tab === 'password') return <PasswordTab uid={peekaIdent.uid} rq={rq} />
+                if (tab === 'organization') return <OrganizationTab uid={peekaIdent.uid} rq={rq} />
+                if (tab === 'devices') return <DevicesTab uid={peekaIdent.uid} rq={rq} />
+                if (tab === 'agents') return <AgentsTab uid={peekaIdent.uid} rq={rq} />
+                return null
+              })()
+            ) : (
+              <PeekaLoginPanel onLogin={refreshPeeka} />
+            )
           ) : activeView === 'providers' ? (
             <ProvidersSettings onClose={onClose} onViewChange={setProviderView} view={providerView} />
           ) : activeView === 'keys' ? (

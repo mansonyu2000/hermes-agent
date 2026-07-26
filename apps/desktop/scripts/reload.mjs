@@ -1,7 +1,8 @@
 // Hard reload the Electron renderer over CDP. Vite-no-HMR mode means edits
 // don't auto-apply — call this after editing source.
 const targets = await (await fetch('http://127.0.0.1:9222/json')).json()
-const t = targets.find((t) => t.url.includes('5174'))
+const PORT = process.env.HERMES_DESKTOP_DEV_PORT || '5175'
+const t = targets.find((t) => t.url.includes(PORT))
 if (!t) {
   console.error('renderer not found')
   process.exit(1)

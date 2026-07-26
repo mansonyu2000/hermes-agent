@@ -163,8 +163,12 @@ def inject_rpa(click_x: int, click_y: int, text: str):
     pyautogui.press("delete")
     time.sleep(0.05)
     import pyperclip
-    pyperclip.copy(text)
-    pyautogui.hotkey("ctrl", "v")
+    saved = pyperclip.paste()
+    try:
+        pyperclip.copy(text)
+        pyautogui.hotkey("ctrl", "v")
+    finally:
+        pyperclip.copy(saved)
     time.sleep(0.1)
     pyautogui.press("enter")
 
@@ -237,7 +241,7 @@ def inject_backend(title_keyword: str, click_x: int, click_y: int, text: str) ->
     if not hwnd:
         return False
 
-    user32.SetForegroundWindow(hwnd)
+    _focus_win32(hwnd)
     time.sleep(0.15)
 
     events = _mouse_click(click_x, click_y)
@@ -248,10 +252,14 @@ def inject_backend(title_keyword: str, click_x: int, click_y: int, text: str) ->
 
     if any(ord(c) > 127 for c in text):
         import pyperclip
-        pyperclip.copy(text)
-        events += [_kb(vk=VK_CONTROL), _kb(vk=0x56),
-                   _kb(vk=0x56, flags=KEYEVENTF_KEYUP),
-                   _kb(vk=VK_CONTROL, flags=KEYEVENTF_KEYUP)]
+        saved = pyperclip.paste()
+        try:
+            pyperclip.copy(text)
+            events += [_kb(vk=VK_CONTROL), _kb(vk=0x56),
+                       _kb(vk=0x56, flags=KEYEVENTF_KEYUP),
+                       _kb(vk=VK_CONTROL, flags=KEYEVENTF_KEYUP)]
+        finally:
+            pyperclip.copy(saved)
     else:
         for ch in text:
             if ch == '\n':
@@ -269,6 +277,67 @@ def inject_backend(title_keyword: str, click_x: int, click_y: int, text: str) ->
 # ═══════════════════════════════════════════════
 # High-level: deliver MIM message to an agent window
 # ═══════════════════════════════════════════════
+
+def _format_mim_message(msg: dict) -> str:
+    """Format a MIM message for RPA injection into agent terminal.
+
+    msg dict from inbox: {from_uid, from_name, from_role, from_peeka_name,
+                          relation, body, context, is_retry, retry_count}
+    """
+    from_name = msg.get("from_name", "?")
+    from_uid = msg.get("from_uid", 0)
+    from_role = msg.get("from_role", "")
+    relation = msg.get("relation", "unknown")
+    body = msg.get("body", "")
+    is_retry = msg.get("is_retry", False)
+    retry_count = msg.get("retry_count", 0)
+
+    # Relation label
+    rel_label = {"same_machine": "同机", "same_org": "同公司", "external": "外部"}.get(relation, "未知")
+
+    lines = [f"[MIM] {from_name}(uid={from_uid}, {from_role})"]
+    if relation != "unknown":
+        lines.append(f"  关系: {rel_label}")
+
+    # Chase reminder
+    if is_retry and retry_count >= 2:
+        lines.append(f"  ⚠️ 第{retry_count}次催问, 请尽快回复")
+
+    lines.append(f"  消息: {body}")
+    return "\n".join(lines)
+
+
+def deliver_mim_message(agent_uid: int, msg: dict) -> bool:
+    """Deliver a formatted MIM message to an agent by uid.
+
+    Looks up the agent by uid from registered agents, finds their window,
+    and injects the formatted message via RPA.
+
+    Returns True if delivery was attempted (window found and activated).
+    """
+    formatted = _format_mim_message(msg)
+    agent_name = f"agent{agent_uid}"
+
+    # Try configured agent name first, then fallback to uid-based lookup
+    config = load_config()
+    agent_cfg = config.get(agent_name, {})
+
+    if not agent_cfg:
+        # Try looking up by window title containing similar agent-type keywords
+        title = f"uid={agent_uid}"
+        cx = cy = 0
+    else:
+        title = agent_cfg.get("window_title", agent_name)
+        cx = agent_cfg.get("click_x", 0)
+        cy = agent_cfg.get("click_y", 0)
+
+    # Try RPA delivery
+    if not activate_window(title):
+        return False
+
+    inject_rpa(cx, cy, formatted)
+    return True
+
 
 def deliver_to_agent(agent_name: str, text: str, mode: str = "rpa") -> bool:
     """Find agent window, inject message. Returns success.

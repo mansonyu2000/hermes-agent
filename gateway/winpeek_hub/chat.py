@@ -6,28 +6,14 @@ Memory queue bridges MQTT incoming → frontend polling.
 
 import json
 import logging
-import os
 import time
 import uuid
 from datetime import datetime
 from typing import Optional
 
-import pymysql
-from pymysql.cursors import DictCursor
+from .db import get_conn
 
 logger = logging.getLogger(__name__)
-
-_DB_CONFIG = {
-    "host": os.getenv("WINPEEK_DB_HOST", "192.168.3.23"),
-    "port": int(os.getenv("WINPEEK_DB_PORT", "3306")),
-    "user": os.getenv("WINPEEK_DB_USER", "winpeek"),
-    "password": os.getenv("WINPEEK_DB_PASS", "Server33"),
-    "database": os.getenv("WINPEEK_DB_NAME", "winpeek-db2"),
-}
-
-
-def _get_conn():
-    return pymysql.connect(**_DB_CONFIG, cursorclass=DictCursor)
 
 
 # ── Active session ────────────────────────────────
@@ -53,15 +39,40 @@ def active_name() -> str:
 # ── Memory queue (MQTT → frontend polling bridge) ─
 
 _pending: list[dict] = []
+_group_gids_cache: dict[int, tuple[set, float]] = {}  # {uid: (gids, ts)}
 
 
 def enqueue(msg: dict):
     _pending.append(msg)
 
 
+def _get_user_gids(uid: int) -> set:
+    """Cached group-membership lookup (5s TTL)."""
+    now = time.time()
+    cached = _group_gids_cache.get(uid)
+    if cached and now - cached[1] < 5:
+        return cached[0]
+    gids: set = set()
+    try:
+        conn = get_conn()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT gid FROM group_members WHERE uid = %s", (uid,))
+                gids = {r["gid"] for r in cur.fetchall()}
+            conn.close()
+    except Exception:
+        pass
+    _group_gids_cache[uid] = (gids, now)
+    return gids
+
+
 def poll_messages(to_uid: int) -> list[dict]:
-    mine = [m for m in _pending if m.get("to_uid") == to_uid]
-    _pending[:] = [m for m in _pending if m.get("to_uid") != to_uid]
+    gids = _get_user_gids(to_uid)
+    mine = [m for m in _pending
+            if m.get("to_uid") == to_uid or m.get("gid", 0) in gids]
+    _pending[:] = [m for m in _pending
+                   if not (m.get("to_uid") == to_uid or m.get("gid", 0) in gids)]
     return mine
 
 
@@ -73,7 +84,10 @@ def _next_mid() -> str:
 
 
 def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
-    conn = _get_conn()
+    """Send a single-chat message."""
+    conn = get_conn()
+    if conn is None:
+        return {"ok": False, "error": "DB unavailable"}
     try:
         with conn.cursor() as cur:
             mid = _next_mid()
@@ -101,10 +115,9 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
                     (body, now, from_uid, to_uid),
                 )
             else:
-                # Get peer name
                 cur.execute("SELECT nickname FROM users WHERE uid = %s", (to_uid,))
                 peer = cur.fetchone()
-                peer_name = peer["nickname"] if peer else f"user_{to_uid}"
+                peer_name = peer.get("nickname") if peer else f"user_{to_uid}"
                 cur.execute(
                     "INSERT INTO contacts (uid, c_uid, display_name, last_message, last_contact_at, first_contact_at, status) "
                     "VALUES (%s, %s, %s, %s, %s, %s, 1)",
@@ -117,30 +130,150 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
     finally:
         conn.close()
 
-    # MQTT publish
+    # MQTT publish — two topics for passive delivery:
+    #   comms/say/{to_uid}  → Hub MQTT adapter (internal forwarding)
+    #   comms/inbox/{to_uid} → Hermes TUI passive listener (winpeek_mqtt.py)
     try:
         from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
+        from gateway.winpeek_hub.mqtt_adapter import publish_inbox
         mqtt_send(to_uid, body, from_name)
+        publish_inbox(to_uid, from_uid, from_name, body, mid)
     except Exception:
         pass
+
+    # Local delivery
+    enqueue({
+        "mid": mid,
+        "to_uid": to_uid,
+        "from_uid": from_uid,
+        "from_name": from_name,
+        "content": body,
+        "time": now,
+    })
+
+    # ── Peeka routing: 3‑layer decision ──
+    try:
+        from gateway.winpeek_hub.peeka_router import route_incoming
+        decision = route_incoming(from_uid, to_uid, body)
+
+        if decision["action"] in ("auto_reply", "daemon_answer"):
+            # Daemon auto‑reply as the recipient (B → A)
+            reply = decision["reply"]
+            layer = 1 if decision["action"] == "auto_reply" else 2
+
+            # Record to L1/L2 digest
+            try:
+                from apps.winpeek_injector.daemon import add_digest_entry
+                add_digest_entry(from_uid, from_name, body, reply, layer)
+            except Exception:
+                pass
+
+            _enqueue_auto_reply(to_uid, from_uid, reply, from_name)
+
+        elif decision["action"] == "drop":
+            # Remove from pending queue (advertisement dropped)
+            _pending[:] = [m for m in _pending
+                           if m.get("mid") != mid]
+
+        elif decision["action"] == "forward":
+            ctx = decision.get("context", {})
+            # Write to recipient agent's inbox
+            msg_dict = {
+                "mid": mid,
+                "from_uid": from_uid,
+                "from_name": from_name,
+                "from_role": ctx.get("peer_role", ""),
+                "from_peeka_name": ctx.get("peeka_name", ""),
+                "relation": ctx.get("relation", "unknown"),
+                "body": body,
+                "context": ctx,
+                "received_at": now,
+                "is_retry": False,
+                "retry_count": 0,
+            }
+            try:
+                from apps.winpeek_injector.daemon import write_to_inbox, track_l3_message
+                write_to_inbox(to_uid, msg_dict)
+                track_l3_message(mid, to_uid, from_uid)
+            except Exception as e:
+                logger.warning(f"[Peeka] inbox write failed: {e}")
+
+            # Phase 2: Passive delivery to ALL mim-agent types
+            # (Hermes, Claude Code, Qoder — any agent with a window)
+            try:
+                from gateway.winpeek_hub import identity
+                agent_info = identity.get_by_uid(to_uid)
+                is_agent = (
+                    agent_info
+                    and agent_info.get("identity_type") in ("mim-agent", "ai")
+                )
+                if is_agent:
+                    from apps.winpeek_injector.engine import deliver_mim_message
+                    if deliver_mim_message(to_uid, msg_dict):
+                        from apps.winpeek_injector.daemon import mark_delivered, update_reliability
+                        mark_delivered(to_uid, mid)
+                        update_reliability(mid, "delivered")
+                        logger.info(
+                            "[Peeka] passive delivery: mid=%s to agent uid=%s type=%s",
+                            mid[:16], to_uid, agent_info.get("agent_type", "?")
+                        )
+            except Exception:
+                pass
+
+    except Exception as e:
+        logger.warning(f"[Peeka] routing error: {e}")
 
     return {"ok": True, "mid": mid}
 
 
+def _enqueue_auto_reply(from_uid: int, to_uid: int, reply: str, original_from_name: str):
+    """Enqueue an auto‑reply message without DB INSERT."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    enqueue({
+        "to_uid": to_uid,
+        "from_uid": from_uid,
+        "from_name": "🤖 " + original_from_name,  # denote auto-reply
+        "content": reply,
+        "time": now,
+        "is_auto_reply": True,
+    })
+
+
 # ── History ─────────────────────────────────────
 
-def get_history(uid: int, peer_uid: int, limit: int = 50) -> list[dict]:
-    conn = _get_conn()
+def get_history(uid: int, peer_uid: int = 0, gid: int = 0,
+                limit: int = 50) -> list[dict]:
+    """Get conversation history. gid>0 = group chat, else peer-to-peer."""
+    conn = get_conn()
+    if conn is None:
+        return []
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """SELECT from_uid, to_uid, role, content, created_at
-                   FROM chat
-                   WHERE (from_uid = %s AND to_uid = %s)
-                      OR (from_uid = %s AND to_uid = %s)
-                   ORDER BY id DESC LIMIT %s""",
-                (uid, peer_uid, peer_uid, uid, limit),
-            )
+            if gid:
+                # Security: only group members can read group history
+                cur.execute(
+                    "SELECT 1 FROM group_members WHERE gid = %s AND uid = %s",
+                    (gid, uid),
+                )
+                if not cur.fetchone():
+                    return []
+                cur.execute(
+                    """SELECT from_uid, to_uid, role, content, created_at
+                       FROM chat
+                       WHERE gid = %s
+                       ORDER BY id DESC LIMIT %s""",
+                    (gid, limit),
+                )
+            else:
+                cur.execute(
+                    """SELECT from_uid, to_uid, role, content, created_at
+                       FROM chat
+                       WHERE gid IS NULL
+                         AND ((from_uid = %s AND to_uid = %s)
+                           OR (from_uid = %s AND to_uid = %s))
+                       ORDER BY id DESC LIMIT %s""",
+                    (uid, peer_uid, peer_uid, uid, limit),
+                )
             rows = list(reversed(cur.fetchall()))
             return [
                 {
@@ -158,18 +291,68 @@ def get_history(uid: int, peer_uid: int, limit: int = 50) -> list[dict]:
 
 # ── Contacts ────────────────────────────────────
 
-def get_contacts() -> list[dict]:
-    """Get all users as contacts (identity.list_all equivalent)."""
+def get_contacts(requester_uid: int = 0) -> dict:
+    """Get all users as contacts with real online status + last message info.
+
+    requester_uid: only returns last_message previews from conversations
+    involving this uid. 0 = skip previews entirely (anonymous/no auth).
+
+    Returns {"contacts": [...], "groups": [...]}."""
+    contacts: list[dict] = []
+    groups: list[dict] = []
     try:
-        from gateway.winpeek_hub import identity
-        return identity.list_all()
+        from gateway.winpeek_hub import identity, hub
+        users = identity.list_all()
+        previews: dict[int, tuple[str, str]] = {}
+        if requester_uid > 0:
+            conn = get_conn()
+            if conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT t.from_uid, t.to_uid, t.content, t.created_at
+                        FROM chat t
+                        INNER JOIN (
+                            SELECT MAX(id) AS max_id
+                            FROM chat
+                            WHERE gid IS NULL
+                              AND (from_uid = %s OR to_uid = %s)
+                            GROUP BY CASE WHEN from_uid < to_uid
+                                THEN CONCAT(from_uid,'-',to_uid)
+                                ELSE CONCAT(to_uid,'-',from_uid) END
+                        ) m ON t.id = m.max_id
+                    """, (requester_uid, requester_uid))
+                    for row in cur.fetchall():
+                        fu = row["from_uid"]
+                        tu = row["to_uid"]
+                        previews[fu] = previews.get(fu) or (row["content"], row["created_at"])
+                        previews[tu] = previews.get(tu) or (row["content"], row["created_at"])
+                conn.close()
+        for u in users:
+            uid = u["uid"]
+            u["online"] = hub.is_online(uid)
+            p = previews.get(uid)
+            u["last_message"] = p[0] if p else ""
+            u["last_msg_ts"] = p[1] if p else ""
+        contacts = users
+
+        # ── Groups ──
+        if requester_uid > 0:
+            try:
+                from gateway.winpeek_hub.group import get_my_groups
+                groups = get_my_groups(requester_uid)
+            except Exception:
+                pass
+
+        return {"contacts": contacts, "groups": groups}
     except Exception:
-        return []
+        return {"contacts": [], "groups": []}
 
 
 def get_user_contacts(uid: int) -> list[dict]:
     """Get contacts for a specific user from contacts table."""
-    conn = _get_conn()
+    conn = get_conn()
+    if conn is None:
+        return []
     try:
         with conn.cursor() as cur:
             cur.execute(

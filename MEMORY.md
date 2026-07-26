@@ -1,0 +1,1 @@
+- [MIM 当前状态](.claude/projects/D--mydata-mycode-github-hermes-agent-cc/memory/mim-current-state.md) — 群聊模块待开始，V1 中心化架构待实施

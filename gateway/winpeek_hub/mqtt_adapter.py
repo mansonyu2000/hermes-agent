@@ -67,8 +67,9 @@ def _resolve_identity():
 BROKER = os.getenv("MIM_BROKER", "192.168.3.23")
 PORT = int(os.getenv("MIM_PORT", "1883"))
 
-INBOX_TOPIC = property(lambda self: f"comms/inbox/{UID}")
 SAY_TOPIC_PREFIX = "comms/say"
+OUTBOX_TOPIC = "comms/outbox"
+GROUP_TOPIC_PREFIX = "comms/group"
 
 _client: Optional[mqtt.Client] = None
 _message_handler = None
@@ -92,7 +93,9 @@ def set_message_handler(handler):
 def _on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
         client.subscribe("comms/inbox/#", qos=1)
-        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, inbox=all")
+        client.subscribe("comms/outbox/#", qos=1)
+        client.subscribe("comms/group/#", qos=1)
+        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, inbox+outbox+group=all")
     else:
         logger.warning(f"MIM connect failed: code={reason_code}")
 
@@ -103,9 +106,15 @@ def _on_message(client, userdata, msg):
     except json.JSONDecodeError:
         return
 
+    # ── Outbox: Agent → Daemon relay ──
+    if msg.topic.startswith("comms/outbox/"):
+        _handle_outbox(msg.topic, payload)
+        return
+
     from_uid = payload.get("from_uid", "")
     from_name = payload.get("from", "?")
     body = payload.get("body", "")
+    gid = payload.get("gid")
 
     if str(from_uid) == str(UID):
         return
@@ -119,6 +128,7 @@ def _on_message(client, userdata, msg):
             "from_uid": int(from_uid) if str(from_uid).isdigit() else 0,
             "from_name": from_name,
             "to_uid": UID,
+            "gid": gid,
             "content": body,
             "time": payload.get("ts", time.strftime("%Y-%m-%dT%H:%M:%S")),
         })
@@ -130,6 +140,52 @@ def _on_message(client, userdata, msg):
             _message_handler(from_uid, from_name, body)
         except Exception as e:
             logger.warning(f"MIM handler error: {e}")
+
+
+def _handle_outbox(topic: str, payload: dict):
+    """Agent 发到 outbox 的消息 → Daemon 补全上下文 → 转发给收件人。
+
+    Topic: comms/outbox/{from_uid}
+    Payload: {"to_uid": int, "body": str, "reply_to_mid": str?, "ts": str?}
+
+    全权委托 chat.send_message() 处理：
+      DB 归档 → MQTT 发布 → 本地 enqueue → Peeka Router(L1/L2/L3)
+    """
+    to_uid = int(payload.get("to_uid", 0))
+    body = payload.get("body", "")
+
+    if not to_uid or not body:
+        logger.warning(f"[outbox] 无效消息: to_uid={to_uid} body={body[:30]}")
+        return
+
+    # 从 topic 提取 from_uid
+    parts = topic.split("/")
+    from_uid_str = parts[-1] if len(parts) > 2 else ""
+    try:
+        from_uid = int(from_uid_str)
+    except (ValueError, TypeError):
+        logger.warning(f"[outbox] 无法从 topic 提取 uid: {topic}")
+        return
+
+    # 查 identity 补全名称
+    from_name = f"user_{from_uid}"
+    try:
+        from gateway.winpeek_hub import identity
+        user = identity.get_by_uid(from_uid)
+        if user:
+            from_name = user.get("nickname", from_name)
+    except Exception:
+        pass
+
+    logger.info(f"[outbox] {from_name}[{from_uid}] → uid={to_uid}: {body[:60]}")
+
+    # 全权委托 chat.send_message() — 它负责 DB+MQQT+enqueue+Peeka Router
+    try:
+        from gateway.winpeek_hub.chat import send_message as chat_send
+        result = chat_send(from_uid, from_name, to_uid, body)
+        logger.info(f"[outbox] chat_send result: {result.get('ok')} mid={result.get('mid','')[:20]}")
+    except Exception as e:
+        logger.warning(f"[outbox] chat_send 失败: {e}")
 
 
 # ── 连接管理 ──────────────────────────────────────
@@ -167,9 +223,9 @@ def disconnect():
 # ── 发送 ──────────────────────────────────────────
 
 def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
+    """Publish to comms/say/{target_uid} — Hub internal forwarding."""
     if not _client or target_uid <= 0:
         return False
-
     topic = f"{SAY_TOPIC_PREFIX}/{target_uid}"
     payload = json.dumps({
         "from_uid": str(UID),
@@ -178,13 +234,58 @@ def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
         "body": text,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }, ensure_ascii=False)
-
     try:
         result = _client.publish(topic, payload, qos=1)
         logger.info(f"MIM → {target_name or target_uid}: {text[:60]}")
         return result.rc == mqtt.MQTT_ERR_SUCCESS
     except Exception as e:
         logger.warning(f"MIM send failed: {e}")
+        return False
+
+
+def publish_inbox(
+    to_uid: int,
+    from_uid: int,
+    from_name: str,
+    body: str,
+    mid: str = "",
+    gid: str = "",
+) -> bool:
+    """Publish to comms/inbox/{to_uid} — for Hermes TUI passive listener."""
+    if not _client or to_uid <= 0:
+        return False
+    payload = json.dumps({
+        "from_uid": str(from_uid),
+        "from": from_name,
+        "body": body[:500],
+        "mid": mid,
+        "gid": gid,
+    }, ensure_ascii=False)
+    try:
+        result = _client.publish(f"comms/inbox/{to_uid}", payload, qos=1)
+        return result.rc == mqtt.MQTT_ERR_SUCCESS
+    except Exception as e:
+        logger.warning(f"MIM inbox publish failed: {e}")
+        return False
+
+
+def send_group_message(gid: int, text: str, from_name: str, from_uid: int = 0) -> bool:
+    if not _client or gid <= 0:
+        return False
+    topic = f"{GROUP_TOPIC_PREFIX}/{gid}"
+    payload = json.dumps({
+        "from_uid": str(from_uid or UID),
+        "from": from_name or NAME,
+        "gid": gid,
+        "body": text,
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }, ensure_ascii=False)
+    try:
+        result = _client.publish(topic, payload, qos=1)
+        logger.info(f"MIM → group {gid}: {text[:60]}")
+        return result.rc == mqtt.MQTT_ERR_SUCCESS
+    except Exception as e:
+        logger.warning(f"MIM group send failed: {e}")
         return False
 
 

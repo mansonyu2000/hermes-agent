@@ -3,6 +3,7 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { Button } from '@/components/ui/button'
@@ -95,7 +96,7 @@ import {
   setCurrentCwd
 } from '@/store/session'
 
-import { type AppView, ARTIFACTS_ROUTE, ASSETS_ROUTE, AUTOMATION_ROUTE, MESSAGING_ROUTE, MIM_ROUTE, SKILLS_ROUTE } from '../../routes'
+import { type AppView, ARTIFACTS_ROUTE, ASSETS_ROUTE, AUTOMATION_ROUTE, MESSAGING_ROUTE, MIM_ROUTE, SETTINGS_ROUTE, SKILLS_ROUTE } from '../../routes'
 import type { SidebarNavItem } from '../../types'
 
 import { countLabel } from './chrome'
@@ -214,6 +215,106 @@ interface ChatSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onNewSessionInWorkspace: (path: null | string) => void
   onManageCronJob: (jobId: string) => void
   onTriggerCronJob: (jobId: string) => void
+}
+
+/* Peeka account popup — quick identity indicator. Full settings in /peeka overlay. */
+interface PeekaIdentity { name: string; uid: number; role: string; identity_type?: string; gender?: string }
+function PeekaPopup() {
+  const [open, setOpen] = useState(false)
+  const [sub, setSub] = useState(false)               // "切换账号" sub-menu
+  const [ident, setIdent] = useState<{name:string; uid:number; role:string; identity_type?:string; gender?:string}|null>(null)
+  const [allIdentities, setAllIdentities] = useState<{name:string; uid:number; role:string; identity_type?:string; gender?:string}[]>([])
+  const ref = useRef<HTMLDivElement>(null); const btn = useRef<HTMLButtonElement>(null)
+  const nav = useNavigate()
+
+  const sync = useCallback(() => {
+    try {
+      const arr: PeekaIdentity[] = JSON.parse(localStorage.getItem('mim-identities') || '[]')
+      setAllIdentities(arr)
+      const auid = Number(localStorage.getItem('mim-active-uid') || 0)
+      setIdent(arr.find(x => x.uid === auid) || arr[0] || null)
+    } catch { setIdent(null); setAllIdentities([]) }
+  }, [])
+  useEffect(() => { sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [sync])
+
+  useEffect(() => { if(!open) return; const f=(e:MouseEvent)=>{const t=e.target as Node;if(ref.current&&!ref.current.contains(t)&&btn.current&&!btn.current.contains(t)){setOpen(false);setSub(false)}};document.addEventListener('mousedown',f);return ()=>document.removeEventListener('mousedown',f)},[open])
+
+  const st = {display:'flex' as const,alignItems:'center' as const,gap:8,border:'none',background:'none',cursor:'pointer',width:'100%',textAlign:'left' as const}
+  const Row = (p:{c:string;t:string;onClick?:()=>void;r?:boolean}) => <button style={{...st,padding:'8px 16px',fontSize:12,color:p.r?'#ef4444':'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{p.onClick?.();if(p.t!=='切换账号'){setOpen(false);setSub(false)}}}><span style={{fontSize:14,width:20,textAlign:'center'}}>{p.c}</span><span style={{flex:1}}>{p.t}</span></button>
+
+  const name = ident?.name || ''
+  const letter = (name.charAt(0) || 'P').toUpperCase()
+  const swapAccount = (target: {name:string; uid:number; role:string}) => {
+    // Save to mim-identities and set as active — same code path as saveIdentity
+    try {
+      const raw = localStorage.getItem('mim-identities')
+      const arr: any[] = raw ? JSON.parse(raw) : []
+      const idx = arr.findIndex((x: any) => x.uid === target.uid)
+      if (idx >= 0) {
+        // Record login time
+        const historyRaw = localStorage.getItem('mim-login-history')
+        const history: Record<string, number> = historyRaw ? JSON.parse(historyRaw) : {}
+        history[String(target.uid)] = Date.now()
+        localStorage.setItem('mim-login-history', JSON.stringify(history))
+      }
+      localStorage.setItem('mim-identities', JSON.stringify(arr))
+      localStorage.setItem('mim-active-uid', String(target.uid))
+    } catch {}
+    setSub(false); setOpen(false)
+    window.dispatchEvent(new CustomEvent('peeka-changed'))
+    window.location.reload()
+  }
+
+  const otherIdentities = allIdentities.filter(x => x.uid !== ident?.uid)
+
+  return <div style={{flexShrink:0,borderTop:'1px solid #e5e7eb',padding:'2px 8px 4px'}}>
+    <button ref={btn} style={{...st,padding:'6px 8px',borderRadius:6,fontSize:12,fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>setOpen(v=>!v)}>
+      <span style={{width:24,height:24,borderRadius:'50%',background:ident?'#7c3aed':'#d1d5db',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{ident ? letter : 'P'}</span>
+      <span style={{flex:1,fontWeight:500,color:ident?'#111827':'#9ca3af',fontSize:12}}>{ident ? `${ident.gender==='female'?'🚺':ident.gender==='male'?'🚹':'🤖'} ${name}` : 'Peeka'}</span>
+      <span style={{fontSize:10,color:'#9ca3af'}}>{open?'▼':'▶'}</span>
+    </button>
+    {open && <div ref={ref} style={{position:'fixed',zIndex:99999,bottom:44,left:6,width:260,background:'#fff',borderRadius:16,border:'1px solid #d1d5db',boxShadow:'0 20px 60px rgba(0,0,0,.28)',padding:'6px 0',maxHeight:'calc(100vh - 120px)',overflowY:'auto'}}>
+      {ident ? (<>
+        {/* ── Header ── */}
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px'}}>
+          <span style={{width:36,height:36,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:700}}>{letter}</span>
+          <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:600,color:'#111827'}}>{name}</div><div style={{fontSize:10,color:'#9ca3af'}}>{(ident.identity_type==='mim-user'?'Peeka User (真人)':'MIM Agent')} · #{ident.uid}</div></div>
+        </div>
+        <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} />
+        {/* ── Menu items → SettingsView Peeka tabs ── */}
+        <Row c='👤' t='个人信息' onClick={()=>nav(`${SETTINGS_ROUTE}?tab=peeka:profile`)} />
+        {ident?.identity_type==='mim-user' && <Row c='🤖' t='管理我的 Agent' onClick={()=>nav(`${SETTINGS_ROUTE}?tab=peeka:agents`)} />}
+        <Row c='🔑' t='修改密码' onClick={()=>nav(`${SETTINGS_ROUTE}?tab=peeka:password`)} />
+        {ident?.identity_type==='mim-user' && <Row c='🏢' t='我的组织' onClick={()=>nav(`${SETTINGS_ROUTE}?tab=peeka:organization`)} />}
+        <div style={{margin:'4px 14px',borderTop:'1px solid #e5e7eb'}} />
+        {/* ── Switch account ── */}
+        <button style={{...st,padding:'8px 16px',fontSize:12,color:'#374151',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>setSub(v=>!v)}>
+          <span style={{fontSize:14,width:20,textAlign:'center'}}>⇄</span><span style={{flex:1}}>切换账号</span><span style={{fontSize:10,color:'#9ca3af'}}>{sub?'▼':'▶'}</span>
+        </button>
+        {sub && <div style={{margin:'4px 12px 8px',padding:6,borderRadius:12,background:'#f3f4f6',border:'1px solid #e5e7eb'}}>
+          {otherIdentities.map(x => <div key={x.uid} style={{...st,cursor:'pointer',padding:'6px 8px',borderRadius:8,gap:10}}
+            onMouseEnter={e=>e.currentTarget.style.background='#e5e7eb'} onMouseLeave={e=>e.currentTarget.style.background=''}
+            onClick={()=>swapAccount(x)}>
+            <span style={{width:26,height:26,borderRadius:'50%',background:'#7c3aed',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700}}>{x.name.charAt(0).toUpperCase()}</span>
+            <span style={{flex:1,fontSize:12,color:'#111827'}}>{x.name}</span>
+            <span style={{fontSize:9,color:'#9ca3af'}}>#{x.uid}</span>
+          </div>)}
+          <div style={{...st,padding:'6px 8px',borderRadius:8,gap:10,fontSize:12,color:'#9ca3af',fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#e5e7eb'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{setOpen(false);setSub(false);nav(PEEKA_SETTINGS_ROUTE)}}>
+            <span style={{width:26,height:26,borderRadius:'50%',border:'1px dashed #d1d5db',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:300}}>+</span><span>添加账号</span>
+          </div>
+        </div>}
+        <Row c='⤻' t='退出登录' r onClick={()=>{
+          try { const raw = localStorage.getItem('mim-identities'); const arr = raw ? JSON.parse(raw) : []; const nxt = arr.filter((x:any)=>x.uid!==ident.uid); localStorage.setItem('mim-identities',JSON.stringify(nxt)) } catch {}
+          localStorage.removeItem('mim-active-uid'); setIdent(null); setOpen(false); setSub(false)
+          window.dispatchEvent(new CustomEvent('peeka-changed'))
+        }} />
+      </>) : (
+        <button style={{...st,padding:'8px 16px',fontSize:12,color:'#7c3aed',fontWeight:600,fontFamily:'inherit'}} onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e=>e.currentTarget.style.background=''} onClick={()=>{setOpen(false);nav(`${SETTINGS_ROUTE}?tab=peeka:profile`)}}>
+          <span style={{fontSize:16,width:20}}>👤</span>登录 Peeka 账号
+        </button>
+      )}
+    </div>}
+  </div>
 }
 
 export function ChatSidebar({
@@ -1405,6 +1506,10 @@ export function ChatSidebar({
           </div>
         )}
       </SidebarContent>
+
+      {/* Peeka account popup — always visible, pinned outside scrollable content */}
+      <PeekaPopup />
+
       <ProjectDialog />
     </Sidebar>
   )

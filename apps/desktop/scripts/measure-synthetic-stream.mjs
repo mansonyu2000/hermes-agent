@@ -30,7 +30,8 @@ const OUT = process.env.OUT || `frame-times-${LABEL}.json`
 
 async function getTarget() {
   const list = await (await fetch(`${CDP_HTTP}/json`)).json()
-  const t = list.find((t) => t.type === 'page' && /5174/.test(t.url))
+const DEV_PORT = process.env.HERMES_DESKTOP_DEV_PORT || '5175'
+  const t = list.find((t) => t.type === 'page' && t.url.includes(DEV_PORT))
   if (!t) throw new Error('renderer not found')
   return t
 }
