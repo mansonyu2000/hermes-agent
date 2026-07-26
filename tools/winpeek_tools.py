@@ -388,7 +388,20 @@ def _handle_mim_poll(args: dict) -> str:
     uid = int(args.get("uid") or 0) or active_uid()
     if not uid:
         return json.dumps({"messages": []})
-    return json.dumps({"messages": poll_messages(uid)})
+    # Memory queue (real-time)
+    queue_msgs = poll_messages(uid)
+    # File inbox (persisted L3 messages)
+    inbox_msgs = []
+    try:
+        from apps.winpeek_injector.daemon import read_inbox
+        inbox_msgs = read_inbox(uid)
+    except ImportError:
+        pass
+    return json.dumps({
+        "messages": queue_msgs,
+        "inbox": inbox_msgs,
+        "inbox_count": len(inbox_msgs),
+    })
 
 
 def _handle_mim_contacts(args: dict) -> str:
@@ -1612,4 +1625,178 @@ registry.register(
     description="MIM local agent discovery",
 )
 
-logger.info("WinPeek MIM tools: +user_info +local_agents")
+
+# ── F3: Agent auto-reply — inbox + status handlers ──
+
+def _handle_mim_check_inbox(args: dict) -> str:
+    """Agent reads its unread inbox. Called by agent or frontend."""
+    uid = int(args.get("uid", 0))
+    if not uid:
+        return json.dumps({"error": "uid required"})
+    try:
+        from apps.winpeek_injector.daemon import read_inbox, get_local_state
+        messages = read_inbox(uid)
+        state = get_local_state()
+        return json.dumps({
+            "uid": uid,
+            "unread_count": len(messages),
+            "messages": messages,
+            "reliability_pending": state.get("reliability_pending", 0),
+        })
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    except Exception as e:
+        logger.exception("check_inbox failed: %s", str(e))
+        return json.dumps({"error": str(e)})
+
+
+registry.register(
+    name="winpeek_mim_check_inbox",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_check_inbox",
+        "description": "Check agent's unread inbox messages. Returns message list with sender info and body.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "Agent uid to check inbox for"},
+            },
+            "required": ["uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_check_inbox(args),
+    check_fn=lambda: True,
+    description="MIM agent inbox check",
+)
+
+
+def _handle_mim_agent_status(args: dict) -> str:
+    """Return agent online/reply status for frontend display."""
+    try:
+        from apps.winpeek_injector.daemon import get_local_state, get_pending_reliability
+        state = get_local_state()
+        runtimes = state.get("runtimes", [])
+        inbox_summary = state.get("inbox_summary", {})
+        pending = get_pending_reliability()
+
+        agents = []
+        for r in runtimes:
+            agent_uid = str(r.get("uid", ""))
+            summary = inbox_summary.get(agent_uid, {})
+            agents.append({
+                "uid": r.get("uid"),
+                "agent_type": r["agent_type"],
+                "registered": r.get("registered", False),
+                "unread": summary.get("unread_count", 0),
+                "delivered": summary.get("delivered_count", 0),
+                "online": True,  # daemon reports = agent is online
+            })
+
+        return json.dumps({
+            "machine": state.get("machine", ""),
+            "agents": agents,
+            "pending_chase": len(pending),
+        })
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    except Exception as e:
+        logger.exception("agent_status failed: %s", str(e))
+        return json.dumps({"error": str(e)})
+
+
+registry.register(
+    name="winpeek_mim_agent_status",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_agent_status",
+        "description": "Get agent online status, inbox counts, and pending chase reminders. For frontend status indicators.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    handler=lambda args, **kw: _handle_mim_agent_status(args),
+    check_fn=lambda: True,
+    description="MIM agent online/reply status",
+)
+
+
+logger.info("WinPeek MIM tools: +local_agents +check_inbox +agent_status +read_digest +mark_replied")
+
+
+# ── Digest + reply tracking ──
+
+def _handle_mim_read_digest(args: dict) -> str:
+    """Agent reads accumulated L1/L2 auto-reply digest on startup."""
+    try:
+        from apps.winpeek_injector.daemon import pop_digest_entries, build_digest_message, read_inbox
+        entries = pop_digest_entries()
+        uid = int(args.get("uid", 0))
+        inbox_count = 0
+        if uid:
+            inbox_count = len(read_inbox(uid))
+        return json.dumps({
+            "digest": build_digest_message(entries) if entries else "",
+            "auto_reply_count": len(entries),
+            "pending_inbox": inbox_count,
+        })
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    except Exception as e:
+        logger.exception("read_digest failed: %s", str(e))
+        return json.dumps({"error": str(e)})
+
+
+registry.register(
+    name="winpeek_mim_read_digest",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_read_digest",
+        "description": "Read accumulated L1/L2 auto-reply digest (greetings handled while agent was offline). Returns digest message + pending inbox count.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "Agent uid"},
+            },
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_read_digest(args),
+    check_fn=lambda: True,
+    description="MIM L1/L2 auto-reply digest reader",
+)
+
+
+def _handle_mim_mark_replied(args: dict) -> str:
+    """Agent marks an inbox message as replied."""
+    uid = int(args.get("uid", 0))
+    mid = str(args.get("mid", ""))
+    if not uid or not mid:
+        return json.dumps({"error": "uid and mid required"})
+    try:
+        from apps.winpeek_injector.daemon import mark_replied, update_reliability
+        mark_replied(uid, mid)
+        update_reliability(mid, "replied")
+        return json.dumps({"ok": True, "mid": mid})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    except Exception as e:
+        logger.exception("mark_replied failed: %s", str(e))
+        return json.dumps({"error": str(e)})
+
+
+registry.register(
+    name="winpeek_mim_mark_replied",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_mark_replied",
+        "description": "Mark an inbox message as replied. Called after agent sends its reply.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "Agent uid"},
+                "mid": {"type": "string", "description": "Message mid to mark as replied"},
+            },
+            "required": ["uid", "mid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_mark_replied(args),
+    check_fn=lambda: True,
+    description="MIM mark inbox message as replied",
+)

@@ -14607,6 +14607,83 @@ def _(rid, params: dict) -> dict:
         return _ok(rid, {"result": result})
 
 
+# ── F3: Agent auto-reply — inbox + status methods ──
+
+@method("winpeek_mim_local_agents")
+def _(rid, params: dict) -> dict:
+    """Local daemon agent discovery — already existed in tools, now exposed."""
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_local_agents
+    result = _handle_mim_local_agents(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_check_inbox")
+def _(rid, params: dict) -> dict:
+    """Agent checks its unread inbox for auto-processing."""
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_check_inbox
+    result = _handle_mim_check_inbox(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_agent_status")
+def _(rid, params: dict) -> dict:
+    """Agent online status + inbox counts for frontend indicators."""
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_agent_status
+    result = _handle_mim_agent_status(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_read_digest")
+def _(rid, params: dict) -> dict:
+    """Agent reads L1/L2 auto-reply digest on startup."""
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_read_digest
+    result = _handle_mim_read_digest(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_mark_replied")
+def _(rid, params: dict) -> dict:
+    """Agent marks inbox message as replied."""
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_mark_replied
+    result = _handle_mim_mark_replied(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
 @method("winpeek_software_list")
 def _(rid, params: dict) -> dict:
     err = _ensure_mim_loaded()
