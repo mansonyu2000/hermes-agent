@@ -130,14 +130,10 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
     finally:
         conn.close()
 
-    # MQTT publish — two topics for passive delivery:
-    #   comms/say/{to_uid}  → Hub MQTT adapter (internal forwarding)
-    #   comms/inbox/{to_uid} → Hermes TUI passive listener (winpeek_mqtt.py)
+    # MQTT publish via say topic (relay handles say→inbox forwarding)
     try:
         from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
-        from gateway.winpeek_hub.mqtt_adapter import publish_inbox
         mqtt_send(to_uid, body, from_name)
-        publish_inbox(to_uid, from_uid, from_name, body, mid)
     except Exception:
         pass
 
