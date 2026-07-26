@@ -44,13 +44,18 @@ def register_node(uid: int, name: str, role: str = "Agent", host: str = "local")
     _write_state(state)
     return state["nodes"][node_id]
 
-def heartbeat(uid: int):
-    """Update last_seen timestamp."""
+def heartbeat(uid: int, name: str = "", role: str = "", host: str = ""):
+    """Update last_seen timestamp. Register if not yet known."""
     state = _read_state()
     node_id = str(uid)
-    if node_id in state["nodes"]:
-        state["nodes"][node_id]["last_seen"] = datetime.now().isoformat()
-        state["nodes"][node_id]["status"] = "online"
+    if node_id not in state["nodes"]:
+        state["nodes"][node_id] = {
+            "uid": uid, "name": name or f"uid_{uid}",
+            "role": role or "Agent", "host": host or "mqtt",
+            "status": "online", "first_seen": datetime.now().isoformat(),
+        }
+    state["nodes"][node_id]["last_seen"] = datetime.now().isoformat()
+    state["nodes"][node_id]["status"] = "online"
     _write_state(state)
 
 def mark_offline(uid: int):
