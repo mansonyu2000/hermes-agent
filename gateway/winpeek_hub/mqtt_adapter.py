@@ -113,42 +113,16 @@ def _on_message(client, userdata, msg):
         return
 
     # ── Say relay: comms/say/{uid} → comms/inbox/{uid} (MIM message center) ──
-    # First-claim-wins: MySQL dedup ensures only ONE relay processes each message,
-    # regardless of how many gateway instances subscribe to comms/say/#.
     if msg.topic.startswith("comms/say/"):
         to_uid = int(msg.topic.rsplit("/", 1)[-1])
         if to_uid:
-            from_uid = str(payload.get("from_uid", ""))
-            body_preview = (str(payload.get("body", ""))[:200] if payload.get("body") else "")
-            ts = str(payload.get("ts", ""))
-            # Composite dedup key: to_uid + from_uid + ts + body_hash
-            dedup_fp = f"{to_uid}|{from_uid}|{ts}|{abs(hash(body_preview))}"
-            try:
-                from gateway.winpeek_hub.db import get_conn
-                conn = get_conn()
-                if conn:
-                    with conn.cursor() as cur:
-                        # Atomically claim: INSERT succeeds only for the first relay
-                        cur.execute(
-                            "INSERT INTO mia_route_dedup (dedup_fp, to_uid, from_uid, created_at) "
-                            "VALUES (%s, %s, %s, NOW())",
-                            (dedup_fp, to_uid, from_uid)
-                        )
-                        conn.commit()
-                    conn.close()
-                    # We are the first — proceed with relay
-                    trace = list(payload.get("_trace", []))
-                    trace.append(f"relay@{UID}")
-                    payload["_trace"] = trace
-                    payload_str = json.dumps(payload, ensure_ascii=False)
-                    client.publish(f"comms/inbox/{to_uid}", payload_str, qos=1)
-                    logger.info(f"MIM say→inbox relay: uid={to_uid} trace={'→'.join(trace)}")
-                else:
-                    # DB unavailable — fall through to direct relay (no dedup)
-                    logger.warning("MIM dedup DB unavailable, relying on single instance")
-            except Exception:
-                # Duplicate key → another relay already claimed this message → skip
-                pass
+            # Trace: append relay hop
+            trace = list(payload.get("_trace", []))
+            trace.append(f"relay@{UID}")
+            payload["_trace"] = trace
+            payload_str = json.dumps(payload, ensure_ascii=False)
+            client.publish(f"comms/inbox/{to_uid}", payload_str, qos=1)
+            logger.info(f"MIM say→inbox relay: uid={to_uid} trace={'→'.join(trace)}")
         return
 
     from_uid = payload.get("from_uid", "")
