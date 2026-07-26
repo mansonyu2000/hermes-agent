@@ -1630,9 +1630,13 @@ registry.register(
 
 def _handle_mim_check_inbox(args: dict) -> str:
     """Agent reads its unread inbox. Called by agent or frontend."""
-    uid = int(args.get("uid", 0))
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+    except ImportError:
+        active_uid = lambda: 0
+    uid = int(args.get("uid") or 0) or active_uid()
     if not uid:
-        return json.dumps({"error": "uid required"})
+        return json.dumps({"error": "uid required — login first"})
     try:
         from apps.winpeek_injector.daemon import read_inbox, get_local_state
         messages = read_inbox(uid)
@@ -1726,9 +1730,13 @@ logger.info("WinPeek MIM tools: +local_agents +check_inbox +agent_status +read_d
 def _handle_mim_read_digest(args: dict) -> str:
     """Agent reads accumulated L1/L2 auto-reply digest on startup."""
     try:
+        from gateway.winpeek_hub.chat import active_uid
+    except ImportError:
+        active_uid = lambda: 0
+    uid = int(args.get("uid") or 0) or active_uid()
+    try:
         from apps.winpeek_injector.daemon import pop_digest_entries, build_digest_message, read_inbox
         entries = pop_digest_entries()
-        uid = int(args.get("uid", 0))
         inbox_count = 0
         if uid:
             inbox_count = len(read_inbox(uid))
@@ -1765,7 +1773,11 @@ registry.register(
 
 def _handle_mim_mark_replied(args: dict) -> str:
     """Agent marks an inbox message as replied."""
-    uid = int(args.get("uid", 0))
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+    except ImportError:
+        active_uid = lambda: 0
+    uid = int(args.get("uid") or 0) or active_uid()
     mid = str(args.get("mid", ""))
     if not uid or not mid:
         return json.dumps({"error": "uid and mid required"})
