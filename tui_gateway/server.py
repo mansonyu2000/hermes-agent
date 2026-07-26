@@ -245,13 +245,6 @@ _pool = concurrent.futures.ThreadPoolExecutor(
 )
 atexit.register(lambda: _pool.shutdown(wait=False, cancel_futures=True))
 
-# ── WinPeek MIM Hub auto-start ───────────────────────────
-try:
-    from gateway.winpeek_hub import hub_bridge
-    hub_bridge.try_load_hub()
-except Exception:
-    pass
-
 # Reserve real stdout for JSON-RPC only; redirect Python's stdout to stderr
 # so stray print() from libraries/tools becomes harmless gateway.stderr instead
 # of corrupting the JSON protocol.
