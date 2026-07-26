@@ -27,6 +27,9 @@ website/docs/winpeek/wechat-automation/
 ├── wechat-uia-reference.md           ← UIA AutomationId 参考表
 ├── wechat-rpa-navigation.md          ← RPA 导航原理（三层定位、虚拟列表三戒）
 └── wechat-development-standards.md   ← 开发规范（文件创建、Git 门禁）
+
+↗ 关联规划文档
+docs/plan/wechat-rpa-automation-spec.md  ← 规格说明书（P0-P3 分层、技术栈、路线图）
 ```
 
 ## 按角色推荐阅读顺序
@@ -100,6 +103,7 @@ say 命令 ────────────▶    Hermes 收到消息
 | UIA 参考表 | ✅ 本文档集 |
 | RPA 导航原理 | ✅ 本文档集 |
 | 开发规范 | ✅ 本文档集 |
+| 规格说明书 | ✅ 已完成（docs/plan/wechat-rpa-automation-spec.md） |
 | 测试计划 | 📋 待创建 |
 
 **代码状态**：25 个 Python 文件已实现，`mcp_server.py` 对外暴露 10+ Hermes 工具。

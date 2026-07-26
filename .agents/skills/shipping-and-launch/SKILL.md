@@ -308,3 +308,17 @@ After deploying:
 - [ ] Critical user flow works
 - [ ] Logs are flowing
 - [ ] Rollback tested or verified ready
+
+## Hermes Integration
+
+When working in hermes-agent project, additionally:
+
+### Pre-Launch
+- [ ] Create ZenTao release via `zentao release create --product 8 --name "v<version>" --build <build_id>`
+- [ ] Attach release notes to ZenTao release
+
+### Post-Launch
+- [ ] Notify team of deployment via MIM (`winpeek_mim_send`)
+- [ ] Share rollback plan with on-call engineer via MIM
+- [ ] If NO-GO decision: create ZenTao bug for blocked issues via `zentao bug create`
+- [ ] Update ZenTao story status to "released" on successful deployment

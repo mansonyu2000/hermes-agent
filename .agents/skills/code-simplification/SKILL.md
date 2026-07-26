@@ -329,3 +329,11 @@ After completing a simplification pass:
 - [ ] No error handling was removed or weakened
 - [ ] No dead code was left behind (unused imports, unreachable branches)
 - [ ] A teammate or review agent would approve the change as a net improvement
+
+## Hermes Integration
+
+When working in hermes-agent project, additionally:
+- [ ] Notify the team via MIM (`winpeek_mim_send`) if significant simplification was made (e.g., removed >100 lines or a major abstraction)
+- [ ] Create ZenTao task for major refactoring effort via `zentao task create --execution 9 --name "Simplify <module>" --desc "<summary>"`
+- [ ] Reference the ZenTao story/task ID in simplification commit messages
+- [ ] If simplification involved removing dead code, document in ZenTao task comment for traceability

@@ -394,3 +394,12 @@ After review is complete:
 - [ ] Dependency upgrades were reviewed against their changelog, isolated per package, and verified by a green suite with the lockfile diff reviewed
 
 **Presumptive blockers:** surface and propose the simpler design for each of these; escalate to Required only when the change actively makes structure worse: a refactor that relocates complexity instead of reducing it; a change that pushes a file past the size boundary with no decomposition; feature logic added to a shared module; a near-duplicate of an existing canonical helper; a silent fallback that hides an unclear invariant.
+
+## Hermes Integration
+
+When working in hermes-agent project, additionally:
+- [ ] Submit review findings to ZenTao via `zentao task comment --task <id> --comment "<review summary>"`
+- [ ] Create ZenTao bugs for Critical findings via `zentao bug create --product 8 --title "<bug title>" --severity 1`
+- [ ] Notify author via MIM (`winpeek_mim_send`) when review is complete
+- [ ] Reference ZenTao story/task ID in review summary
+- [ ] Log review verdict to ZenTao task via `zentao task finish` (if approve) or `zentao task activate` (if changes requested)

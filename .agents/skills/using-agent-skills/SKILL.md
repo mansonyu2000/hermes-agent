@@ -18,6 +18,12 @@ Task arrives
     │
     ├── Don't know what you want yet? ──────→ interview-me
     ├── Have a rough concept, need variants? → idea-refine
+    ├── Hermes-specific task?
+    │   ├── MIM messaging (send/receive)? ──→ `pipeline:build` (MIM message reply)
+    │   ├── Sync to ZenTao PM? ─────────────→ Check `pipeline-*.md` for action
+    │   ├── Incoming peer message? ─────────→ Peeka Router (gateway/winpeek_hub/peeka_router.py)
+    │   ├── Daemon auto-reply? ─────────────→ Peeka Daemon (apps/winpeek_injector/daemon.py)
+    │   └── Agent identity/register? ───────→ MIM identity (gateway/winpeek_hub/identity.py)  
     ├── New project/feature/change? ──→ spec-driven-development
     ├── Have a spec, need tasks? ──────→ planning-and-task-breakdown
     ├── Implementing code? ────────────→ incremental-implementation
@@ -164,28 +170,39 @@ Not every task needs every skill. A bug fix might only need: `debugging-and-erro
 
 ## Quick Reference
 
-| Phase | Skill | One-Line Summary |
-|-------|-------|-----------------|
+| Phase | Skill / Pipeline | One-Line Summary |
+|-------|-----------------|-----------------|
 | Define | interview-me | Surface what the user actually wants before any plan, spec, or code exists |
 | Define | idea-refine | Refine ideas through structured divergent and convergent thinking |
-| Define | spec-driven-development | Requirements and acceptance criteria before code |
-| Plan | planning-and-task-breakdown | Decompose into small, verifiable tasks |
-| Build | incremental-implementation | Thin vertical slices, test each before expanding |
+| Define | **`pipeline:spec`** | Write structured specification before code |
+| Plan | **`pipeline:plan`** | Break work into small verifiable tasks |
+| Build | **`pipeline:build`** | Incremental implementation + TDD per slice |
+| Build | `incremental-implementation` | Thin vertical slices, test each before expanding |
 | Build | source-driven-development | Verify against official docs before implementing |
 | Build | doubt-driven-development | Adversarial fresh-context review of every non-trivial decision |
 | Build | context-engineering | Right context at the right time |
 | Build | frontend-ui-engineering | Production-quality UI with accessibility |
 | Build | api-and-interface-design | Stable interfaces with clear contracts |
-| Verify | test-driven-development | Failing test first, then make it pass |
-| Verify | browser-testing-with-devtools | Chrome DevTools MCP for runtime verification |
-| Verify | debugging-and-error-recovery | Reproduce → localize → fix → guard |
-| Review | code-review-and-quality | Five-axis review with quality gates |
-| Review | code-simplification | Preserve behavior while reducing unnecessary complexity |
-| Review | security-and-hardening | OWASP prevention, input validation, least privilege |
-| Review | performance-optimization | Measure first, optimize only what matters |
-| Ship | git-workflow-and-versioning | Atomic commits, clean history |
-| Ship | ci-cd-and-automation | Automated quality gates on every change |
-| Ship | deprecation-and-migration | Remove old systems and migrate users safely |
-| Ship | documentation-and-adrs | Document the why, not just the what |
-| Ship | observability-and-instrumentation | Structured logs, RED metrics, traces, symptom-based alerts |
-| Ship | shipping-and-launch | Pre-launch checklist, monitoring, rollback plan |
+| Verify | **`pipeline:test`** | TDD — write failing tests first, then implement |
+| Verify | `test-driven-development` | Failing test first, then make it pass |
+| Verify | `browser-testing-with-devtools` | Chrome DevTools MCP for runtime verification |
+| Verify | `debugging-and-error-recovery` | Reproduce → localize → fix → guard |
+| Review | **`pipeline:review`** | Five-axis code review |
+| Review | **`pipeline:code-simplify`** | Reduce unnecessary complexity, preserve behavior |
+| Review | `code-review-and-quality` | Five-axis review with quality gates |
+| Review | `code-simplification` | Preserve behavior while reducing unnecessary complexity |
+| Review | `security-and-hardening` | OWASP prevention, input validation, least privilege |
+| Review | `performance-optimization` | Measure first, optimize only what matters |
+| Ship | **`pipeline:ship`** | Parallel fan-out + go/no-go pre-launch check |
+| Ship | **`pipeline:webperf`** | Web performance audit (quick/deep) |
+| Ship | `git-workflow-and-versioning` | Atomic commits, clean history |
+| Ship | `ci-cd-and-automation` | Automated quality gates on every change |
+| Ship | `deprecation-and-migration` | Remove old systems and migrate users safely |
+| Ship | `documentation-and-adrs` | Document the why, not just the what |
+| Ship | `observability-and-instrumentation` | Structured logs, RED metrics, traces, symptom-based alerts |
+| Ship | `shipping-and-launch` | Pre-launch checklist, monitoring, rollback plan |
+| Hermes | `gateway/winpeek_hub/peeka_router.py` | Incoming peer message classification + auto-reply via Daemon |
+| Hermes | `apps/winpeek_injector/daemon.py` | Agent's loyal guardian — tier-3 routing (script match → self-answer → forward to Agent) |
+| Hermes | `gateway/winpeek_hub/identity.py` | Multi-identity management + Peeka naming convention |
+| Hermes | `zentao` CLI | Sync story/task/bug/release to pm.test.com |
+| Hermes | `winpeek_mim_send` (MIM) | Cross-Agent message notification |
