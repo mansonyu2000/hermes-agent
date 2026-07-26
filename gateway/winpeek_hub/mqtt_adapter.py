@@ -73,28 +73,6 @@ GROUP_TOPIC_PREFIX = "comms/group"
 
 _client: Optional[mqtt.Client] = None
 _message_handler = None
-_is_relay_master: bool = False  # only one process per machine does say→inbox relay
-
-
-def _try_acquire_relay_lock() -> bool:
-    """PID-file relay lock. Only one process subscribes to comms/say/#."""
-    from pathlib import Path
-    lock_f = Path.home() / ".hermes" / "winpeek" / ".mqtt_relay_master.pid"
-    lock_f.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if lock_f.exists():
-            old_pid = int(lock_f.read_text().strip() or "0")
-            if old_pid:
-                try:
-                    os.kill(old_pid, 0)  # signal 0 = check if alive
-                except OSError:
-                    pass  # dead — we can take over
-                else:
-                    return False  # still alive — we are a follower
-        lock_f.write_text(str(os.getpid()))
-        return True
-    except Exception:
-        return True  # if anything fails, assume master
 
 
 def is_configured() -> bool:
@@ -117,11 +95,8 @@ def _on_connect(client, userdata, flags, reason_code, properties):
         client.subscribe("comms/inbox/#", qos=1)
         client.subscribe("comms/outbox/#", qos=1)
         client.subscribe("comms/group/#", qos=1)
-        if _is_relay_master:
-            client.subscribe("comms/say/#", qos=1)
-            logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, RELAY MASTER")
-        else:
-            logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}, follower (relay by another process)")
+        client.subscribe("comms/say/#", qos=1)
+        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}")
     else:
         logger.warning(f"MIM connect failed: code={reason_code}")
 
@@ -137,30 +112,24 @@ def _on_message(client, userdata, msg):
         _handle_outbox(msg.topic, payload)
         return
 
-    # ── Say relay: comms/say/{uid} → comms/inbox/{uid} (MIM message center) ──
+    # ── Say relay: comms/say/{uid} → comms/inbox/{uid} ──
     if msg.topic.startswith("comms/say/"):
         to_uid = int(msg.topic.rsplit("/", 1)[-1])
         if to_uid:
-            # Trace: append relay hop
-            trace = list(payload.get("_trace", []))
-            trace.append(f"relay@{UID}")
-            payload["_trace"] = trace
             payload_str = json.dumps(payload, ensure_ascii=False)
             client.publish(f"comms/inbox/{to_uid}", payload_str, qos=1)
-            logger.info(f"MIM say→inbox relay: uid={to_uid} trace={'→'.join(trace)}")
+            logger.info(f"MIM say→inbox relay: uid={to_uid}")
         return
 
     from_uid = payload.get("from_uid", "")
     from_name = payload.get("from", "?")
     body = payload.get("body", "")
     gid = payload.get("gid")
-    trace = list(payload.get("_trace", []))
-    trace.append(f"inbox@{UID}")
 
     if str(from_uid) == str(UID):
         return
 
-    logger.info(f"[{from_name} ({from_uid})]: {body[:60]} trace={'→'.join(trace)}")
+    logger.info(f"[{from_name} ({from_uid})]: {body[:60]}")
 
     # Route into chat queue
     try:
@@ -172,7 +141,6 @@ def _on_message(client, userdata, msg):
             "gid": gid,
             "content": body,
             "time": payload.get("ts", time.strftime("%Y-%m-%dT%H:%M:%S")),
-            "_trace": trace,
         })
     except Exception:
         pass
@@ -233,17 +201,8 @@ def _handle_outbox(topic: str, payload: dict):
 # ── 连接管理 ──────────────────────────────────────
 
 def connect():
-    """连接 MQTT Broker (后台线程, 非阻塞, 幂等)"""
-    global _client, _is_relay_master
-    # Idempotent: disconnect existing client before creating new one
-    if _client is not None:
-        try:
-            _client.disconnect()
-        except Exception:
-            pass
-        _client = None
-
-    _is_relay_master = _try_acquire_relay_lock()
+    """连接 MQTT Broker (后台线程, 非阻塞)"""
+    global _client
     _resolve_identity()
     if not is_available():
         logger.info(f"MIM skipped: paho={HAS_PAHO} uid={UID} name={NAME}")
@@ -265,19 +224,10 @@ def connect():
 
 
 def disconnect():
-    global _client, _is_relay_master
+    global _client
     if _client:
         _client.disconnect()
         _client = None
-    # Release PID lock
-    if _is_relay_master:
-        from pathlib import Path
-        lock_f = Path.home() / ".hermes" / "winpeek" / ".mqtt_relay_master.pid"
-        try:
-            lock_f.unlink(missing_ok=True)
-        except Exception:
-            pass
-        _is_relay_master = False
 
 
 # ── 发送 ──────────────────────────────────────────
@@ -293,7 +243,6 @@ def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
         "to_uid": str(target_uid),
         "body": text,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "_trace": [f"say@{UID}"],
     }, ensure_ascii=False)
     try:
         result = _client.publish(topic, payload, qos=1)

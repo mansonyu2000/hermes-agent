@@ -190,18 +190,9 @@ async def _lifespan(app: "FastAPI"):
     asyncio.get_event_loop().run_in_executor(None, _warm_gateway_module)
 
     # ── WinPeek MIM Hub auto-start ─────────────────────────────────────
-    # Load the WinPeek Hub (MQTT + MySQL chat engine) synchronously at
-    # startup. Must not use run_in_executor — the hub's thread-safety
-    # checks (threading.Lock) are designed for synchronous callers.
     try:
         from gateway.winpeek_hub.hub_bridge import try_load_hub
-        ok = try_load_hub()
-        if ok:
-            from gateway.winpeek_hub.mqtt_adapter import status
-            st = status()
-            _log.info("WinPeek Hub started: uid=%s connected=%s", st.get("uid"), st.get("connected"))
-        else:
-            _log.info("WinPeek Hub skipped (disabled or already loaded)")
+        asyncio.get_event_loop().run_in_executor(None, try_load_hub)
     except Exception as e:
         _log.info("WinPeek Hub load skipped: %s", e)
 
@@ -16954,6 +16945,26 @@ def start_server(
     build and no SPA mount (mount_spa() honours ``HERMES_SERVE_HEADLESS``), so
     the banner announces the bind rather than a browser URL.
     """
+    # ── Single-instance guard ──────────────────────────────────────
+    _serve_pid_file = Path.home() / ".hermes" / ".serve.pid"
+    _serve_pid_file.parent.mkdir(parents=True, exist_ok=True)
+    if _serve_pid_file.exists():
+        old_pid = int(_serve_pid_file.read_text().strip() or "0")
+        if old_pid:
+            import signal
+            try:
+                os.kill(old_pid, 0)  # 0 = check alive
+            except OSError:
+                pass  # dead, take over
+            else:
+                print(
+                    f"hermes serve is already running (PID {old_pid}). "
+                    f"Stop it first: taskkill /PID {old_pid} /F"
+                )
+                sys.exit(1)
+    _serve_pid_file.write_text(str(os.getpid()))
+    atexit.register(lambda: _serve_pid_file.unlink(missing_ok=True))
+
     import uvicorn
 
     try:

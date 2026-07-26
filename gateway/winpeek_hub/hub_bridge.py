@@ -25,12 +25,10 @@ hub_bridge.py — WinPeek Hub 零侵入集成桥
 
 import os
 import logging
-import threading
 
 logger = logging.getLogger(__name__)
 
 _HUB_LOADED = False
-_load_lock = threading.Lock()
 
 
 def is_enabled() -> bool:
@@ -49,7 +47,7 @@ def is_enabled() -> bool:
 
 
 def try_load_hub():
-    """尝试加载 Hub（幂等，线程安全）。
+    """尝试加载 Hub（幂等，只加载一次）。
 
     加载所有 Hub 模块，启动 MQTT 连接。
     跟随 hermes serve / hermes gateway 自动执行，
@@ -57,13 +55,9 @@ def try_load_hub():
     global _HUB_LOADED
     if _HUB_LOADED:
         return True
-    with _load_lock:
-        if _HUB_LOADED:
-            return True
-        if not is_enabled():
-            logger.debug("WinPeek Hub disabled (WINPEEK_HUB_ENABLED != 1)")
-            return False
-        _HUB_LOADED = True  # prevent concurrent threads from re-entering
+    if not is_enabled():
+        logger.debug("WinPeek Hub disabled (WINPEEK_HUB_ENABLED != 1)")
+        return False
 
     try:
         from gateway.winpeek_hub import identity, tenant, routing, archive
@@ -129,6 +123,7 @@ def try_load_hub():
     except Exception as e:
         logger.warning(f"WinPeek injector start failed: {e}")
 
+    _HUB_LOADED = True
     return True
 
 
