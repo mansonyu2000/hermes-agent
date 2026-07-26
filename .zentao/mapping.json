@@ -1,8 +1,12 @@
 {
-  "project": "winpeek",
-  "zentao_project_id": 6,
+  "project": "peeka-mim-v1",
+  "zentao_product_id": 11,
+  "zentao_project_id": 29,
+  "zentao_execution_id": 30,
+  "zentao_story_ids": [117, 118, 119, 120],
   "zentao_base_url": "https://pm.test.com/zentao",
   "docs_root": "docs/",
+  "note": "2026-07-26 迁移: winpeek#6 → peeka数字机器人#11, 新SCRUM项目#29, Sprint#30",
   "mappings": [
     {
       "local_path": "docs/reference-library/",
@@ -12,12 +16,13 @@
     {
       "local_path": "docs/requirements/",
       "zentao_module": "需求管理",
-      "zentao_url": "https://pm.test.com/zentao/story-browse-6.html"
+      "zentao_product_id": 11,
+      "zentao_url": "https://pm.test.com/zentao/story-browse-117.html"
     },
     {
       "local_path": "docs/plan/",
       "zentao_module": "任务管理",
-      "zentao_url": "https://pm.test.com/zentao/task-browse-6.html"
+      "zentao_url": "https://pm.test.com/zentao/task-browse-30.html"
     },
     {
       "local_path": "docs/design/",
@@ -32,10 +37,12 @@
     {
       "local_path": "tasks/mim-chat-v1-todo.md",
       "zentao_module": "任务管理",
-      "zentao_execution_id": 28,
-      "zentao_story_id": 115,
+      "zentao_product_id": 11,
+      "zentao_project_id": 29,
+      "zentao_execution_id": 30,
+      "zentao_story_ids": [117, 118, 119, 120],
       "sync_direction": "bidirectional",
-      "note": "MIM聊天V1 — 13 tasks created 2026-07-26"
+      "note": "MIM聊天V1 — 4 stories + 13 tasks, 2026-07-26"
     }
   ]
 }

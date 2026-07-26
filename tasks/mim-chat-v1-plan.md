@@ -6,9 +6,10 @@ module: "mim"
 version: "v1"
 status: "in_progress"
 last_updated: "2026-07-26"
-zentao_project: 6
-zentao_execution: 28
-zentao_story: 115
+zentao_product: 11
+zentao_project: 29
+zentao_execution: 30
+zentao_stories: [117, 118, 119, 120]
 related:
   - "../docs/peeka/mim-chat-v1-spec.md"
   - "../docs/peeka/settings-v1-dev-doc.md"
@@ -40,11 +41,10 @@ F1 (好友管理) ──→ F4 (用户目录)
 
 | Phase | 功能 | 依赖 | Zentao Tasks |
 |-------|------|------|:--:|
-| P1 | F1.1-F1.6 好友管理 | 无 | #32-#37 |
-| P2 | F4.1-F4.4 用户目录 | F1 | #37 |
-| P3 | F2.3-F2.4 消息增强 | F1 | #38-#39 |
-| P4 | F3.1-F3.4 Agent送达 | F1+F2 | #40-#43 |
-| P5 | 安全修复 + 测试 | P1-P4 | #44 |
+| P1 | F1.1-F1.6 好友管理 | 无 | #45-#50 |
+| P2 | F4.1-F4.4 用户目录 | F1 | #50 |
+| P3 | F2.3-F2.4 消息增强 | F1 | #51-#53 |
+| P4 | F3.1-F3.4 Agent送达 | F1+F2 | #54-#57 |
 
 ## 验证检查点
 

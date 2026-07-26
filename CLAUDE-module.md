@@ -14,15 +14,15 @@
 ## 🚀 新会话启动 — 先做这 3 件事
 
 1. **读任务索引**: `tasks/README.md` — 了解当前所有模块状态 + 找到你的任务
-2. **查 Zentao**: `ZENTAO_DB_HOST=192.168.3.23 zentao task list --execution=28` — 查看 MIM 任务列表
+2. **查 Zentao**: `ZENTAO_DB_HOST=192.168.3.23 zentao task list --execution=30` — 查看 Sprint 任务
 3. **查进度**: `git log --oneline -5` — 了解最近的提交
 
 > 要接手模块: 读 `tasks/{module}-{version}-plan.md` → `tasks/{module}-{version}-todo.md` → 开干
 > 要了解上下文: 读 `docs/peeka/` 下的 spec/dev-doc/acceptance
 > 要同步状态: `python bin/sync-to-zentao.py`
 
-**当前活跃**: Peeka v4 ✅ | MIM 聊天 V1 🟢 | 工作流完善 🟢
-**Zentao**: Project #6 (winpeek) | Execution #28 (MIM群聊模块) | 13 tasks
+**当前活跃**: Peeka v4 ✅ | MIM 聊天 V1 🟢 (Sprint #30)
+**Zentao**: 产品 #11 (peeka数字机器人) | 项目 #29 | Sprint #30 | 4需求 + 13任务
 
 ## ① 身份证
 

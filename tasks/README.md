@@ -21,17 +21,16 @@
 
 ## Zentao 任务追踪
 
-| 执行 | Zentao ID | 任务数 | 链接 |
-|------|:--:|:--:|------|
-| MIM 群聊模块 | #28 | 13 | [zentao](https://pm.test.com/zentao/task-browse-28.html) |
-| 开发 | #7 | 0/5 (待建) | [zentao](https://pm.test.com/zentao/task-browse-7.html) |
+| 产品 | Sprint | 需求 | 任务 | 链接 |
+|------|:--:|:--:|:--:|------|
+| peeka数字机器人 (#11) | #30 | 4 (#117-120) | 13 (#45-57) | [需求](https://pm.test.com/zentao/story-browse-117.html) · [任务](https://pm.test.com/zentao/task-browse-30.html) |
 
 ## 新会话启动指南 🚀
 
 **快速上手（2 步）：**
 
 1. **看任务**: `cat tasks/README.md` → 找到目标模块 → 读 plan + todo
-2. **查 Zentao**: `ZENTAO_DB_HOST=192.168.3.23 zentao task list --execution=28` → 看你的任务
+2. **查 Zentao**: `ZENTAO_DB_HOST=192.168.3.23 zentao task list --execution=30` → 看 Sprint 任务
 
 **深度上手（接手模块时）：**
 1. 从本文件找到目标模块的任务文件路径
