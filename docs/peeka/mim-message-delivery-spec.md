@@ -30,21 +30,31 @@ related:
 |:--:|------|------|:--:|------|
 | **L1** | 问候/礼貌用语 | Daemon 模板匹配 | 0 | 早安/晚安/你好/谢谢/在吗 等 |
 | **L2** | 简单查询 | Daemon 本地知识库 | 0 | 机器名/Agent列表/谁在/有哪些 等 |
-| **—** | 广告/垃圾 | 丢弃 | 0 | 推广/招商/营销/促销等关键词 |
+| **—** | 广告/推广 | Daemon 存档+特征提取 | 0 | 去重(重复丢弃)，提取关键词→归档到发送方画像 |
 | **L3** | 请求/通知/其他 | **LLM Agent** | 按需 | 只有这类消息才进入 Agent 对话框 |
 
 **设计原则**: Daemon 是本地管家——过滤噪音，只把真正需要 LLM 处理的消息交给 Agent。
+但**广告不是纯粹的噪音**——它是发送方的输出/自我介绍，提取其关键信息可了解对方"是做什么的"。
+重复广告丢弃，新广告存档并抽取特征词，写入发送方的人物画像（供后续交互参考）。
 
 ### 1.3 消息分类规则（5 类）
 
 ```
 classify(body):
-  body 含 "推广/招商/营销/广告/促销/优惠/限时/免费领取" → advertisement (丢弃)
+  body 含 "推广/招商/营销/广告/促销/优惠/限时/免费领取" → advertisement (去重→存档→画像)
   body 含 "早安/晚安/谢谢/多谢/在吗/在不在/你好/hello/吃了没/好久不见" → greeting (L1)
   body 含 "版本/更新/告警/通知/公告/上线/离线/提醒" → notification (L3)
   body 含 "什么/怎么/如何/为什么/帮我/查一下/看一下/检查/能不能/可以/请/?" → request (L3)
   len(body) ≤ 5 → greeting (L1)
   其他 → request (L3)
+```
+
+**广告处理** (新增):
+```
+advertisement → 指纹去重 (发送方+关键词)
+  ├─ 重复 → 丢弃
+  └─ 新广告 → 提取关键词 → 存入发送方画像 (skills/keywords/business_scope)
+              → 记入 digest 摘要 (Agent 可回溯哪些人发了广告)
 ```
 
 ### 1.4 Agent 类型适配
@@ -95,7 +105,13 @@ def route_incoming(from_uid, to_uid, body) -> dict:
     tag = classify(body)
 
     if tag == "advertisement":
-        return {"action": "drop"}                       # 丢弃
+        # 不丢弃 — 提取特征, 去重, 写入发送方画像
+        fp = f"{from_uid}|{_extract_keywords(body)}"
+        if _ad_fingerprint_seen(fp):
+            return {"action": "duplicate_drop"}           # 重复→丢弃
+        _ad_fingerprint_remember(fp)
+        _update_sender_profile(from_uid, body)            # 提取关键词→画像
+        return {"action": "ad_archive", "tag": tag}       # 存档, 不进Agent
 
     if tag == "greeting":
         reply = _match_greeting(body)                   # L1: 模板匹配
@@ -122,8 +138,13 @@ if decision["action"] in ("auto_reply", "daemon_answer"):
     add_digest_entry(from_uid, from_name, body, reply, layer)
     # ↑ 记入 digest，Agent 上线时会看到摘要
 
-elif decision["action"] == "drop":
-    # 广告被丢弃，从 pending 队列移除
+elif decision["action"] == "ad_archive":
+    # 新广告 → 去重通过 → 提取关键词归档到发送方画像
+    # Agent 不会被这条消息打扰, 但画像已更新
+    _archive_ad(from_uid, body)
+
+elif decision["action"] == "duplicate_drop":
+    # 重复广告 → 丢弃
 
 elif decision["action"] == "forward":
     # L3: 写 inbox + 被动投递
@@ -251,7 +272,7 @@ msg = build_digest_message(entries)
 |---|------|------|:--:|
 | 4.1 | 统一 inbox→outbox 监控线程 | `daemon.py` | ⏳ |
 | 4.2 | 可靠性追踪: 未读超时 → 催问 | `daemon.py:get_pending_reliability()` | ✅ 已有 |
-| 4.3 | 垃圾消息过滤增强 (L1 广告分类优化) | `peeka_router.py:classify()` | ⏳ |
+| 4.3 | 广告分类增强: 指纹去重 + 关键词提取 + 写入发送方画像 | `peeka_router.py:classify()` + 新增 `ad_profiler` | ⏳ |
 | 4.4 | 多 Agent 同机共存 (各 uid 独立信箱) | `daemon.py` | ✅ 已有 |
 
 ## 5. 验收标准
@@ -261,7 +282,9 @@ msg = build_digest_message(entries)
 | 用户 A 发 "你好" → Agent B | Daemon L1 自动回复 "你好，请问有什么可以帮忙？" |
 | 用户 A 发 "谁在" → Agent B | Daemon L2 回答本机 Agent 列表 |
 | 用户 A 发 "帮我查错误日志" → Agent B | L3 进 inbox → Agent 弹出 → Agent 自主回复 |
-| 用户 A 发 "推广信息" → Agent B | 被分类为 advertisement → 丢弃，Agent 不被打扰 |
+| 用户 A 发 "最新AI工具推广，免费试用" → Agent B | 分类为广告 → 去重检查 → 首次: 提取关键词("AI工具", "推广") → 写入A的画像, Agent不被打扰; 重复: 丢弃 |
+| 同一个 A 再次发相同广告 → Agent B | 指纹命中 → 丢弃（重复不存档） |
+| Agent B 查看 A 的画像 | 可见 A 的业务关键词 "AI工具/推广"（从历史广告中提取） |
 | Agent 离线期间有 3 条 L1/L2 消息 | Agent 上线时收到 digest 摘要，不被逐条打扰 |
 
 ## 6. 与之前 F3 实现的衔接
