@@ -194,16 +194,25 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
             except Exception as e:
                 logger.warning(f"[Peeka] inbox write failed: {e}")
 
-            # RPA delivery only for Claude Code (terminal window injection)
+            # Phase 2: Passive delivery to ALL mim-agent types
+            # (Hermes, Claude Code, Qoder — any agent with a window)
             try:
                 from gateway.winpeek_hub import identity
                 agent_info = identity.get_by_uid(to_uid)
-                if agent_info and agent_info.get("agent_type") == "claude-code":
+                is_agent = (
+                    agent_info
+                    and agent_info.get("identity_type") in ("mim-agent", "ai")
+                )
+                if is_agent:
                     from apps.winpeek_injector.engine import deliver_mim_message
                     if deliver_mim_message(to_uid, msg_dict):
                         from apps.winpeek_injector.daemon import mark_delivered, update_reliability
                         mark_delivered(to_uid, mid)
                         update_reliability(mid, "delivered")
+                        logger.info(
+                            "[Peeka] passive delivery: mid=%s to agent uid=%s type=%s",
+                            mid[:16], to_uid, agent_info.get("agent_type", "?")
+                        )
             except Exception:
                 pass
 
