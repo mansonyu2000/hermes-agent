@@ -208,8 +208,15 @@ def _handle_outbox(topic: str, payload: dict):
 # ── 连接管理 ──────────────────────────────────────
 
 def connect():
-    """连接 MQTT Broker (后台线程, 非阻塞)"""
+    """连接 MQTT Broker (后台线程, 非阻塞, 幂等)"""
     global _client
+    # Idempotent: disconnect existing client before creating new one
+    if _client is not None:
+        try:
+            _client.disconnect()
+        except Exception:
+            pass
+        _client = None
     _resolve_identity()
     if not is_available():
         logger.info(f"MIM skipped: paho={HAS_PAHO} uid={UID} name={NAME}")
