@@ -235,6 +235,16 @@ def _enqueue_auto_reply(from_uid: int, to_uid: int, reply: str, original_from_na
     })
 
 
+# ── Helpers ─────────────────────────────────────
+
+def _resolve_name(uid: int) -> str:
+    try:
+        from gateway.winpeek_hub import identity
+        u = identity.get_by_uid(uid)
+        return u.get("nickname", f"uid_{uid}") if u else f"uid_{uid}"
+    except Exception:
+        return f"uid_{uid}"
+
 # ── History ─────────────────────────────────────
 
 def get_history(uid: int, peer_uid: int = 0, gid: int = 0,
@@ -271,11 +281,18 @@ def get_history(uid: int, peer_uid: int = 0, gid: int = 0,
                     (uid, peer_uid, peer_uid, uid, limit),
                 )
             rows = list(reversed(cur.fetchall()))
+            # Resolve names for all uids in this conversation
+            uid_names: dict[int, str] = {}
+            for r in rows:
+                for field in ("from_uid", "to_uid"):
+                    u = r.get(field)
+                    if u is not None and u not in uid_names:
+                        uid_names[u] = _resolve_name(int(u))
             return [
                 {
                     "from_uid": r["from_uid"],
                     "to_uid": r["to_uid"],
-                    "from_name": "",
+                    "from_name": uid_names.get(int(r.get("from_uid", 0)), ""),
                     "content": r["content"],
                     "msg_ts": str(r.get("created_at", "")),
                 }
@@ -373,3 +390,33 @@ def get_user_contacts(uid: int) -> list[dict]:
             ]
     finally:
         conn.close()
+
+
+# ── Search ───────────────────────────────────────
+
+def search_users(q: str = "", filters: dict | None = None) -> list[dict]:
+    """Search users by nickname/UID/role/org. Supports batch UID list."""
+    from gateway.winpeek_hub import identity, hub
+    users = identity.list_all()
+    results = []
+    q = (q or "").strip().lower()
+    uids = []
+    if filters and filters.get("uids"):
+        uids = [int(u) for u in str(filters["uids"]).split(",") if u.strip().isdigit()]
+    type_filter = (filters or {}).get("identity_type", "")
+    for u in users:
+        uid = u.get("uid", 0)
+        nick = (u.get("nickname") or "").lower()
+        role = (u.get("role") or "").lower()
+        # Match by UID list (exact)
+        if uids and uid in uids:
+            results.append({**u, "online": hub.is_online(uid)})
+            continue
+        # Match by query against nickname/role/uid
+        if q and (q in nick or q in role or q == str(uid)):
+            results.append({**u, "online": hub.is_online(uid)})
+            continue
+        # Match by identity type filter alone
+        if type_filter and u.get("identity_type") == type_filter:
+            results.append({**u, "online": hub.is_online(uid)})
+    return results[:50]
