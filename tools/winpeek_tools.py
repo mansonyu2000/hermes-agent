@@ -656,7 +656,12 @@ def _handle_mim_add_contact(args: dict) -> str:
     forwarded = _mim_center_call("winpeek_mim_add_contact", args)
     if forwarded is not None:
         return forwarded
-    from_uid = int(args.get("uid", 0))
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        sess_uid = active_uid()
+    except ImportError:
+        sess_uid = 0
+    from_uid = int(args.get("uid") or 0) or sess_uid
     to_uid = int(args.get("to_uid", 0))
     if not from_uid or not to_uid:
         return json.dumps({"ok": False, "error": "uid and to_uid required"})
@@ -693,7 +698,12 @@ def _handle_mim_remove_contact(args: dict) -> str:
     forwarded = _mim_center_call("winpeek_mim_remove_contact", args)
     if forwarded is not None:
         return forwarded
-    uid = int(args.get("uid", 0))
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        sess_uid = active_uid()
+    except ImportError:
+        sess_uid = 0
+    uid = int(args.get("uid") or 0) or sess_uid
     target_uid = int(args.get("target_uid", 0))
     if not uid or not target_uid:
         return json.dumps({"ok": False, "error": "uid and target_uid required"})
@@ -729,7 +739,12 @@ def _handle_mim_search_history(args: dict) -> str:
     forwarded = _mim_center_call("winpeek_mim_search_history", args)
     if forwarded is not None:
         return forwarded
-    uid = int(args.get("uid", 0))
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        sess_uid = active_uid()
+    except ImportError:
+        sess_uid = 0
+    uid = int(args.get("uid") or 0) or sess_uid
     q = str(args.get("q", ""))
     peer_uid = int(args.get("peer_uid", 0))
     gid = int(args.get("gid", 0))
@@ -769,7 +784,12 @@ def _handle_mim_mark_read(args: dict) -> str:
     forwarded = _mim_center_call("winpeek_mim_mark_read", args)
     if forwarded is not None:
         return forwarded
-    uid = int(args.get("uid", 0))
+    try:
+        from gateway.winpeek_hub.chat import active_uid
+        sess_uid = active_uid()
+    except ImportError:
+        sess_uid = 0
+    uid = int(args.get("uid") or 0) or sess_uid
     peer_uid = int(args.get("peer_uid", 0))
     if not uid:
         return json.dumps({"error": "uid required"})
