@@ -353,6 +353,15 @@ def _handle_mim_login(args: dict) -> str:
     if not result:
         return json.dumps({"error": f"login failed — wrong nickname or password"})
     set_active_session(result["uid"], result["nickname"])
+    # Register as MIM node + heartbeat (proof of life)
+    try:
+        import socket
+        from gateway.winpeek_hub import hub
+        hub.register_node(result["uid"], result["nickname"],
+                         result.get("role", "Agent"), socket.gethostname())
+        hub.heartbeat(result["uid"])
+    except Exception:
+        pass
     return json.dumps({"ok": True, "identity": result})
 
 
@@ -368,12 +377,16 @@ def _handle_mim_send(args: dict) -> str:
         from gateway.winpeek_hub.chat import send_message, active_uid, active_name
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    # Explicit uid (e.g. desktop frontend passes its logged-in identity) wins
-    # over the process-global active session, which may belong to another user.
-    uid = int(args.get("uid") or 0) or active_uid()
+    # Only allow sending as the authenticated session's uid.
+    # The caller-supplied uid must match active_uid() to prevent impersonation.
+    uid = active_uid()
     if not uid:
         return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
-    from_name = args.get("from_name") or (active_name() if uid == active_uid() else "") or f"user_{uid}"
+    # Accept explicit uid only if it matches the authenticated session
+    explicit_uid = int(args.get("uid") or 0)
+    if explicit_uid and explicit_uid != uid:
+        return json.dumps({"error": "cannot send as another user"})
+    from_name = active_name() or f"user_{uid}"
     return json.dumps(send_message(uid, from_name, int(to_uid), body))
 
 
@@ -497,11 +510,15 @@ def _handle_mim_online(args: dict) -> str:
         return forwarded
     try:
         from gateway.winpeek_hub import hub
-        from gateway.winpeek_hub.mqtt_adapter import UID, NAME
+        from gateway.winpeek_hub.chat import active_uid, active_name
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    hub.register_node(UID, NAME)
-    hub.heartbeat(UID)
+    uid = active_uid()
+    if not uid:
+        return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
+    import socket
+    hub.register_node(uid, active_name() or f"uid_{uid}", "Agent", socket.gethostname())
+    hub.heartbeat(uid)
     hub.sweep_dead_nodes()
     return json.dumps({"nodes": hub.list_nodes()})
 

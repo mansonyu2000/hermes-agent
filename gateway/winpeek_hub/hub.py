@@ -83,6 +83,15 @@ def mark_offline(uid: int):
 
 # ── Dead detection ───────────────────────────────
 
+def mark_all_offline(host: str = ""):
+    """Mark all (or host-specific) nodes offline. Called on shutdown."""
+    state = _read_state()
+    for node_id, node in list(state["nodes"].items()):
+        if node["status"] == "online" and (not host or node.get("host") == host):
+            node["status"] = "offline"
+    _write_state(state)
+
+
 def sweep_dead_nodes(timeout_seconds: int = 120) -> int:
     """Mark nodes offline if last_seen > timeout. Returns count of nodes swept."""
     state = _read_state()
