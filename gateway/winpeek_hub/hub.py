@@ -29,33 +29,48 @@ def _write_state(state: dict):
 
 def register_node(uid: int, name: str, role: str = "Agent", host: str = "local") -> dict:
     """Register this agent as an online node."""
+    return _upsert_node(uid, name, role, host, overwrite=True)
+
+
+def ensure_node(uid: int, name: str, role: str = "Agent", host: str = "local") -> dict:
+    """Idempotent: register if not exists. register_node() for overwrite."""
+    return _upsert_node(uid, name, role, host, overwrite=False)
+
+
+def _upsert_node(uid: int, name: str, role: str, host: str, overwrite: bool) -> dict:
     state = _read_state()
     node_id = str(uid)
     now = datetime.now().isoformat()
-    state["nodes"][node_id] = {
-        "uid": uid,
-        "name": name,
-        "role": role,
-        "host": host,
-        "status": "online",
-        "last_seen": now,
-        "first_seen": state["nodes"].get(node_id, {}).get("first_seen", now),
-    }
+    existing = state["nodes"].get(node_id, {})
+    if not existing:
+        # New node — start offline, wait for first heartbeat
+        state["nodes"][node_id] = {
+            "uid": uid,
+            "name": name,
+            "role": role,
+            "host": host,
+            "status": "offline",
+            "last_seen": now,
+            "first_seen": now,
+        }
+    elif overwrite:
+        state["nodes"][node_id].update({
+            "name": name, "role": role, "host": host,
+            "status": "online", "last_seen": now,
+        })
+    else:
+        # ensure_node: keep existing state, don't touch status
+        pass
     _write_state(state)
     return state["nodes"][node_id]
 
-def heartbeat(uid: int, name: str = "", role: str = "", host: str = ""):
-    """Update last_seen timestamp. Register if not yet known."""
+def heartbeat(uid: int):
+    """Update last_seen timestamp."""
     state = _read_state()
     node_id = str(uid)
-    if node_id not in state["nodes"]:
-        state["nodes"][node_id] = {
-            "uid": uid, "name": name or f"uid_{uid}",
-            "role": role or "Agent", "host": host or "mqtt",
-            "status": "online", "first_seen": datetime.now().isoformat(),
-        }
-    state["nodes"][node_id]["last_seen"] = datetime.now().isoformat()
-    state["nodes"][node_id]["status"] = "online"
+    if node_id in state["nodes"]:
+        state["nodes"][node_id]["last_seen"] = datetime.now().isoformat()
+        state["nodes"][node_id]["status"] = "online"
     _write_state(state)
 
 def mark_offline(uid: int):

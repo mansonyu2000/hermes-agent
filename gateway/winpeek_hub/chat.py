@@ -235,6 +235,16 @@ def _enqueue_auto_reply(from_uid: int, to_uid: int, reply: str, original_from_na
     })
 
 
+# ── Helpers ─────────────────────────────────────
+
+def _resolve_name(uid: int) -> str:
+    try:
+        from gateway.winpeek_hub import identity
+        u = identity.get_by_uid(uid)
+        return u.get("nickname", f"uid_{uid}") if u else f"uid_{uid}"
+    except Exception:
+        return f"uid_{uid}"
+
 # ── History ─────────────────────────────────────
 
 def get_history(uid: int, peer_uid: int = 0, gid: int = 0,
@@ -271,11 +281,18 @@ def get_history(uid: int, peer_uid: int = 0, gid: int = 0,
                     (uid, peer_uid, peer_uid, uid, limit),
                 )
             rows = list(reversed(cur.fetchall()))
+            # Resolve names for all uids in this conversation
+            uid_names: dict[int, str] = {}
+            for r in rows:
+                for field in ("from_uid", "to_uid"):
+                    u = r.get(field)
+                    if u is not None and u not in uid_names:
+                        uid_names[u] = _resolve_name(int(u))
             return [
                 {
                     "from_uid": r["from_uid"],
                     "to_uid": r["to_uid"],
-                    "from_name": "",
+                    "from_name": uid_names.get(int(r.get("from_uid", 0)), ""),
                     "content": r["content"],
                     "msg_ts": str(r.get("created_at", "")),
                 }
@@ -371,5 +388,181 @@ def get_user_contacts(uid: int) -> list[dict]:
                 }
                 for r in cur.fetchall()
             ]
+    finally:
+        conn.close()
+
+
+# ── Search ───────────────────────────────────────
+
+def search_users(q: str = "", filters: dict | None = None) -> list[dict]:
+    """Search users by nickname/UID/role/org. Supports batch UID list."""
+    from gateway.winpeek_hub import identity, hub
+    users = identity.list_all()
+    results = []
+    q = (q or "").strip().lower()
+    uids = []
+    if filters and filters.get("uids"):
+        uids = [int(u) for u in str(filters["uids"]).split(",") if u.strip().isdigit()]
+    type_filter = (filters or {}).get("identity_type", "")
+    for u in users:
+        uid = u.get("uid", 0)
+        nick = (u.get("nickname") or "").lower()
+        role = (u.get("role") or "").lower()
+        # Match by UID list (exact)
+        if uids and uid in uids:
+            results.append({**u, "online": hub.is_online(uid)})
+            continue
+        # Match by query against nickname/role/uid
+        if q and (q in nick or q in role or q == str(uid)):
+            results.append({**u, "online": hub.is_online(uid)})
+            continue
+        # Match by identity type filter alone
+        if type_filter and u.get("identity_type") == type_filter:
+            results.append({**u, "online": hub.is_online(uid)})
+    return results[:50]
+
+
+# ── Friend Requests (F1.3) ───────────────────────
+
+def add_contact(from_uid: int, to_uid: int, message: str = "") -> dict:
+    """Add a friend. For now auto-accepts (same as old PeekabooWin behavior)."""
+    conn = get_conn()
+    if conn is None:
+        return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            # Check if already exists in contacts
+            cur.execute(
+                "SELECT 1 FROM contacts WHERE uid=%s AND c_uid=%s",
+                (from_uid, to_uid))
+            if cur.fetchone():
+                return {"ok": False, "error": "already friends"}
+            # Insert bidirectional
+            cur.execute(
+                "INSERT INTO contacts (uid, c_uid, display_name, status, last_contact_at) "
+                "VALUES (%s,%s,%s,'active',NOW())",
+                (from_uid, to_uid, _resolve_name(to_uid)))
+            cur.execute(
+                "INSERT INTO contacts (uid, c_uid, display_name, status, last_contact_at) "
+                "VALUES (%s,%s,%s,'active',NOW())",
+                (to_uid, from_uid, _resolve_name(from_uid)))
+            # Also insert into contact_requests for audit
+            cur.execute(
+                "INSERT INTO contact_requests (from_uid, to_uid, message, status) "
+                "VALUES (%s,%s,%s,'accepted') "
+                "ON DUPLICATE KEY UPDATE status='accepted'",
+                (from_uid, to_uid, message[:256]))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def remove_contact(uid: int, target_uid: int) -> dict:
+    """Remove a contact bidirectionally."""
+    conn = get_conn()
+    if conn is None:
+        return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM contacts WHERE uid=%s AND c_uid=%s", (uid, target_uid))
+            cur.execute("DELETE FROM contacts WHERE uid=%s AND c_uid=%s", (target_uid, uid))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def list_contact_requests(uid: int) -> list[dict]:
+    """List pending/recent friend requests for a user."""
+    conn = get_conn()
+    if conn is None:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT cr.*, u.nickname AS from_nick, u.role AS from_role "
+                "FROM contact_requests cr "
+                "LEFT JOIN users u ON cr.from_uid = u.uid "
+                "WHERE cr.to_uid = %s OR cr.from_uid = %s "
+                "ORDER BY cr.created_at DESC LIMIT 50",
+                (uid, uid))
+            return [{k: str(v) if isinstance(v, bytes) else v
+                     for k, v in r.items()} for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+# ── Message Search (F2.4) ─────────────────────────
+
+def search_history(uid: int, q: str, peer_uid: int = 0, gid: int = 0) -> list[dict]:
+    """Search chat history by keyword."""
+    conn = get_conn()
+    if conn is None:
+        return []
+    try:
+        with conn.cursor() as cur:
+            like = f"%{q}%"
+            if gid:
+                # Auth: verify group membership
+                cur.execute(
+                    "SELECT 1 FROM group_members WHERE gid=%s AND uid=%s",
+                    (gid, uid))
+                if not cur.fetchone():
+                    return []
+                cur.execute(
+                    "SELECT from_uid, to_uid, content, created_at FROM chat "
+                    "WHERE gid=%s AND content LIKE %s ORDER BY id DESC LIMIT 30",
+                    (gid, like))
+            elif peer_uid:
+                cur.execute(
+                    "SELECT from_uid, to_uid, content, created_at FROM chat "
+                    "WHERE gid IS NULL AND content LIKE %s "
+                    "AND ((from_uid=%s AND to_uid=%s) OR (from_uid=%s AND to_uid=%s)) "
+                    "ORDER BY id DESC LIMIT 30",
+                    (like, uid, peer_uid, peer_uid, uid))
+            else:
+                cur.execute(
+                    "SELECT from_uid, to_uid, content, created_at FROM chat "
+                    "WHERE content LIKE %s AND (from_uid=%s OR to_uid=%s) "
+                    "ORDER BY id DESC LIMIT 30",
+                    (like, uid, uid))
+            return [
+                {"from_uid": r["from_uid"],
+                 "from_name": _resolve_name(int(r.get("from_uid", 0))),
+                 "content": r["content"],
+                 "msg_ts": str(r.get("created_at", ""))}
+                for r in cur.fetchall()
+            ]
+    finally:
+        conn.close()
+
+
+# ── Message Status (F2.3) ─────────────────────────
+
+def mark_read(uid: int, peer_uid: int = 0) -> int:
+    """Mark messages from peer_uid to uid as read."""
+    conn = get_conn()
+    if conn is None:
+        return 0
+    try:
+        with conn.cursor() as cur:
+            if peer_uid:
+                cur.execute(
+                    "UPDATE chat SET delivery_status='read' "
+                    "WHERE to_uid=%s AND from_uid=%s AND delivery_status='sent'",
+                    (uid, peer_uid))
+            else:
+                cur.execute(
+                    "UPDATE chat SET delivery_status='read' "
+                    "WHERE to_uid=%s AND delivery_status='sent'",
+                    (uid,))
+            affected = cur.rowcount
+            conn.commit()
+        return affected
     finally:
         conn.close()
