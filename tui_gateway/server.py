@@ -14482,6 +14482,20 @@ def _(rid, params: dict) -> dict:
         return _ok(rid, {"result": result})
 
 
+@method("winpeek_mim_search_users")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_search_users
+    result = _handle_mim_search_users(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
 @method("winpeek_mim_history")
 def _(rid, params: dict) -> dict:
     err = _ensure_mim_loaded()

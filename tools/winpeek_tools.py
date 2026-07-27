@@ -605,7 +605,49 @@ registry.register(
     description="MIM user profile info",
 )
 
-logger.info("WinPeek MIM tools: +user_info")
+
+# ── MIM: Search Users ──
+
+def _handle_mim_search_users(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_search_users", args)
+    if forwarded is not None:
+        return forwarded
+    q = str(args.get("q", "") or "")
+    filters_raw = args.get("filters", {}) or {}
+    try:
+        from gateway.winpeek_hub.chat import search_users
+        results = search_users(q, filters_raw)
+        return json.dumps({"users": results, "count": len(results)})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+    except Exception as e:
+        logger.exception("search_users failed: %s", str(e))
+        return json.dumps({"error": str(e)})
+
+
+registry.register(
+    name="winpeek_mim_search_users",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_search_users",
+        "description": "Search MIM users by nickname, UID, role. Supports batch UID list via filters.uids='2022,2034'.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "q": {"type": "string", "description": "Search query (nickname/UID/role)"},
+                "filters": {
+                    "type": "object",
+                    "description": "Optional: {identity_type:'mim-agent', uids:'2022,2034'}",
+                },
+            },
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_search_users(args),
+    check_fn=lambda: True,
+    description="MIM user search",
+)
+
+logger.info("WinPeek MIM tools: +user_info +search_users")
 
 # ── MIM: User (真人) Registration ──
 
