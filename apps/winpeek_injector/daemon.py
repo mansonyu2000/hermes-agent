@@ -647,25 +647,20 @@ def get_politeness(from_uid: int, to_uid: int) -> int:
 _running = False
 
 def _heartbeat_loop(interval: int = 30):
-    """Every N seconds, heartbeat for agents running on THIS machine."""
-    global _running, _daemon_state
+    """Sweep dead nodes only. Agent heartbeat is self-reported via MQTT/CLI.
+
+    Daemon does NOT heartbeat agents itself — agents report their own
+    liveness via MQTT activity or explicit hub.heartbeat() calls.
+    Daemon's role is cleanup: sweep_dead_nodes marks offline after 120s.
+    """
+    global _running
     while _running:
         try:
-            from gateway.winpeek_hub import hub, identity
-            runtimes = _daemon_state.get("runtimes", [])
-            for r in runtimes:
-                uid = r.get("uid")
-                if not uid:
-                    continue
-                hub.heartbeat(uid)
-                # Ensure this agent is in the hub node list (lazy register)
-                user = identity.get_by_uid(uid)
-                hub.ensure_node(
-                    uid,
-                    user.get("nickname") if user else r.get("agent_type", f"uid_{uid}"),
-                    user.get("role", "Agent") if user else "Agent",
-                    socket.gethostname(),
-                )
+            from gateway.winpeek_hub import hub
+            swept = hub.sweep_dead_nodes(120)
+            if swept:
+                import logging
+                logging.getLogger(__name__).info(f"Daemon: {swept} nodes marked offline")
         except Exception:
             pass
         time.sleep(interval)
