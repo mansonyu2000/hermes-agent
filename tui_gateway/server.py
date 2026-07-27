@@ -14496,6 +14496,62 @@ def _(rid, params: dict) -> dict:
         return _ok(rid, {"result": result})
 
 
+@method("winpeek_mim_add_contact")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_add_contact
+    result = _handle_mim_add_contact(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_remove_contact")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_remove_contact
+    result = _handle_mim_remove_contact(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_search_history")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_search_history
+    result = _handle_mim_search_history(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
+@method("winpeek_mim_mark_read")
+def _(rid, params: dict) -> dict:
+    err = _ensure_mim_loaded()
+    if err:
+        return _err(rid, 5001, f"MIM hub not loaded: {err}")
+    from tools.winpeek_tools import _handle_mim_mark_read
+    result = _handle_mim_mark_read(params)
+    try:
+        data = json.loads(result)
+        return _ok(rid, data)
+    except Exception:
+        return _ok(rid, {"result": result})
+
+
 @method("winpeek_mim_history")
 def _(rid, params: dict) -> dict:
     err = _ensure_mim_loaded()

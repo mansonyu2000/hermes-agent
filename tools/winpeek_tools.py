@@ -649,6 +649,159 @@ registry.register(
 
 logger.info("WinPeek MIM tools: +user_info +search_users")
 
+
+# ── MIM: Friend Management (F1.3, F1.4) ──
+
+def _handle_mim_add_contact(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_add_contact", args)
+    if forwarded is not None:
+        return forwarded
+    from_uid = int(args.get("uid", 0))
+    to_uid = int(args.get("to_uid", 0))
+    if not from_uid or not to_uid:
+        return json.dumps({"ok": False, "error": "uid and to_uid required"})
+    try:
+        from gateway.winpeek_hub.chat import add_contact
+        result = add_contact(from_uid, to_uid, str(args.get("message", "")))
+        return json.dumps(result)
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+registry.register(
+    name="winpeek_mim_add_contact",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_add_contact",
+        "description": "Add a friend to contacts.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "Your uid"},
+                "to_uid": {"type": "integer", "description": "Target uid to add as friend"},
+                "message": {"type": "string", "description": "Optional greeting message"},
+            },
+            "required": ["uid", "to_uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_add_contact(args),
+    description="MIM add friend",
+)
+
+
+def _handle_mim_remove_contact(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_remove_contact", args)
+    if forwarded is not None:
+        return forwarded
+    uid = int(args.get("uid", 0))
+    target_uid = int(args.get("target_uid", 0))
+    if not uid or not target_uid:
+        return json.dumps({"ok": False, "error": "uid and target_uid required"})
+    try:
+        from gateway.winpeek_hub.chat import remove_contact
+        result = remove_contact(uid, target_uid)
+        return json.dumps(result)
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+registry.register(
+    name="winpeek_mim_remove_contact",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_remove_contact",
+        "description": "Remove a friend from contacts.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "Your uid"},
+                "target_uid": {"type": "integer", "description": "Contact uid to remove"},
+            },
+            "required": ["uid", "target_uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_remove_contact(args),
+    description="MIM remove friend",
+)
+
+
+def _handle_mim_search_history(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_search_history", args)
+    if forwarded is not None:
+        return forwarded
+    uid = int(args.get("uid", 0))
+    q = str(args.get("q", ""))
+    peer_uid = int(args.get("peer_uid", 0))
+    gid = int(args.get("gid", 0))
+    if not uid or not q:
+        return json.dumps({"error": "uid and q required"})
+    try:
+        from gateway.winpeek_hub.chat import search_history
+        results = search_history(uid, q, peer_uid, gid)
+        return json.dumps({"messages": results, "count": len(results)})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+registry.register(
+    name="winpeek_mim_search_history",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_search_history",
+        "description": "Search chat history by keyword.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "Your uid"},
+                "q": {"type": "string", "description": "Search keyword"},
+                "peer_uid": {"type": "integer", "description": "Optional: limit to this peer"},
+                "gid": {"type": "integer", "description": "Optional: limit to this group"},
+            },
+            "required": ["uid", "q"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_search_history(args),
+    description="MIM message search",
+)
+
+
+def _handle_mim_mark_read(args: dict) -> str:
+    forwarded = _mim_center_call("winpeek_mim_mark_read", args)
+    if forwarded is not None:
+        return forwarded
+    uid = int(args.get("uid", 0))
+    peer_uid = int(args.get("peer_uid", 0))
+    if not uid:
+        return json.dumps({"error": "uid required"})
+    try:
+        from gateway.winpeek_hub.chat import mark_read
+        n = mark_read(uid, peer_uid)
+        return json.dumps({"ok": True, "marked": n})
+    except ImportError:
+        return json.dumps({"error": "MIM Hub not loaded"})
+
+
+registry.register(
+    name="winpeek_mim_mark_read",
+    toolset="winpeek_rpa",
+    schema={
+        "name": "winpeek_mim_mark_read",
+        "description": "Mark messages from peer as read.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {"type": "integer", "description": "Your uid"},
+                "peer_uid": {"type": "integer", "description": "Optional: mark read from this peer only"},
+            },
+            "required": ["uid"],
+        },
+    },
+    handler=lambda args, **kw: _handle_mim_mark_read(args),
+    description="MIM mark messages as read",
+)
+
+logger.info("WinPeek MIM tools: +add_contact +remove_contact +search_history +mark_read")
+
 # ── MIM: User (真人) Registration ──
 
 
