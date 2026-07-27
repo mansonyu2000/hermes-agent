@@ -230,9 +230,14 @@ def register_and_inject():
         if uid and scanner.get("agent_type"):
             prompt_injected = _inject_agent_prompt(uid, existing, scanner, password)
 
-        # Initialize inbox for this agent
+        # Initialize inbox + register to hub for this agent
         if uid:
             _init_inbox(uid)
+            try:
+                from gateway.winpeek_hub import hub
+                hub.register_node(uid, name, scanner.get("agent_type", "Agent"), hostname)
+            except Exception:
+                pass
 
         results.append({
             "agent_type": agent_type,
