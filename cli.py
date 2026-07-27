@@ -15200,7 +15200,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         #   MQTT broker push → winpeek_mqtt daemon线程 → _inbox_queue
                         #   → drain → 打印 + 注入对话 (Agent 会处理)
                         try:
-                            from hermes_cli.winpeek_mqtt import drain_inbox
+                            from hermes_cli.winpeek_mqtt import drain_inbox, _read_config
                             inbox_msgs = drain_inbox()
                             if inbox_msgs:
                                 # 注入对话 — Agent 会当成用户消息处理（CLI 会回显）
@@ -15208,6 +15208,14 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                                     self._pending_input.put(
                                         f"{msg['from']}[{msg['from_uid']}] said: {msg['content']}"
                                     )
+                            # Periodic heartbeat: keep this agent online in MIM hub
+                            _hb_now = time.time()
+                            if _hb_now - getattr(self, '_last_mim_hb', 0) > 30:
+                                self._last_mim_hb = _hb_now
+                                cfg = _read_config()
+                                if cfg.get("uid"):
+                                    from gateway.winpeek_hub import hub
+                                    hub.heartbeat(cfg["uid"])
                         except Exception:
                             pass
                         continue
