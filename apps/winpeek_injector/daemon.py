@@ -647,15 +647,25 @@ def get_politeness(from_uid: int, to_uid: int) -> int:
 _running = False
 
 def _heartbeat_loop(interval: int = 30):
-    """Every N seconds, bump heartbeat for all registered identities."""
-    global _running
+    """Every N seconds, heartbeat for agents running on THIS machine."""
+    global _running, _daemon_state
     while _running:
         try:
             from gateway.winpeek_hub import hub, identity
-            for entry in identity.list_all():
-                uid = entry.get("uid")
-                if uid:
-                    hub.heartbeat(uid)
+            runtimes = _daemon_state.get("runtimes", [])
+            for r in runtimes:
+                uid = r.get("uid")
+                if not uid:
+                    continue
+                hub.heartbeat(uid)
+                # Ensure this agent is in the hub node list (lazy register)
+                user = identity.get_by_uid(uid)
+                hub.ensure_node(
+                    uid,
+                    user.get("nickname") if user else r.get("agent_type", f"uid_{uid}"),
+                    user.get("role", "Agent") if user else "Agent",
+                    socket.gethostname(),
+                )
         except Exception:
             pass
         time.sleep(interval)
