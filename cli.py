@@ -6198,11 +6198,16 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         # WinPeek MQTT 收件监听 (后台线程, 消息到达 → 入队 → 打印)
         try:
-            from hermes_cli.winpeek_mqtt import start_mqtt_listener, drain_inbox, format_inbox_summary
+            from hermes_cli.winpeek_mqtt import start_mqtt_listener, drain_inbox, format_inbox_summary, _read_config
             start_mqtt_listener()  # uid from agent.conf
             inbox_msgs = drain_inbox()
             if inbox_msgs:
                 self._console_print(format_inbox_summary(inbox_msgs))
+            # Register as MIM online node
+            cfg = _read_config()
+            if cfg.get("uid"):
+                from gateway.winpeek_hub import hub
+                hub.register_node(cfg["uid"], socket.gethostname(), "Agent", socket.gethostname())
         except Exception:
             pass
 
