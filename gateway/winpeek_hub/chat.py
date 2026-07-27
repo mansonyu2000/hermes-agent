@@ -508,6 +508,12 @@ def search_history(uid: int, q: str, peer_uid: int = 0, gid: int = 0) -> list[di
         with conn.cursor() as cur:
             like = f"%{q}%"
             if gid:
+                # Auth: verify group membership
+                cur.execute(
+                    "SELECT 1 FROM group_members WHERE gid=%s AND uid=%s",
+                    (gid, uid))
+                if not cur.fetchone():
+                    return []
                 cur.execute(
                     "SELECT from_uid, to_uid, content, created_at FROM chat "
                     "WHERE gid=%s AND content LIKE %s ORDER BY id DESC LIMIT 30",
