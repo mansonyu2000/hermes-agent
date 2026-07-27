@@ -5,6 +5,11 @@ module: "mim"
 version: "v1"
 last_updated: "2026-07-27"
 source: "D:/mydata/mycode/github/multica/server/internal/daemon/daemon.go (4674 lines) + CLI_AND_DAEMON.md"
+references:
+  - "D:/mydata/mycode/github/multica/ — Multica 本地仓库"
+  - "D:/mydata/mycode/github/multica/server/internal/daemon/daemon.go — Daemon 核心代码 (~4674行)"
+  - "D:/mydata/mycode/github/multica/CLI_AND_DAEMON.md — CLI & Daemon 说明文档"
+  - "D:/mydata/mycode/github/multica/readme-for-tech.md — 技术架构文档"
 ---
 
 # Multica Daemon 硬核技术方案
