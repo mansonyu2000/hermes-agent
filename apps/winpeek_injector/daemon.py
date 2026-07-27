@@ -235,7 +235,8 @@ def register_and_inject():
             _init_inbox(uid)
             try:
                 from gateway.winpeek_hub import hub
-                hub.register_node(uid, name, scanner.get("agent_type", "Agent"), hostname)
+                # ensure_node: does NOT force online — waits for agent heartbeat
+                hub.ensure_node(uid, name, scanner.get("agent_type", "Agent"), hostname)
             except Exception:
                 pass
 

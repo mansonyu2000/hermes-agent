@@ -55,27 +55,23 @@ Peeka Daemon 生命周期
   启动 (Gateway boot → hub_bridge.try_load_hub())
   │
   ├─ 1. detect_agents()
-  │     ├─ PATH 扫描: hermes --version / claude --version / qoder --version
+  │     ├─ 配置文件扫描 (同 AGENT_SCANNERS)
   │     ├─ 成功 → 记录到 _daemon_state.runtimes
   │     └─ 失败 → 跳过 (Agent 未安装)
   │
   ├─ 2. register_all()
   │     对每个检测到的 Agent:
   │       ├─ 如果还没有 identity → 自动注册到 identity DB
-  │       ├─ hub.register_node(uid, name, agent_type, hostname)
+  │       ├─ hub.ensure_node(uid, name, agent_type, hostname)  ← 不强制online
   │       └─ _init_inbox(uid) + _inject_agent_prompt(uid)
   │
   ├─ 3. start_heartbeat_loop(30s)
-  │     对 _daemon_state.runtimes 中注册成功(uid不为空)的:
-  │       ├─ check_process_alive()  ← 🆕 进程存活检查
-  │       ├─ alive → hub.heartbeat(uid)
-  │       └─ dead  → 从 runtimes 中移除, 等待重新检测
+  │     Daemon 仅做清理 — Agent 自汇报心跳。
+  │       ├─ hub.sweep_dead_nodes(120s) — 无心跳 >120s 标记 offline
+  │       └─ (不自行为Agent发心跳)
   │
-  ├─ 4. start_sweeper_loop(120s)
-  │     hub.sweep_dead_nodes() — 无心跳超过 120s 的标记 offline
-  │
-  └─ 5. on_shutdown (atexit)
-        hub.disconnect_all() — 本机所有节点标记 offline
+  └─ 4. on_shutdown (atexit)
+        hub.mark_all_offline() — 本机所有节点标记 offline
 ```
 
 ## 5. Agent 自汇报机制

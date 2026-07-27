@@ -4,14 +4,15 @@ Each agent is a 'node' with online status.
 Heartbeat every 30s. Auto-offline after 120s without heartbeat.
 """
 
-import json, time
+import json, os, time, threading
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
 STATE_PATH = Path.home() / ".hermes" / "winpeek" / "nodes.json"
+_state_lock = threading.Lock()  # protect concurrent read-modify-write
 
-# ── Persistence ─────────────────────────────────
+# ── Persistence (thread-safe, 0o600) ────────────
 
 def _read_state() -> dict:
     if not STATE_PATH.exists():
@@ -23,7 +24,9 @@ def _read_state() -> dict:
 
 def _write_state(state: dict):
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    fd = os.open(str(STATE_PATH), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2, ensure_ascii=False)
 
 # ── Register ─────────────────────────────────────
 
@@ -38,7 +41,8 @@ def ensure_node(uid: int, name: str, role: str = "Agent", host: str = "local") -
 
 
 def _upsert_node(uid: int, name: str, role: str, host: str, overwrite: bool) -> dict:
-    state = _read_state()
+    with _state_lock:
+        state = _read_state()
     node_id = str(uid)
     now = datetime.now().isoformat()
     existing = state["nodes"].get(node_id, {})
@@ -66,7 +70,8 @@ def _upsert_node(uid: int, name: str, role: str, host: str, overwrite: bool) -> 
 
 def heartbeat(uid: int):
     """Update last_seen timestamp."""
-    state = _read_state()
+    with _state_lock:
+        state = _read_state()
     node_id = str(uid)
     if node_id in state["nodes"]:
         state["nodes"][node_id]["last_seen"] = datetime.now().isoformat()
@@ -75,7 +80,8 @@ def heartbeat(uid: int):
 
 def mark_offline(uid: int):
     """Mark a node as offline."""
-    state = _read_state()
+    with _state_lock:
+        state = _read_state()
     node_id = str(uid)
     if node_id in state["nodes"]:
         state["nodes"][node_id]["status"] = "offline"
@@ -85,7 +91,8 @@ def mark_offline(uid: int):
 
 def mark_all_offline(host: str = ""):
     """Mark all (or host-specific) nodes offline. Called on shutdown."""
-    state = _read_state()
+    with _state_lock:
+        state = _read_state()
     for node_id, node in list(state["nodes"].items()):
         if node["status"] == "online" and (not host or node.get("host") == host):
             node["status"] = "offline"
@@ -94,7 +101,8 @@ def mark_all_offline(host: str = ""):
 
 def sweep_dead_nodes(timeout_seconds: int = 120) -> int:
     """Mark nodes offline if last_seen > timeout. Returns count of nodes swept."""
-    state = _read_state()
+    with _state_lock:
+        state = _read_state()
     now = datetime.now()
     count = 0
     for node_id, node in list(state["nodes"].items()):

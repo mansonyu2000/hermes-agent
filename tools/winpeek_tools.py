@@ -398,7 +398,7 @@ def _handle_mim_poll(args: dict) -> str:
         from gateway.winpeek_hub.chat import poll_messages, active_uid
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    uid = int(args.get("uid") or 0) or active_uid()
+    uid = active_uid()
     if not uid:
         return json.dumps({"messages": []})
     # Memory queue (real-time)
@@ -425,7 +425,9 @@ def _handle_mim_contacts(args: dict) -> str:
         from gateway.winpeek_hub.chat import get_contacts, active_uid
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    uid = int(args.get("uid") or 0) or active_uid()
+    uid = active_uid()
+    if not uid:
+        return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
     return json.dumps({"contacts": get_contacts(uid)})
 
 
@@ -553,7 +555,7 @@ def _handle_mim_history(args: dict) -> str:
         from gateway.winpeek_hub.chat import get_history, active_uid
     except ImportError:
         return json.dumps({"error": "MIM Hub not loaded"})
-    uid = int(args.get("uid") or 0) or active_uid()
+    uid = active_uid()
     if not uid:
         return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
     return json.dumps({"messages": get_history(uid, peer_uid, gid, limit)})
@@ -675,13 +677,14 @@ def _handle_mim_add_contact(args: dict) -> str:
         return forwarded
     try:
         from gateway.winpeek_hub.chat import active_uid
-        sess_uid = active_uid()
     except ImportError:
-        sess_uid = 0
-    from_uid = int(args.get("uid") or 0) or sess_uid
+        return json.dumps({"error": "MIM Hub not loaded"})
+    from_uid = active_uid()
+    if not from_uid:
+        return json.dumps({"ok": False, "error": "not logged in — call winpeek_mim_login first"})
     to_uid = int(args.get("to_uid", 0))
-    if not from_uid or not to_uid:
-        return json.dumps({"ok": False, "error": "uid and to_uid required"})
+    if not to_uid:
+        return json.dumps({"ok": False, "error": "to_uid required"})
     try:
         from gateway.winpeek_hub.chat import add_contact
         result = add_contact(from_uid, to_uid, str(args.get("message", "")))
@@ -717,13 +720,14 @@ def _handle_mim_remove_contact(args: dict) -> str:
         return forwarded
     try:
         from gateway.winpeek_hub.chat import active_uid
-        sess_uid = active_uid()
     except ImportError:
-        sess_uid = 0
-    uid = int(args.get("uid") or 0) or sess_uid
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = active_uid()
+    if not uid:
+        return json.dumps({"ok": False, "error": "not logged in — call winpeek_mim_login first"})
     target_uid = int(args.get("target_uid", 0))
-    if not uid or not target_uid:
-        return json.dumps({"ok": False, "error": "uid and target_uid required"})
+    if not target_uid:
+        return json.dumps({"ok": False, "error": "target_uid required"})
     try:
         from gateway.winpeek_hub.chat import remove_contact
         result = remove_contact(uid, target_uid)
@@ -758,15 +762,16 @@ def _handle_mim_search_history(args: dict) -> str:
         return forwarded
     try:
         from gateway.winpeek_hub.chat import active_uid
-        sess_uid = active_uid()
     except ImportError:
-        sess_uid = 0
-    uid = int(args.get("uid") or 0) or sess_uid
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = active_uid()
+    if not uid:
+        return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
     q = str(args.get("q", ""))
     peer_uid = int(args.get("peer_uid", 0))
     gid = int(args.get("gid", 0))
-    if not uid or not q:
-        return json.dumps({"error": "uid and q required"})
+    if not q:
+        return json.dumps({"error": "q required"})
     try:
         from gateway.winpeek_hub.chat import search_history
         results = search_history(uid, q, peer_uid, gid)
@@ -803,13 +808,12 @@ def _handle_mim_mark_read(args: dict) -> str:
         return forwarded
     try:
         from gateway.winpeek_hub.chat import active_uid
-        sess_uid = active_uid()
     except ImportError:
-        sess_uid = 0
-    uid = int(args.get("uid") or 0) or sess_uid
-    peer_uid = int(args.get("peer_uid", 0))
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = active_uid()
     if not uid:
-        return json.dumps({"error": "uid required"})
+        return json.dumps({"error": "not logged in — call winpeek_mim_login first"})
+    peer_uid = int(args.get("peer_uid", 0))
     try:
         from gateway.winpeek_hub.chat import mark_read
         n = mark_read(uid, peer_uid)
@@ -1865,8 +1869,8 @@ def _handle_mim_check_inbox(args: dict) -> str:
     try:
         from gateway.winpeek_hub.chat import active_uid
     except ImportError:
-        active_uid = lambda: 0
-    uid = int(args.get("uid") or 0) or active_uid()
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = active_uid()
     if not uid:
         return json.dumps({"error": "uid required — login first"})
     try:
@@ -1964,8 +1968,8 @@ def _handle_mim_read_digest(args: dict) -> str:
     try:
         from gateway.winpeek_hub.chat import active_uid
     except ImportError:
-        active_uid = lambda: 0
-    uid = int(args.get("uid") or 0) or active_uid()
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = active_uid()
     try:
         from apps.winpeek_injector.daemon import pop_digest_entries, build_digest_message, read_inbox
         entries = pop_digest_entries()
@@ -2008,8 +2012,8 @@ def _handle_mim_mark_replied(args: dict) -> str:
     try:
         from gateway.winpeek_hub.chat import active_uid
     except ImportError:
-        active_uid = lambda: 0
-    uid = int(args.get("uid") or 0) or active_uid()
+        return json.dumps({"error": "MIM Hub not loaded"})
+    uid = active_uid()
     mid = str(args.get("mid", ""))
     if not uid or not mid:
         return json.dumps({"error": "uid and mid required"})

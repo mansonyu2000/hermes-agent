@@ -85,6 +85,9 @@ def main():
 
     # ── 9. RPC handlers smoke test ──
     print("\n--- 9. RPC handlers ---")
+    # Set session so active_uid() resolves for IDOR-protected handlers
+    from gateway.winpeek_hub.chat import set_active_session
+    set_active_session(1, "yuyangmin")
     from tools.winpeek_tools import (
         _handle_mim_add_contact, _handle_mim_remove_contact,
         _handle_mim_search_history, _handle_mim_mark_read, _handle_mim_search_users
@@ -92,8 +95,8 @@ def main():
     for name, fn, args, ok_check in [
         ("search_users", _handle_mim_search_users, {"q": "2022"}, "users"),
         ("search_history", _handle_mim_search_history,
-         {"uid": 1, "q": "test", "peer_uid": 2022}, "messages"),
-        ("mark_read", _handle_mim_mark_read, {"uid": 1, "peer_uid": 2022}, "ok"),
+         {"q": "test", "peer_uid": 2022}, "messages"),
+        ("mark_read", _handle_mim_mark_read, {"peer_uid": 2022}, "ok"),
     ]:
         try:
             resp = json.loads(fn(args))
