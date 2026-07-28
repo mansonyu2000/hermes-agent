@@ -185,11 +185,14 @@ def _client_inject():
             # 用户身份字段由 _handle_mim_login 登录后写入
         }
         try:
-            agent_conf.parent.mkdir(parents=True, exist_ok=True)
-            agent_conf.write_text(
-                _json.dumps(defaults, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            import stat as _stat
+            agent_conf.parent.mkdir(parents=True, exist_ok=True,
+                                    mode=_stat.S_IRWXU)  # 0o700
+            fd = os.open(str(agent_conf),
+                        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                        _stat.S_IRUSR | _stat.S_IWUSR)   # 0o600
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(_json.dumps(defaults, indent=2, ensure_ascii=False))
             logger.info("Client inject: created default agent.conf")
         except Exception as e:
             logger.warning("Client inject: cannot create agent.conf: %s", e)
