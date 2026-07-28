@@ -358,24 +358,34 @@ def _handle_mim_login(args: dict) -> str:
             name = identity.get("nickname", "") or nickname
             role = identity.get("role", "Agent")
             # 1. 写入 agent.conf (持久化, 下次启动可用)
+            # NOTE: agent.conf contains the plaintext password because
+            # (a) CLI tools (say.py, agent-role.py) need it for MIM login
+            # (b) the daemon already injects plaintext pw into CLAUDE.md
+            #     via MIM_IDENTITY_BLOCK — same exposure level
+            # (c) the file is written with 0o600 owner-only permissions
+            # A session-token system (no stored pw) is the proper fix but
+            # requires server-side changes to the identity/auth layer.
             try:
+                import stat as _stat
                 from pathlib import Path
                 conf = Path.home() / ".hermes" / "data" / "agent.conf"
-                conf.parent.mkdir(parents=True, exist_ok=True)
+                conf.parent.mkdir(parents=True, exist_ok=True, mode=_stat.S_IRWXU)
                 data = {
                     "hermes_uid": uid,
                     "agent_name": name,
                     "password": password,
                     "role": role,
                 }
-                # 保留已有字段 (center_url, mqtt_host 等)
                 try:
                     old = json.loads(conf.read_text(encoding="utf-8"))
                     old.update(data)
                     data = old
                 except Exception:
                     pass
-                conf.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                fd = os.open(str(conf), os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                             _stat.S_IRUSR | _stat.S_IWUSR)  # 0o600
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
             except Exception:
                 pass
             # 2. 设置环境变量 (让 say.py 等 CLI 工具可用)
