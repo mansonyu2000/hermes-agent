@@ -164,42 +164,66 @@ def try_load_hub():
 
 
 def _client_inject():
-    """客户端模式: 注入 MCP 配置 + MIM 身份块 (不需要 MySQL)。
+    """客户端模式: 初始化本地配置 + 注入 MCP + MIM 身份块。
 
-    从本地 ~/.hermes/data/agent.conf 读取身份,
-    写入 ~/.claude/settings.json (MCP) + ~/.claude/CLAUDE.md (身份块)。
-    服务端模式下由 daemon 的 register_and_inject() 处理, 不经过此函数。
+    - 首次启动: 创建 ~/.hermes/data/agent.conf (服务器默认值)
+    - 每次启动: 读取 agent.conf → 注入 CLAUDE.md/AGENTS.md
+    - 不创建用户身份 — 身份由登录时 _handle_mim_login 写入
     """
     import json as _json
     from pathlib import Path as _Path
 
     HOME = _Path.home()
+    agent_conf = HOME / ".hermes" / "data" / "agent.conf"
 
-    # 1. 读本地身份
+    # 1. 确保 agent.conf 存在 (首次启动写默认值)
+    if not agent_conf.exists():
+        defaults = {
+            "mqtt_host": "192.168.3.23",
+            "mqtt_port": 1883,
+            "winpeek_hub": "http://192.168.3.44:2000",
+            # 用户身份字段由 _handle_mim_login 登录后写入
+        }
+        try:
+            agent_conf.parent.mkdir(parents=True, exist_ok=True)
+            agent_conf.write_text(
+                _json.dumps(defaults, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            logger.info("Client inject: created default agent.conf")
+        except Exception as e:
+            logger.warning("Client inject: cannot create agent.conf: %s", e)
+
+    # 2. 读本地身份
     uid = 0
     name = ""
     pw = ""
     role = "Agent"
-    agent_conf = HOME / ".hermes" / "data" / "agent.conf"
-    if agent_conf.exists():
-        try:
-            d = _json.loads(agent_conf.read_text(encoding="utf-8"))
-            uid = int(d.get("hermes_uid", 0))
-            name = d.get("agent_name", "") or d.get("name", "")
-            pw = d.get("password", "")
-            role = d.get("role", "Agent")
-        except Exception:
-            pass
+    try:
+        d = _json.loads(agent_conf.read_text(encoding="utf-8"))
+        uid = int(d.get("hermes_uid", 0))
+        name = d.get("agent_name", "") or d.get("name", "")
+        pw = d.get("password", "")
+        role = d.get("role", "Agent")
+    except Exception:
+        pass
     if not uid:
         uid = int(os.getenv("MIM_UID", "0"))
     if not name:
         name = os.getenv("MIM_NAME", "") or socket.gethostname()
 
     if not uid:
-        logger.warning("Client inject: no identity found (agent.conf or env)")
+        logger.info(
+            "Client inject: no identity yet (agent.conf has no hermes_uid). "
+            "Login via Peeka Desktop to auto-fill identity."
+        )
         return
 
-    # 2. 注入 MCP 配置文件
+    # Set env vars so say.py and other CLI tools work
+    os.environ["MIM_UID"] = str(uid)
+    os.environ["MIM_NAME"] = name
+
+    # 3. 注入 MCP 配置文件
     import socket
     try:
         from apps.winpeek_injector.daemon import inject_mcp_config
@@ -218,7 +242,7 @@ def _client_inject():
                 except Exception:
                     pass
 
-    # 3. 注入 MIM_IDENTITY_BLOCK
+    # 4. 注入 MIM_IDENTITY_BLOCK
     fake_scanner = {"agent_type": "hermes", "name": name}
     fake_identity = {
         "nickname": name,
