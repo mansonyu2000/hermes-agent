@@ -18,14 +18,40 @@ logger = logging.getLogger(__name__)
 
 # ── Active session ────────────────────────────────
 
+import json as _json
+from pathlib import Path as _Path
+
+_SESSION_FILE = _Path.home() / ".hermes" / "winpeek" / ".session"
+
 _active_uid: int = 0
 _active_name: str = ""
+
+
+def _restore_session():
+    """Restore session from disk after serve restart."""
+    global _active_uid, _active_name
+    try:
+        if _SESSION_FILE.exists():
+            data = _json.loads(_SESSION_FILE.read_text())
+            _active_uid = int(data.get("uid", 0))
+            _active_name = str(data.get("name", ""))
+    except Exception:
+        pass
 
 
 def set_active_session(uid: int, name: str = ""):
     global _active_uid, _active_name
     _active_uid = uid
     _active_name = name
+    try:
+        _SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _SESSION_FILE.write_text(_json.dumps({"uid": uid, "name": name}))
+    except Exception:
+        pass
+
+
+# restore on module load
+_restore_session()
 
 
 def active_uid() -> int:
@@ -130,14 +156,7 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
     finally:
         conn.close()
 
-    # MQTT publish via say topic (relay handles say→inbox forwarding)
-    try:
-        from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
-        mqtt_send(to_uid, body, from_name)
-    except Exception:
-        pass
-
-    # Local delivery
+    # Local delivery (memory queue — instant for same‑machine receivers)
     enqueue({
         "mid": mid,
         "to_uid": to_uid,
@@ -146,6 +165,24 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
         "content": body,
         "time": now,
     })
+
+    # Register mid with dedup tracker BEFORE MQTT publish.
+    # When the MQTT relay loops back (same machine), _on_message
+    # will see this mid in _seen_mids and skip the duplicate enqueue.
+    # Cross‑machine: receiver's instance won't have this mid yet → delivers.
+    try:
+        from gateway.winpeek_hub.mqtt_adapter import mark_mid_seen
+        mark_mid_seen(mid)
+    except Exception:
+        pass
+
+    # MQTT publish via say topic (relay handles say→inbox forwarding)
+    try:
+        from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
+        mqtt_send(to_uid, body, from_name,
+                  origin_uid=from_uid, origin_name=from_name, mid=mid)
+    except Exception as e:
+        logger.warning(f"MIM MQTT publish failed for mid={mid}: {e}")
 
     # ── Peeka routing: 3‑layer decision ──
     try:
@@ -164,7 +201,7 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
             except Exception:
                 pass
 
-            _enqueue_auto_reply(to_uid, from_uid, reply, from_name)
+            _enqueue_auto_reply(to_uid, from_uid, reply, _resolve_name(to_uid))
 
         elif decision["action"] == "drop":
             # Remove from pending queue (advertisement dropped)
@@ -233,6 +270,82 @@ def _enqueue_auto_reply(from_uid: int, to_uid: int, reply: str, original_from_na
         "time": now,
         "is_auto_reply": True,
     })
+
+
+# ── Group Send ──────────────────────────────────
+
+def send_group_message(from_uid: int, from_name: str, gid: int, body: str) -> dict:
+    """Send a group chat message. Delivers to all group members."""
+    conn = get_conn()
+    if conn is None:
+        return {"ok": False, "error": "DB unavailable"}
+    try:
+        with conn.cursor() as cur:
+            # Verify sender is a group member
+            cur.execute(
+                "SELECT 1 FROM group_members WHERE gid = %s AND uid = %s",
+                (gid, from_uid))
+            if not cur.fetchone():
+                return {"ok": False, "error": "not a group member"}
+
+            mid = _next_mid()
+            cid = str(uuid.uuid4().hex[:16])
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Insert with gid
+            cur.execute(
+                """INSERT INTO chat
+                   (mid, cid, from_uid, to_uid, gid, role, content, from_type,
+                    created_at, sent_at, direction, delivery_status)
+                   VALUES (%s, %s, %s, 0, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (mid, cid, from_uid, gid, "user", body, "mim",
+                 now, now, "outgoing", "sent"),
+            )
+            conn.commit()
+
+            # Get all group member uids
+            cur.execute(
+                "SELECT uid FROM group_members WHERE gid = %s", (gid,))
+            member_uids = [r["uid"] for r in cur.fetchall()]
+    except Exception as e:
+        logger.warning(f"MIM group send DB failed: {e}")
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+    # Enqueue for each member (skip sender)
+    for muid in member_uids:
+        if muid == from_uid:
+            continue
+        enqueue({
+            "mid": mid,
+            "to_uid": muid,
+            "from_uid": from_uid,
+            "from_name": from_name,
+            "content": body,
+            "time": now,
+            "gid": gid,
+        })
+
+    # Register mid with dedup tracker before MQTT publish
+    try:
+        from gateway.winpeek_hub.mqtt_adapter import mark_mid_seen
+        mark_mid_seen(mid)
+    except Exception:
+        pass
+
+    # MQTT broadcast via say topic for each member
+    try:
+        from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
+        for muid in member_uids:
+            if muid == from_uid:
+                continue
+            mqtt_send(muid, body, from_name,
+                      origin_uid=from_uid, origin_name=from_name, mid=mid)
+    except Exception as e:
+        logger.warning(f"MIM group MQTT publish failed for mid={mid}: {e}")
+
+    return {"ok": True, "mid": mid, "gid": gid, "members": len(member_uids)}
 
 
 # ── Helpers ─────────────────────────────────────
@@ -395,29 +508,33 @@ def get_user_contacts(uid: int) -> list[dict]:
 # ── Search ───────────────────────────────────────
 
 def search_users(q: str = "", filters: dict | None = None) -> list[dict]:
-    """Search users by nickname/UID/role/org. Supports batch UID list."""
+    """Search users by nickname/UID/role. q supports comma-separated UIDs.
+
+    Returns list of user dicts with 'online' field. Empty search (no q + no
+    filters) returns all users. Comma-separated digits in q are parsed as UIDs.
+    """
     from gateway.winpeek_hub import identity, hub
     users = identity.list_all()
     results = []
     q = (q or "").strip().lower()
+    # Parse UIDs from q (comma-separated) or filters.uids
     uids = []
     if filters and filters.get("uids"):
         uids = [int(u) for u in str(filters["uids"]).split(",") if u.strip().isdigit()]
+    elif q and all(p.strip().isdigit() for p in q.split(",")):
+        uids = [int(p.strip()) for p in q.split(",") if p.strip()]
+        q = ""
     type_filter = (filters or {}).get("identity_type", "")
+    # Require at least one filter criterion — don't enumerate all users
+    has_criteria = bool(uids) or bool(q) or bool(type_filter)
+    if not has_criteria:
+        return []
     for u in users:
         uid = u.get("uid", 0)
         nick = (u.get("nickname") or "").lower()
         role = (u.get("role") or "").lower()
-        # Match by UID list (exact)
-        if uids and uid in uids:
-            results.append({**u, "online": hub.is_online(uid)})
-            continue
-        # Match by query against nickname/role/uid
-        if q and (q in nick or q in role or q == str(uid)):
-            results.append({**u, "online": hub.is_online(uid)})
-            continue
-        # Match by identity type filter alone
-        if type_filter and u.get("identity_type") == type_filter:
+        id_type = u.get("identity_type", "")
+        if (uids and uid in uids) or (q and (q in nick or q in role or q == str(uid))) or (type_filter and id_type == type_filter):
             results.append({**u, "online": hub.is_online(uid)})
     return results[:50]
 

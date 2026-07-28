@@ -210,6 +210,8 @@ def main():
 
     os.environ["HERMES_UID"] = str(uid)
     os.environ["HERMES_NAME"] = nick
+    os.environ["MIM_UID"] = str(uid)
+    os.environ["MIM_NAME"] = nick
     os.environ["MQTT_HOST"] = mqtt_host
 
     # Add bin/ to PATH so `say` command is available

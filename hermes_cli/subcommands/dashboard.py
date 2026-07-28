@@ -58,6 +58,18 @@ def _add_server_runtime_args(parser) -> None:
             "ONE machine-level server and preselect the profile."
         ),
     )
+    parser.add_argument(
+        "--apppath",
+        default="",
+        metavar="DIR",
+        help=(
+            "Override the Hermes application source directory. Default (unset): "
+            "use the pip-installed hermes-agent package. When set, hermes loads "
+            "gateway/apps/tools/bin/ from this directory instead, while still "
+            "using the system-level ~/.hermes for data/state/identity. "
+            "Use for development: hermes serve --apppath path/to/hermes-agent-cc"
+        ),
+    )
     # Internal flag set by the unified-launch re-exec (cmd_dashboard) to
     # preselect the launching profile in the SPA switcher. Hidden from --help.
     parser.add_argument(

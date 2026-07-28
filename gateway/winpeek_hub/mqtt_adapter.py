@@ -74,6 +74,11 @@ GROUP_TOPIC_PREFIX = "comms/group"
 _client: Optional[mqtt.Client] = None
 _message_handler = None
 
+# Dedup: prevent double‑delivery when local enqueue + MQTT relay both fire
+# (same‑machine messages go through both paths after from_uid fix)
+_seen_mids: set[str] = set()
+_MAX_SEEN_MIDS = 2000
+
 
 def is_configured() -> bool:
     return UID > 0 and bool(NAME)
@@ -125,18 +130,33 @@ def _on_message(client, userdata, msg):
     from_name = payload.get("from", "?")
     body = payload.get("body", "")
     gid = payload.get("gid")
+    mid = payload.get("mid", "")
 
+    # Business‑layer sender: origin_* takes precedence (validated by chat.send_message).
+    # from_uid/from are the MQTT publisher identity (adapter) — NOT the sender.
+    sender_uid = str(payload.get("origin_uid") or from_uid)
+    sender_name = payload.get("origin_name") or from_name
+
+    # Guard: skip own messages (adapter self-relay)
     if str(from_uid) == str(UID):
         return
 
-    logger.info(f"[{from_name} ({from_uid})]: {body[:60]}")
+    # Dedup: skip if we already enqueued this mid locally
+    if mid and mid in _seen_mids:
+        return
+    if mid:
+        _seen_mids.add(mid)
+        if len(_seen_mids) > _MAX_SEEN_MIDS:
+            _seen_mids.clear()  # coarse eviction — safe: >2000 backlog is extreme
+
+    logger.info(f"[{sender_name} ({sender_uid})]: {body[:60]}")
 
     # Route into chat queue
     try:
         from gateway.winpeek_hub.chat import enqueue
         enqueue({
-            "from_uid": int(from_uid) if str(from_uid).isdigit() else 0,
-            "from_name": from_name,
+            "from_uid": int(sender_uid) if str(sender_uid).isdigit() else 0,
+            "from_name": sender_name,
             "to_uid": UID,
             "gid": gid,
             "content": body,
@@ -147,7 +167,7 @@ def _on_message(client, userdata, msg):
 
     if _message_handler:
         try:
-            _message_handler(from_uid, from_name, body)
+            _message_handler(sender_uid, sender_name, body)
         except Exception as e:
             logger.warning(f"MIM handler error: {e}")
 
@@ -232,20 +252,36 @@ def disconnect():
 
 # ── 发送 ──────────────────────────────────────────
 
-def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
-    """Publish to comms/say/{target_uid} (relay handles say→inbox forwarding)."""
+def send_message(target_uid: int, text: str, target_name: str = "",
+                 origin_uid: int = 0, origin_name: str = "",
+                 mid: str = "") -> bool:
+    """Publish to comms/say/{target_uid} (relay handles say→inbox forwarding).
+
+    The adapter always publishes as its own identity (UID/NAME).
+    origin_uid/origin_name: the *actual* business‑layer sender — only set by
+    chat.send_message() which has already verified the authenticated session.
+    Never accept direct caller‑supplied from_uid overrides — that's spoofing.
+
+    mid: message ID for cross‑machine deduplication.
+    """
     if not _client or target_uid <= 0:
         return False
     topic = f"{SAY_TOPIC_PREFIX}/{target_uid}"
-    payload = json.dumps({
+    payload = {
         "from_uid": str(UID),
         "from": NAME,
         "to_uid": str(target_uid),
         "body": text,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-    }, ensure_ascii=False)
+    }
+    if origin_uid:
+        payload["origin_uid"] = str(origin_uid)
+        payload["origin_name"] = origin_name or NAME
+    if mid:
+        payload["mid"] = mid
     try:
-        result = _client.publish(topic, payload, qos=1)
+        payload_str = json.dumps(payload, ensure_ascii=False)
+        result = _client.publish(topic, payload_str, qos=1)
         logger.info(f"MIM → {target_name or target_uid}: {text[:60]}")
         return result.rc == mqtt.MQTT_ERR_SUCCESS
     except Exception as e:
@@ -253,19 +289,27 @@ def send_message(target_uid: int, text: str, target_name: str = "") -> bool:
         return False
 
 
-def send_group_message(gid: int, text: str, from_name: str, from_uid: int = 0) -> bool:
+def send_group_message(gid: int, text: str, from_name: str, from_uid: int = 0,
+                      mid: str = "") -> bool:
+    """Publish group message. Adapter identity is publisher; origin_* is sender."""
     if not _client or gid <= 0:
         return False
     topic = f"{GROUP_TOPIC_PREFIX}/{gid}"
-    payload = json.dumps({
-        "from_uid": str(from_uid or UID),
-        "from": from_name or NAME,
+    payload = {
+        "from_uid": str(UID),
+        "from": NAME,
         "gid": gid,
         "body": text,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-    }, ensure_ascii=False)
+    }
+    if from_uid:
+        payload["origin_uid"] = str(from_uid)
+        payload["origin_name"] = from_name or NAME
+    if mid:
+        payload["mid"] = mid
     try:
-        result = _client.publish(topic, payload, qos=1)
+        payload_str = json.dumps(payload, ensure_ascii=False)
+        result = _client.publish(topic, payload_str, qos=1)
         logger.info(f"MIM → group {gid}: {text[:60]}")
         return result.rc == mqtt.MQTT_ERR_SUCCESS
     except Exception as e:
@@ -281,3 +325,15 @@ def status() -> dict:
         "name": NAME,
         "broker": f"{BROKER}:{PORT}",
     }
+
+
+def mark_mid_seen(mid: str):
+    """Register a mid as already delivered locally.
+
+    Call after local enqueue() so the MQTT relay (same-machine loopback)
+    skips this mid — prevents double delivery.
+    """
+    if mid:
+        _seen_mids.add(mid)
+        if len(_seen_mids) > _MAX_SEEN_MIDS:
+            _seen_mids.clear()

@@ -7,11 +7,52 @@ to identity DB, injects MIM MCP config, maintains heartbeat.
 Runs silently — no window, no tray (yet). Started by hub_bridge.try_load_hub().
 """
 
-import json, os, secrets, socket, stat, string, time, threading
+import json, logging, os, secrets, socket, stat, string, time, threading
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 HOME = Path.home()
+
+# ═══════════════════════════════════════════════
+# Dedicated daemon logger — independent from audit jsonl
+# Writes to ~/.hermes/logs/daemon.log (max 1 MB, keep 3 backups)
+# ═══════════════════════════════════════════════
+
+_daemon_logger: "logging.Logger | None" = None
+
+
+def _get_daemon_logger() -> logging.Logger:
+    global _daemon_logger
+    if _daemon_logger is not None:
+        return _daemon_logger
+    logger = logging.getLogger("peeka.daemon")
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False  # don't pollute hermes agent.log
+    log_dir = HOME / ".hermes" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    fh = RotatingFileHandler(
+        log_dir / "daemon.log",
+        maxBytes=1_048_576,  # 1 MB
+        backupCount=3,
+        encoding="utf-8",
+    )
+    fh.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)-5s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    logger.addHandler(fh)
+    _daemon_logger = logger
+    return logger
+
+
+def _dlog(msg: str, level: str = "info"):
+    """Write to the dedicated daemon log. Silently ignores I/O errors."""
+    try:
+        log = _get_daemon_logger()
+        getattr(log, level)(msg)
+    except Exception:
+        pass
 
 # ═══════════════════════════════════════════════
 # Agent scanner — detects installed AI agents
@@ -118,6 +159,8 @@ def inject_mcp_config(config_path: Path) -> bool:
     existing = config.get("mcpServers", {})
     if "winpeek-mim" in existing:
         return False  # Already injected
+
+    _dlog(f"mcp_inject: {config_path}")
 
     # Backup with owner-only permissions
     bak = Path(str(config_path) + ".mim-bak")
@@ -248,6 +291,8 @@ def register_and_inject():
             "prompt_injected": prompt_injected,
             "config_file": str(scanner.get("config_file", "")),
         })
+        _dlog(f"register: {name} ({agent_type}) uid={uid} "
+              f"mcp={'yes' if injected else 'no'} prompt={'yes' if prompt_injected else 'no'}")
 
     _daemon_state = {
         "machine": machine,
@@ -281,6 +326,12 @@ def _build_identity_block(uid: int, identity: dict, scanner: dict, password: str
     squad = identity.get("squad_name", "")
     manager_uid = identity.get("manager_uid", 0)
 
+    # Absolute path to the CORRECT say.py (cc version — goes through Daemon outbox).
+    # This prevents agents from accidentally using a different say.py on PATH
+    # (e.g. the qoder version that sends directly to comms/say/ bypassing Daemon).
+    _say_py = Path(__file__).resolve().parent.parent.parent / "bin" / "say.py"
+    say_path = str(_say_py).replace("\\", "/")
+
     block = f"""
 <!-- MIM_IDENTITY_BLOCK — auto‑injected by Peeka Daemon, do not edit manually -->
 
@@ -297,7 +348,7 @@ hostname: {hostname}
 
 [MIM Commands]
 - 登录MIM: winpeek_mim_login(nickname="{name}", password="{password}")
-- 发送回复: say <uid> "消息内容"
+- 发送回复: python "{say_path}" <uid> "消息内容"
 - 查阅收信箱: 查看 inbox_path/unread/ 目录
 - 查看联系人: curl http://192.168.3.44:2000/api/contacts
 - 有疑问: 先问本地 Daemon, 再问上级 (manager_uid={manager_uid})
@@ -305,9 +356,10 @@ hostname: {hostname}
 [MIM Rules]
 - 你是多 Agent 网络中的一员, Daemon 是你的本地管家
 - 收到 [MIM] 开头的消息后, 自主用 LLM 判断是否回复
-- 回复时执行 say <uid> "内容" 即可, Daemon 负责送达
+- 回复时执行 python "{say_path}" <uid> "内容" 即可, Daemon 负责送达
 - Daemon 可能会催问未回复的消息, 请及时处理
 - 不必回复的消息: 广告(已过滤)、问候(Daemon 已代答)
+- 每60秒调用一次 winpeek_mim_online 维持在线状态, 否则120秒后会被标记为离线
 <!-- /MIM_IDENTITY_BLOCK -->
 """
     return block.strip()
@@ -406,6 +458,7 @@ def write_to_inbox(agent_uid: int, msg: dict):
     file_path.write_text(json.dumps(msg, indent=2, ensure_ascii=False, default=str),
                          encoding="utf-8")
     _update_manifest(agent_uid)
+    _dlog(f"inbox_write: agent={agent_uid} mid={mid[:24]} from={msg.get('from_uid')}")
     _audit_log("inbox_write", {"agent_uid": agent_uid, "mid": mid})
 
 
@@ -646,25 +699,62 @@ def get_politeness(from_uid: int, to_uid: int) -> int:
 # ═══════════════════════════════════════════════
 
 _running = False
+_daemon_config: dict[str, int] = {
+    "sweep_interval": 30,
+    "machine_report_interval": 30,
+    "agent_timeout": 120,
+    "machine_timeout": 90,
+    "rescan_interval": 300,
+    "reliability_interval": 60,
+}
 
-def _heartbeat_loop(interval: int = 30):
-    """Sweep dead nodes only. Agent heartbeat is self-reported via MQTT/CLI.
 
-    Daemon does NOT heartbeat agents itself — agents report their own
-    liveness via MQTT activity or explicit hub.heartbeat() calls.
-    Daemon's role is cleanup: sweep_dead_nodes marks offline after 120s.
+def _machine_heartbeat_loop():
+    """Every 30s, report this machine's online agents to hub (machine-level heartbeat).
+
+    If Daemon crashes, hub stops receiving these reports. After machine_timeout
+    (90s = 3×30s), hub marks ALL agents on this machine offline.
     """
-    global _running
+    global _running, _daemon_config
+    hostname = socket.gethostname()
+    while _running:
+        time.sleep(_daemon_config["machine_report_interval"])
+        try:
+            from gateway.winpeek_hub import hub
+            online = [
+                n["uid"] for n in hub.list_nodes()
+                if n.get("host") in (hostname, "local")
+                and n.get("status") == "online"
+            ]
+            hub.update_machine(hostname, online)
+        except Exception:
+            pass
+
+
+def _heartbeat_loop():
+    """Daemon sweeps dead nodes. Does NOT heartbeat anyone.
+
+    Online status rule (same for ALL nodes — daemon agents, external agents, users):
+      Must call hub.heartbeat(uid) or winpeek_mim_online within 120s.
+      Daemon's ONLY job in this loop is sweep_dead_nodes.
+
+    Agents discovered by daemon (scan_installed_agents) must self-heartbeat
+    via winpeek_mim_online just like everyone else. Daemon does not guess
+    liveness — the agent reports its own.
+    """
+    global _running, _daemon_config
     while _running:
         try:
             from gateway.winpeek_hub import hub
-            swept = hub.sweep_dead_nodes(120)
+            swept = hub.sweep_dead_nodes(
+                agent_timeout=_daemon_config["agent_timeout"],
+                machine_timeout=_daemon_config["machine_timeout"],
+            )
             if swept:
-                import logging
-                logging.getLogger(__name__).info(f"Daemon: {swept} nodes marked offline")
+                _dlog(f"sweep: {swept} dead nodes marked offline", "warning")
         except Exception:
             pass
-        time.sleep(interval)
+        time.sleep(_daemon_config["sweep_interval"])
 
 def _reliability_scanner(interval: int = 60):
     """Every N seconds, check for pending messages that need chase-reminding."""
@@ -704,6 +794,7 @@ def _reliability_scanner(interval: int = 60):
                     incr_retry(mid)
                     if not ok:
                         update_reliability(mid, "delivery_failed")
+                    _dlog(f"chase: mid={mid[:20]} agent={agent_uid} level={chase_level} ok={ok}")
                     _audit_log("reliability_chase", {
                         "mid": mid, "agent_uid": agent_uid,
                         "chase_level": chase_level, "ok": ok,
@@ -717,6 +808,27 @@ def _reliability_scanner(interval: int = 60):
             _flush_audit()
         except Exception as e:
             _audit_log("reliability_scanner_error", {"error": str(e)})
+
+
+def _rescan_loop():
+    """Periodically re-scan for newly installed agents (every 5 min)."""
+    global _running, _daemon_state, _daemon_config
+    while _running:
+        time.sleep(_daemon_config["rescan_interval"])
+        try:
+            new_agents = scan_installed_agents()
+            known_types = {r.get("agent_type") for r in _daemon_state.get("runtimes", [])}
+            new_types = [a["agent_type"] for a in new_agents if a["agent_type"] not in known_types]
+            if not new_types:
+                continue  # nothing changed — skip silently
+            _dlog(f"rescan: {len(new_types)} new agents: {', '.join(new_types)}")
+            results = register_and_inject()
+            for r in results:
+                if r.get("uid"):
+                    _init_inbox(r["uid"])
+            _audit_log("rescan", {"new_agents": new_types})
+        except Exception:
+            pass
 
 
 def start_daemon():
@@ -744,7 +856,16 @@ def start_daemon():
     t2 = threading.Thread(target=_reliability_scanner, daemon=True)
     t2.start()
 
-    print(f"[injector] daemon started ({len(results)} agents) + reliability scanner + inbox manager")
+    # 4. Start periodic re-scanner (discovers newly installed agents)
+    t3 = threading.Thread(target=_rescan_loop, daemon=True)
+    t3.start()
+
+    # 5. Start machine heartbeat (reports online agents to hub every 30s)
+    t4 = threading.Thread(target=_machine_heartbeat_loop, daemon=True)
+    t4.start()
+
+    _dlog(f"start: {len(results)} agents | sweep+hb(30s) reliability(60s) rescan(300s)")
+    print(f"[injector] daemon started ({len(results)} agents) + sweep + machine-hb + reliability + rescan")
 
     # 4. Initialize inboxes for all registered agents
     for r in results:
@@ -773,8 +894,136 @@ def get_local_state() -> dict:
     return state
 
 
+def get_daemon_status() -> dict:
+    """Full daemon status for the Peeka Dashboard UI.
+
+    Returns all 10 daemon capabilities in one call:
+      1. agent scan — installed agents detected
+      2. agent registration — uid/registered status
+      3. MCP injection — config_injected flag
+      4. prompt injection — prompt_injected flag
+      5. heartbeat — per-node online status from hub
+      6. dead node sweep — node list with last_seen
+      7. inbox — unread/delivered counts per agent
+      8. reliability tracker — pending chase-reminders
+      9. L1/L2 auto-reply — digest entries pending
+     10. periodic rescan — uptime estimate
+    """
+    hostname = socket.gethostname()
+    state = dict(_daemon_state)
+
+    # ── Nodes (from hub) ──
+    nodes = []
+    online_count = offline_count = 0
+    try:
+        from gateway.winpeek_hub import hub
+        for n in hub.list_nodes():
+            is_online = n.get("status") == "online"
+            if is_online:
+                online_count += 1
+            else:
+                offline_count += 1
+            nodes.append({
+                "uid": n.get("uid"),
+                "name": n.get("name", ""),
+                "role": n.get("role", ""),
+                "host": n.get("host", ""),
+                "online": is_online,
+                "last_seen": n.get("last_seen", ""),
+            })
+    except Exception:
+        pass
+
+    # ── Inbox summary ──
+    inbox_summary = {}
+    if INBOX_ROOT.exists():
+        for agent_dir in sorted(INBOX_ROOT.iterdir()):
+            if agent_dir.is_dir():
+                mf = agent_dir / ".manifest.json"
+                if mf.exists():
+                    try:
+                        inbox_summary[agent_dir.name] = json.loads(mf.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+
+    # ── Reliability ──
+    pending_reliability: list[dict] = []
+    with _reliability_lock:
+        for mid, info in _reliability_tracker.items():
+            if info.get("status") in ("unread", "delivered"):
+                pending_reliability.append({"mid": mid, **info})
+
+    # ── Audit log summary ──
+    audit_summary: dict = {"today_count": 0, "last_events": []}
+    try:
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        log_file = AUDIT_LOG_DIR / f"daemon-{today_str}.jsonl"
+        if log_file.exists():
+            lines = [l for l in log_file.read_text(encoding="utf-8").strip().split("\n") if l]
+            audit_summary["today_count"] = len(lines)
+            audit_summary["last_events"] = [
+                json.loads(l) for l in lines[-10:]
+            ]
+    except Exception:
+        pass
+
+    # ── Digest ──
+    digest_pending = 0
+    with _digest_lock:
+        digest_pending = len(_digest_entries)
+
+    return {
+        "machine": hostname,
+        "daemon_version": state.get("daemon_version", "1.0.0"),
+        "running": _running,
+        "config": dict(_daemon_config),
+        # Capabilities 1-4: detected agents
+        "agents": [
+            {
+                "agent_type": r["agent_type"],
+                "uid": r.get("uid"),
+                "registered": r.get("registered", False),
+            }
+            for r in state.get("runtimes", [])
+        ],
+        # Capabilities 5-6: heartbeat / nodes
+        "nodes": nodes,
+        "online_count": online_count,
+        "offline_count": offline_count,
+        # Capability 7: inbox
+        "inbox": inbox_summary,
+        # Capability 8: reliability
+        "reliability_pending": len(pending_reliability),
+        "reliability_details": pending_reliability[:20],
+        # Capability 9: L1/L2
+        "digest_pending": digest_pending,
+        # Capability 10: rescan
+        "scan_interval_seconds": 300,
+        # Audit
+        "audit": audit_summary,
+    }
+
+
+_DAEMON_CONFIG_KEYS = ["sweep_interval", "machine_report_interval", "agent_timeout", "machine_timeout", "rescan_interval", "reliability_interval"]
+
+def set_daemon_config(key: str, value: int) -> dict:
+    """Change daemon runtime config. Supported keys: """ + ", ".join(sorted(["sweep_interval","machine_report_interval","agent_timeout","machine_timeout","rescan_interval","reliability_interval"])) + """."""
+    global _daemon_config
+    if key not in _daemon_config:
+        return {"ok": False, "error": f"unknown config key: {key}. Valid: {sorted(_daemon_config.keys())}"}
+    val = max(2, min(3600, int(value)))
+    old = _daemon_config[key]
+    _daemon_config[key] = val
+    _dlog(f"config: {key} {old}s → {val}s")
+    _audit_log("daemon_config", {"key": key, "old": old, "new": val})
+    return {"ok": True, "key": key, "value": val, "old": old}
+
+set_heartbeat_interval = lambda s: set_daemon_config("sweep_interval", s)  # backward compat
+
+
 def stop_daemon():
     global _running
     _running = False
     _flush_audit()
     _audit_log("daemon_stop", {"machine": socket.gethostname()})
+    _dlog("stop: daemon shutting down")

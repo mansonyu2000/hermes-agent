@@ -12029,6 +12029,8 @@ def cmd_dashboard(args):
         ]
         if args.no_open:
             reexec_argv.append("--no-open")
+        if getattr(args, "apppath", ""):
+            reexec_argv.extend(["--apppath", args.apppath])
         if getattr(args, "insecure", False):
             reexec_argv.append("--insecure")
         if getattr(args, "skip_build", False):
@@ -12166,6 +12168,18 @@ def cmd_dashboard(args):
             "Background MCP tool discovery failed at dashboard startup",
             exc_info=True,
         )
+
+    # ── Developer app-path override ───────────────────────────────────
+    # When --apppath is set, prepend it to sys.path so hermes loads
+    # gateway/apps/tools/bin/ from the dev repo instead of the pip-installed
+    # package.  HERMES_HOME (~/.hermes) is untouched — all data/state/identity
+    # stays at the system level regardless of which source tree is active.
+    _apppath = getattr(args, "apppath", "").strip()
+    if _apppath:
+        import sys as _sys
+        from pathlib import Path as _Path
+        _apppath_resolved = str(_Path(_apppath).resolve())
+        _sys.path.insert(0, _apppath_resolved)
 
     from hermes_cli.web_server import start_server
 
