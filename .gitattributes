@@ -1,10 +1,7 @@
-# Auto-generated files — collapse diffs and exclude from language stats
-web/package-lock.json linguist-generated=true
-
-# Enforce LF for scripts that run inside Linux containers.
-# Without this, Windows checkout converts to CRLF and breaks `exec` in the
-# container entrypoint with "no such file or directory".
-*.sh        text eol=lf
-Dockerfile  text eol=lf
+﻿# Python UTF-8
+*.py text eol=lf working-tree-encoding=UTF-8
+*.sh text eol=lf
+Dockerfile text eol=lf
 *.dockerfile text eol=lf
 docker/entrypoint.sh text eol=lf
+web/package-lock.json linguist-generated=true

@@ -1,12 +1,12 @@
 """
-wechat_analyze.py �?微信消息 AI 分析引擎
+wechat_analyze.py — 微信消息 AI 分析引擎
 
-功能: 清洗去重 �?关键词提�?�?主题提取 �?标签建议 �?文件分析
+功能: 清洗去重 → 关键词提取 → 主题提取 → 标签建议 → 文件分析
 
 用法:
-  python wechat_analyze.py --friend "于杨�? --topics    # 主题提取
-  python wechat_analyze.py --friend "于杨�? --keywords  # 关键词提�?
-  python wechat_analyze.py --friend "于杨�? --all       # 全部分析
+  python wechat_analyze.py --friend "于杨敏" --topics    # 主题提取
+  python wechat_analyze.py --friend "于杨敏" --keywords  # 关键词提取
+  python wechat_analyze.py --friend "于杨敏" --all       # 全部分析
 """
 import sys, os, json, re, argparse
 from collections import Counter
@@ -16,17 +16,17 @@ try:
 except Exception:
     pass
 
-# (removed - now using package imports)
-from .db import WeChatDB
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wechat_db import WeChatDB
 
-# 尝试导入分词�?
+# 尝试导入分词库
 try:
     import jieba
     HAS_JIEBA = True
 except ImportError:
     HAS_JIEBA = False
 
-# LLM 客户端（支持 Ollama �?DeepSeek�?
+# LLM 客户端（支持 Ollama 和 DeepSeek）
 try:
     import requests
     HAS_REQUESTS = True
@@ -34,12 +34,12 @@ except ImportError:
     HAS_REQUESTS = False
 
 
-# ══════════════════════════════════════════════════════�?
+# ═══════════════════════════════════════════════════════
 # 消息清洗
-# ══════════════════════════════════════════════════════�?
+# ═══════════════════════════════════════════════════════
 
 def clean_messages(db, friend_id):
-    """读取并清洗消息：去日期分隔符、去系统消息、去�?""
+    """读取并清洗消息：去日期分隔符、去系统消息、去重"""
     all_msgs = db.list_messages(friend_id=friend_id, limit=5000)
 
     cleaned = []
@@ -50,7 +50,7 @@ def clean_messages(db, friend_id):
         content = (m.get("content") or "").strip()
         if not content:
             continue
-        # 去系统消�?
+        # 去系统消息
         if content in ("图片", "[文件]", "[视频]", "[语音]"):
             m["msg_type"] = {"图片":"image","[文件]":"file","[视频]":"video","[语音]":"voice"}.get(content, "system")
             if m["msg_type"] != "system":
@@ -66,44 +66,44 @@ def clean_messages(db, friend_id):
     return cleaned
 
 
-# ══════════════════════════════════════════════════════�?
-# 关键词提�?(jieba)
-# ══════════════════════════════════════════════════════�?
+# ═══════════════════════════════════════════════════════
+# 关键词提取 (jieba)
+# ═══════════════════════════════════════════════════════
 
 def extract_keywords(messages, top_n=20):
-    """jieba 分词 �?词频 �?Top N 关键�?""
+    """jieba 分词 → 词频 → Top N 关键词"""
     if not HAS_JIEBA:
-        return {"error": "需要安�?jieba: pip install jieba"}
+        return {"error": "需要安装 jieba: pip install jieba"}
 
     all_text = " ".join(m.get("content", "") for m in messages if m.get("content"))
     words = jieba.cut(all_text)
 
-    # 过滤停用�?
-    stopwords = {"�?,"�?,"�?,"�?,"�?,"�?,"�?,"�?,"�?,"�?,"�?,"一",
-                 "一�?,"�?,"�?,"�?,"�?,"�?,"�?,"�?,"�?,"�?,"着","没有",
-                 "�?,"�?,"自己","�?,"�?,"�?,"�?,"�?,"�?,"�?,"�?,"�?}
+    # 过滤停用词
+    stopwords = {"的","了","在","是","我","有","和","就","不","人","都","一",
+                 "一个","上","也","很","到","说","要","去","你","会","着","没有",
+                 "看","好","自己","这","他","她","它","们","么","吧","吗","啊"}
     filtered = [w.strip() for w in words if len(w.strip()) >= 2 and w.strip() not in stopwords]
 
     counter = Counter(filtered)
     return [{"word": w, "count": c} for w, c in counter.most_common(top_n)]
 
 
-# ══════════════════════════════════════════════════════�?
+# ═══════════════════════════════════════════════════════
 # 主题提取 (LLM)
-# ══════════════════════════════════════════════════════�?
+# ═══════════════════════════════════════════════════════
 
 def extract_topics_llm(messages, max_samples=20):
-    """取最�?N 条消息发�?LLM 提取主题"""
+    """取最近 N 条消息发给 LLM 提取主题"""
     if not HAS_REQUESTS:
-        return {"error": "需要安�?requests: pip install requests"}
+        return {"error": "需要安装 requests: pip install requests"}
 
-    # 取样本消�?
+    # 取样本消息
     samples = messages[-max_samples:] if len(messages) > max_samples else messages
     text_samples = "\n".join(
         f"- {m.get('sender_name','?')}: {m.get('content','')[:100]}"
         for m in samples if m.get("content"))
 
-    prompt = f"""分析以下微信对话，提�?-5个讨论主题。每个主题一行，格式: 主题�? 简要描述�?
+    prompt = f"""分析以下微信对话，提取3-5个讨论主题。每个主题一行，格式: 主题名: 简要描述。
 
 对话内容:
 {text_samples}
@@ -111,7 +111,7 @@ def extract_topics_llm(messages, max_samples=20):
 主题:"""
 
     try:
-        # 优先�?DeepSeek (通过本地 Ollama)
+        # 优先用 DeepSeek (通过本地 Ollama)
         resp = requests.post(
             "http://127.0.0.1:11434/api/generate",
             json={"model": "qwen2.5:7b", "prompt": prompt, "stream": False},
@@ -123,22 +123,22 @@ def extract_topics_llm(messages, max_samples=20):
     except Exception:
         pass
 
-    return {"error": "LLM 不可�?, "samples": len(samples)}
+    return {"error": "LLM 不可用", "samples": len(samples)}
 
 
 def extract_topics_simple(messages):
-    """�?LLM 的简单主题提取：基于关键词聚�?""
+    """无 LLM 的简单主题提取：基于关键词聚类"""
     kw = extract_keywords(messages, top_n=10)
     if isinstance(kw, dict) and "error" in kw:
         return kw
-    # 简单聚类：把关键词按语义分�?
-    topics = [f"高频�? {', '.join(item['word'] for item in kw[:5])}"]
+    # 简单聚类：把关键词按语义分组
+    topics = [f"高频词: {', '.join(item['word'] for item in kw[:5])}"]
     return {"topics": topics, "keywords": kw}
 
 
-# ══════════════════════════════════════════════════════�?
+# ═══════════════════════════════════════════════════════
 # 统计分析
-# ══════════════════════════════════════════════════════�?
+# ═══════════════════════════════════════════════════════
 
 def message_stats(messages):
     """消息统计分析"""
@@ -155,7 +155,7 @@ def message_stats(messages):
     days = Counter()
     for m in messages:
         mt = m.get("msg_time", "")
-        if "�? in mt and "�? in mt:
+        if "月" in mt and "日" in mt:
             days[mt[:8]] += 1
 
     return {
@@ -168,39 +168,39 @@ def message_stats(messages):
     }
 
 
-# ══════════════════════════════════════════════════════�?
-# 主分析流�?
-# ══════════════════════════════════════════════════════�?
+# ═══════════════════════════════════════════════════════
+# 主分析流程
+# ═══════════════════════════════════════════════════════
 
 def analyze(db, friend_name, do_topics=False, do_keywords=False, do_all=False):
     friend = db.get_friend(friend_name)
     if not friend:
-        print(f"�?联系�?'{friend_name}' 不存�?)
+        print(f"❌ 联系人 '{friend_name}' 不存在")
         return
 
     fid = friend["id"]
     print(f"分析对象: {friend.get('nickname','')[:30]} (id={fid})")
-    print(f"微信�? {friend.get('wxid','?')}  地区: {friend.get('region','?')}")
+    print(f"微信号: {friend.get('wxid','?')}  地区: {friend.get('region','?')}")
 
     # 清洗消息
     msgs = clean_messages(db, fid)
-    print(f"\n消息: 原始→清洗后 {len(msgs)} �?)
+    print(f"\n消息: 原始→清洗后 {len(msgs)} 条")
 
     # 统计
     stats = message_stats(msgs)
     print(f"\n=== 统计 ===")
-    print(f"  总消�? {stats['total']}")
-    print(f"  我发�? {stats['from_me']}  对方发的: {stats['from_other']}")
+    print(f"  总消息: {stats['total']}")
+    print(f"  我发的: {stats['from_me']}  对方发的: {stats['from_other']}")
     print(f"  类型分布: {stats['type_distribution']}")
-    print(f"  日均消息长度: {stats['avg_msg_length']} �?)
+    print(f"  日均消息长度: {stats['avg_msg_length']} 字")
 
-    # 关键�?
+    # 关键词
     if do_keywords or do_all:
-        print(f"\n=== 关键�?===")
+        print(f"\n=== 关键词 ===")
         kw = extract_keywords(msgs, top_n=15)
         if isinstance(kw, list):
             for item in kw:
-                bar = "�? * min(item["count"], 20)
+                bar = "█" * min(item["count"], 20)
                 print(f"  {item['word']:<10} {item['count']:>3} {bar}")
 
     # 主题
@@ -208,7 +208,7 @@ def analyze(db, friend_name, do_topics=False, do_keywords=False, do_all=False):
         print(f"\n=== 主题分析 ===")
         result = extract_topics_llm(msgs)
         if "error" in result:
-            print(f"  LLM不可用，使用简单模�?)
+            print(f"  LLM不可用，使用简单模式")
             result = extract_topics_simple(msgs)
         for t in result.get("topics", []):
             print(f"  📌 {t}")
@@ -216,16 +216,16 @@ def analyze(db, friend_name, do_topics=False, do_keywords=False, do_all=False):
     return msgs, stats
 
 
-# ══════════════════════════════════════════════════════�?
+# ═══════════════════════════════════════════════════════
 # CLI
-# ══════════════════════════════════════════════════════�?
+# ═══════════════════════════════════════════════════════
 
 def main():
     parser = argparse.ArgumentParser(description="微信消息 AI 分析")
-    parser.add_argument("--friend", required=True, help="联系人名�?)
-    parser.add_argument("--wxid", default="szyuyangmin", help="数据子目�?)
+    parser.add_argument("--friend", required=True, help="联系人名称")
+    parser.add_argument("--wxid", default="szyuyangmin", help="数据子目录")
     parser.add_argument("--topics", action="store_true", help="主题提取")
-    parser.add_argument("--keywords", action="store_true", help="关键词提�?)
+    parser.add_argument("--keywords", action="store_true", help="关键词提取")
     parser.add_argument("--all", action="store_true", help="全部分析")
     args = parser.parse_args()
 

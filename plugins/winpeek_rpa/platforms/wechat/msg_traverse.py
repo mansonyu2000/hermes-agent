@@ -1,19 +1,19 @@
 """
-wechat_msg_traverse.py �?遍历微信大厅+�? 活塞式采集所有会话消�?
+wechat_msg_traverse.py — 遍历微信大厅+门, 活塞式采集所有会话消息
 
-调用�?
-  op_panel.py �?collect_all_sessions() �?collect_chat_msgs()
+调用链:
+  op_panel.py → collect_all_sessions() → collect_chat_msgs()
 """
 
 import time
 import pyautogui
-from .msg_collect import collect_chat_msgs
+from wechat_msg_collect import collect_chat_msgs
 
 
 def collect_all_sessions(db, w, wx, eyes, hands, engine, brain,
                           limit=0, mode='all', log_func=None, set_step_func=None,
                           running_check=None, discover_func=None, debug_func=None):
-    """遍历微信大厅+�? 活塞式从底到顶采集所有会话消息�?
+    """遍历微信大厅+门, 活塞式从底到顶采集所有会话消息。
     mode: 'all'|'today'|'7d'|'3h'|'incr'
     返回 (total_msgs, processed)
     """
@@ -26,12 +26,12 @@ def collect_all_sessions(db, w, wx, eyes, hands, engine, brain,
     t_start = time.time()
     log("========== MESSAGE COLLECTION START ==========", "STEP")
 
-    # ── 1. 强制回微信大�? 先点微信nav退出任何门 ──
+    # ── 1. 强制回微信大厅: 先点微信nav退出任何门 ──
     wx.click_nav("微信"); time.sleep(0.3)
     if not wx.navigate_to('微信'):
         log("FATAL: Cannot reach WeChat", "ERR"); return 0, 0
 
-    # ── 2. 进店验证: 确保在微信店 (3次重�? ──
+    # ── 2. 进店验证: 确保在微信店 (3次重试) ──
     check = {}
     for retry in range(3):
         check = eyes.is_right_place()
@@ -44,7 +44,7 @@ def collect_all_sessions(db, w, wx, eyes, hands, engine, brain,
     else:
         log(f"Not in WeChat store: {check.get('reason','?')}", "WARN"); return 0, 0
 
-    # ── 3. 首次进店: 在门内则退出到大厅 (3次重�? ──
+    # ── 3. 首次进店: 在门内则退出到大厅 (3次重试) ──
     for _ in range(3):
         if not check.get("door_sign"): break
         door = check["door_sign"]
@@ -54,7 +54,7 @@ def collect_all_sessions(db, w, wx, eyes, hands, engine, brain,
             pyautogui.click(door_rect[0] + door_rect[2]//2, door_rect[1] + door_rect[3]//2)
             time.sleep(0.4)
         else:
-            # 兜底: �?find_by_aid
+            # 兜底: 用 find_by_aid
             r = eyes.find_by_aid(f"session_item_{door}")
             if r: pyautogui.click(r[0]+50, r[1]+r[3]//2); time.sleep(0.4)
         check = eyes.is_right_place()
@@ -97,7 +97,7 @@ def collect_all_sessions(db, w, wx, eyes, hands, engine, brain,
         sessions = eyes.get_sessions()
         if not sessions:
             stall += 1
-            log(f"[活塞 {batch_num}] 无可见会�?stall={stall}/3", "WARN")
+            log(f"[活塞 {batch_num}] 无可见会话 stall={stall}/3", "WARN")
             continue
 
         # 过滤已采集的
@@ -106,15 +106,15 @@ def collect_all_sessions(db, w, wx, eyes, hands, engine, brain,
         if not new_items:
             stall += 1
             debug(f"piston|batch={batch_num}|no_new|stall={stall}")
-            log(f"[活塞 {batch_num}] 无新会话, 上翻{PISTON_ROWS}�?stall={stall}/3", "STEP")
+            log(f"[活塞 {batch_num}] 无新会话, 上翻{PISTON_ROWS}行 stall={stall}/3", "STEP")
             changed, _, _ = hands.scrollbar_nudge_up(rows=PISTON_ROWS, debug_func=debug)
             if not changed:
                 debug(f"piston|batch={batch_num}|nudge_unchanged")
             time.sleep(0.15)
             continue
 
-        stall = 0  # 有新内容 �?重置
-        # �?Y 降序: 底→�?(最旧→最�?
+        stall = 0  # 有新内容 → 重置
+        # 按 Y 降序: 底→顶 (最旧→最新)
         sorted_batch = sorted(new_items, key=lambda s: s['rect'][1] + s['rect'][3], reverse=True)
         log(f"[活塞 {batch_num}] {len(sorted_batch)}个新会话", "STEP")
         debug(f"piston|batch={batch_num}|new={len(sorted_batch)}|total_seen={len(seen)}")
@@ -133,7 +133,7 @@ def collect_all_sessions(db, w, wx, eyes, hands, engine, brain,
             is_skip_door = name in eyes._DOORS_SKIP
             is_known_chat = engine.session_type(name) is not None
 
-            # ── 跳过�?──
+            # ── 跳过门 ──
             if is_skip_door:
                 log(f"  Skip door: {name}", "DOOR")
                 seen.add(name); continue
@@ -158,7 +158,7 @@ def collect_all_sessions(db, w, wx, eyes, hands, engine, brain,
                             ins, dup = collect_chat_msgs(db, w, hands, dn, gid=gid, mode=mode, door=name, log_func=log, debug_func=debug)
                             total_msgs += ins; seen.add(dn); processed += 1
                     wx.click_nav("微信"); time.sleep(0.2)
-                # 关门退�?
+                # 关门退出
                 door_r = eyes.find_by_aid(f"session_item_{name}")
                 if door_r: pyautogui.click(door_r[0]+50, door_r[1]+door_r[3]//2); time.sleep(0.3)
                 seen.add(name)
@@ -196,7 +196,7 @@ def collect_all_sessions(db, w, wx, eyes, hands, engine, brain,
                 log(f"  New door discovered: {name}", "DOOR")
                 wx.click_nav("微信"); time.sleep(0.2)
 
-        # 采完一�?�?活塞上翻
+        # 采完一批 → 活塞上翻
         changed, _, _ = hands.scrollbar_nudge_up(rows=PISTON_ROWS, debug_func=debug)
         if not changed:
             stall += 1
@@ -207,7 +207,7 @@ def collect_all_sessions(db, w, wx, eyes, hands, engine, brain,
     sessions = eyes.get_sessions()
     remaining = [s for s in sessions if s['name'] not in seen]
     if remaining:
-        log(f"到顶: {len(remaining)}个剩余会�? 补采", "STEP")
+        log(f"到顶: {len(remaining)}个剩余会话, 补采", "STEP")
         sorted_rem = sorted(remaining, key=lambda s: s['rect'][1] + s['rect'][3], reverse=True)
         for s in sorted_rem:
             if not running() or (limit > 0 and processed >= limit): break

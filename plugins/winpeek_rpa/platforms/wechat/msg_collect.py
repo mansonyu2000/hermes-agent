@@ -1,33 +1,33 @@
 """
-wechat_msg_collect.py �?读单个微信会话的消息 (时间分组)
+wechat_msg_collect.py — 读单个微信会话的消息 (时间分组)
 
 规则:
-  1. 每个时间行作为段落起�? 后续非时间行属于同一时间�?
-  2. 同组多段落用 \n 拼接 �?一条DB记录
-  3. PageDown到底 �?PageUp翻到�?(底部Y不变=到顶)
-  4. 去重: (�?时间) 唯一
+  1. 每个时间行作为段落起点, 后续非时间行属于同一时间组
+  2. 同组多段落用 \n 拼接 → 一条DB记录
+  3. PageDown到底 → PageUp翻到顶 (底部Y不变=到顶)
+  4. 去重: (人+时间) 唯一
   5. 老时间先入库 (时间正序)
 
-collect_chat_msgs() �?独立功能: 给参数就读取
+collect_chat_msgs() — 独立功能: 给参数就读取
 """
 
 import time, re, json
 import pyautogui
 pyautogui.FAILSAFE = False
-from ...shared.rpa_tools import parse_chat_time
+from rpa_tools import parse_chat_time
 
 
 def collect_chat_msgs(db, w, hands, session_name, gid=None, max_pages=80,
                       mode='all', door=None, log_func=None, debug_func=None):
-    """读单个会话消�?�?入库 wechat_chat�?
-    WeChat 打开聊天即在最新消�?�?PageUp 采集旧消息�?
+    """读单个会话消息 → 入库 wechat_chat。
+    WeChat 打开聊天即在最新消息 → PageUp 采集旧消息。
 
     mode:
-      'all'    �?全量 (一�?PageUp 到顶)
-      'today'  �?当天
-      '7d'     �?最�?�?
-      '3h'     �?最�?小时
-      'incr'   �?增量 (从DB取上次最后时�?
+      'all'    → 全量 (一路 PageUp 到顶)
+      'today'  → 当天
+      '7d'     → 最近7天
+      '3h'     → 最近3小时
+      'incr'   → 增量 (从DB取上次最后时间)
     door: 所属门, None=大厅
     返回 (inserted, skipped_dup)
     """
@@ -54,10 +54,10 @@ def collect_chat_msgs(db, w, hands, session_name, gid=None, max_pages=80,
     else:  # 'all'
         cutoff = None
 
-    # ── 翻页: WeChat打开在最新消�? PageUp逐页上翻采集旧消�?──
+    # ── 翻页: WeChat打开在最新消息, PageUp逐页上翻采集旧消息 ──
     hands.focus_msg_area()
 
-    # ── 采集所有消�?�?时间分组 ──
+    # ── 采集所有消息 → 时间分组 ──
     groups = []       # [{time, iso, texts:[str], is_from_me}, ...]
     seen = set()
     current_group = None
@@ -96,7 +96,7 @@ def collect_chat_msgs(db, w, hands, session_name, gid=None, max_pages=80,
 
             parsed = parse_chat_time(it["text"])
             if parsed:
-                # 非全量模�? 碰到超时日期 �?停止翻页
+                # 非全量模式: 碰到超时日期 → 停止翻页
                 if cutoff and parsed < cutoff:
                     stopped = True; break
                 if current_group and current_group["texts"]:
@@ -114,7 +114,7 @@ def collect_chat_msgs(db, w, hands, session_name, gid=None, max_pages=80,
         if stopped: break
         hands.page_up()
 
-    # 提交最后一�?
+    # 提交最后一组
     if current_group and current_group["texts"]:
         groups.append(current_group)
 

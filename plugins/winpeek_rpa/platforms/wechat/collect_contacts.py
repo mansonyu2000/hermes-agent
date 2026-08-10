@@ -1,6 +1,6 @@
 """
-wechat_collect_contacts.py �?通讯录联系人/群采�?(Phase1/2/3)
-�?op_panel.py _collect_contacts 提取, 独立可调用�?
+wechat_collect_contacts.py — 通讯录联系人/群采集 (Phase1/2/3)
+从 op_panel.py _collect_contacts 提取, 独立可调用。
 """
 import time, re
 import pyautogui
@@ -9,7 +9,7 @@ pyautogui.FAILSAFE = False
 def collect_contacts(db, wx, w, enabled_types, limit=0,
                      log_func=None, set_step_func=None, running_check=None,
                      discover_func=None, update_counts_func=None):
-    """采集通讯录联系人和群 �?入库 wechat_friend / wechat_group"""
+    """采集通讯录联系人和群 → 入库 wechat_friend / wechat_group"""
     log = log_func or (lambda msg, level="INFO", ts=True: None)
     set_step = set_step_func or (lambda x: None)
     running = running_check or (lambda: True)
@@ -17,7 +17,7 @@ def collect_contacts(db, wx, w, enabled_types, limit=0,
     update_counts = update_counts_func or (lambda contacts=None: None)
 
     import uiautomation as auto, traceback
-    from ...shared.bg_input import BGInput
+    from bg_input import BGInput
     bg = BGInput("微信")
 
     # ── 资料读取 ──
@@ -38,13 +38,13 @@ def collect_contacts(db, wx, w, enabled_types, limit=0,
                     walk(child, d + 1)
             except Exception: pass
         walk(pv)
-        SKIP = {"朋友资料","更多信息","朋友�?,"视频�?,"发消�?,"语音聊天","视频聊天",
-                "备注","添加备注�?,"个性签�?,"来源","添加时间","共同群聊","微信号：","地区�?,}
+        SKIP = {"朋友资料","更多信息","朋友圈","视频号","发消息","语音聊天","视频聊天",
+                "备注","添加备注名","个性签名","来源","添加时间","共同群聊","微信号：","地区：",}
         for i, t in enumerate(all_texts):
             nxt = all_texts[i+1] if i+1 < len(all_texts) else ""
             if "微信号：" in t and nxt: profile["wxid"] = nxt
-            elif "地区�? in t and nxt: profile["region"] = nxt
-            elif t == "个性签�? and nxt and nxt not in SKIP: profile["signature"] = nxt
+            elif "地区：" in t and nxt: profile["region"] = nxt
+            elif t == "个性签名" and nxt and nxt not in SKIP: profile["signature"] = nxt
             elif t == "来源" and nxt and nxt not in SKIP: profile["source"] = nxt
             elif t == "添加时间" and nxt and nxt not in SKIP: profile["first_met"] = nxt
             elif t == "共同群聊" and nxt and nxt not in SKIP:
@@ -53,10 +53,10 @@ def collect_contacts(db, wx, w, enabled_types, limit=0,
         for i, t in enumerate(all_texts):
             if t == "备注" and i+1 < len(all_texts):
                 v = all_texts[i+1]
-                if v and v != "添加备注�?: profile["alias"] = v; break
+                if v and v != "添加备注名": profile["alias"] = v; break
         return profile
 
-    if not wx.navigate_to('通讯�?):
+    if not wx.navigate_to('通讯录'):
         log("FATAL: Cannot reach Contacts page!", "ERR"); return
 
     # 分组配置
@@ -69,12 +69,12 @@ def collect_contacts(db, wx, w, enabled_types, limit=0,
         if ginfo.get("skip_in_batch"): skip_groups.add(group_name)
     type_map.setdefault('新的朋友', 'new_friend')
     type_map.setdefault('群聊', 'group')
-    type_map.setdefault('公众�?, 'official_account')
-    type_map.setdefault('服务�?, 'service_account')
-    type_map.setdefault('企业微信联系�?, 'enterprise_wechat')
+    type_map.setdefault('公众号', 'official_account')
+    type_map.setdefault('服务号', 'service_account')
+    type_map.setdefault('企业微信联系人', 'enterprise_wechat')
     type_map.setdefault('我的企业', 'enterprise')
     type_map.setdefault('企业', 'enterprise')
-    type_map.setdefault('联系�?, 'friend')
+    type_map.setdefault('联系人', 'friend')
     skip_groups.add('我的企业')
 
     set_step("Scanning groups...")
@@ -110,12 +110,12 @@ def collect_contacts(db, wx, w, enabled_types, limit=0,
                 try:
                     gn = (item.Name or '')
                     if 'CellGroupView' in (item.ClassName or '') and gn:
-                        if any(gn.startswith(d) or d.startswith(gn) for d in (desired_groups if desired_groups else ["联系�?])):
+                        if any(gn.startswith(d) or d.startswith(gn) for d in (desired_groups if desired_groups else ["联系人"])):
                             r = item.BoundingRectangle
                             if r.width() > 0: bg.click(r.left+40, r.top+r.height()//2); time.sleep(0.25); break
                 except Exception: pass
         time.sleep(0.3)
-        _o, _c, _f = wx.ensure_contact_groups(desired_groups if desired_groups else ["联系�?],
+        _o, _c, _f = wx.ensure_contact_groups(desired_groups if desired_groups else ["联系人"],
             log_func=lambda msg: log(msg, ts=False))
         log(f"Door reset: {'ok' if _f else 'FAIL'}", "OK" if _f else "WARN", ts=False)
     elif found and opened > 0:
@@ -193,7 +193,7 @@ def collect_contacts(db, wx, w, enabled_types, limit=0,
         cl = w.Control(AutomationId='primary_table_.contact_list')
         if not cl.Exists():
             log(f"Page {page+1}: list lost", "WARN")
-            if not wx.navigate_to('通讯�?): break
+            if not wx.navigate_to('通讯录'): break
             time.sleep(0.5); continue
 
         clr = cl.BoundingRectangle
