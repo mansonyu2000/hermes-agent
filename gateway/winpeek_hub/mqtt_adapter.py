@@ -71,7 +71,7 @@ SAY_TOPIC_PREFIX = "comms/say"
 OUTBOX_TOPIC = "comms/outbox"
 GROUP_TOPIC_PREFIX = "comms/group"
 
-_client: Optional[mqtt.Client] = None
+_client: Optional["mqtt.Client"] = None  # forward ref — paho 可能未安装, 不可在模块级求值 mqtt
 _message_handler = None
 
 # Dedup: prevent double‑delivery when local enqueue + MQTT relay both fire
