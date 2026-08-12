@@ -7,13 +7,41 @@ Provides: register, login, get_identity, list_identities.
 
 import hashlib
 import logging
+import secrets
 import socket
 import time
+from collections import defaultdict
 from typing import Optional
 
 from .db import get_conn
 
 logger = logging.getLogger(__name__)
+
+# ── Password hashing (PBKDF2 with SHA256 fallback) ────────────────────────
+
+_PBKDF2_ITERATIONS = 100_000
+_PBKDF2_PREFIX = "pbkdf2:sha256:"
+
+# ── Rate limiting (in-memory, per-process) ─────────────────────────────────
+
+_FAILURES: dict[str, list[float]] = defaultdict(list)  # key → list of failure timestamps
+_MAX_FAILURES = 5       # max failures before cooldown
+_COOLDOWN_SECONDS = 60  # cooldown period
+
+def _rate_limit_check(key: str) -> bool:
+    """Return True if this key is rate-limited (too many recent failures)."""
+    now = time.time()
+    cutoff = now - _COOLDOWN_SECONDS
+    timestamps = [t for t in _FAILURES.get(key, []) if t > cutoff]
+    _FAILURES[key] = timestamps
+    return len(timestamps) >= _MAX_FAILURES
+
+def _rate_limit_record(key: str) -> None:
+    """Record a failed attempt for this key."""
+    _FAILURES[key].append(time.time())
+
+def _rate_limit_key(ip: str, nickname: str) -> str:
+    return f"{ip}|{nickname}"
 
 ROLES = ["Developer", "Architect", "Ops", "QA", "PM", "Director", "Boss"]
 
@@ -44,8 +72,66 @@ def _build_peeka_name(nickname: str, agent_type: str = "", hostname: str = "", i
 
 
 def _hash_password(password: str) -> str:
-    """SHA256 hash of password."""
+    """Legacy SHA256 hash — kept for backward compatibility with existing users.
+
+    New passwords use _hash_password_pbkdf2() instead.
+    """
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _hash_password_pbkdf2(password: str) -> str:
+    """PBKDF2-HMAC-SHA256 with random 16-byte salt, 100k iterations.
+
+    Format: pbkdf2:sha256:100000:<salt_hex>:<hash_hex>
+    This is the default for new passwords; old SHA256 hashes are auto-migrated on login.
+    """
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERATIONS)
+    return f"{_PBKDF2_PREFIX}{_PBKDF2_ITERATIONS}:{salt.hex()}:{dk.hex()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Verify a password against a stored hash (PBKDF2 or legacy SHA256)."""
+    if not stored_hash:
+        return not password  # empty hash → only empty password accepted
+    if stored_hash.startswith(_PBKDF2_PREFIX):
+        # PBKDF2 format: pbkdf2:sha256:iterations:salt:hash
+        try:
+            _, _, iterations_str, salt_hex, hash_hex = stored_hash.split(":")
+            salt = bytes.fromhex(salt_hex)
+            iterations = int(iterations_str)
+            dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
+            return dk.hex() == hash_hex
+        except (ValueError, AttributeError):
+            return False
+    # Legacy SHA256 (64 hex chars)
+    if len(stored_hash) == 64 and all(c in "0123456789abcdef" for c in stored_hash):
+        return _hash_password(password) == stored_hash
+    return False
+
+
+def _needs_migration(stored_hash: str) -> bool:
+    """Return True if this is a legacy SHA256 hash that should be migrated to PBKDF2."""
+    return bool(stored_hash) and not stored_hash.startswith(_PBKDF2_PREFIX) \
+        and len(stored_hash) == 64
+
+
+def _migrate_password(uid: int, password: str) -> None:
+    """Upgrade a legacy SHA256 hash to PBKDF2 (best-effort, silent on failure)."""
+    try:
+        conn = get_conn()
+        if conn is None:
+            return
+        new_hash = _hash_password_pbkdf2(password)
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET password_hash = %s WHERE uid = %s",
+                (new_hash, uid))
+            conn.commit()
+        conn.close()
+        logger.info("password migrated to PBKDF2: uid=%d", uid)
+    except Exception:
+        pass  # migration is best-effort
 
 
 def set_password(uid: int, password: str) -> bool:
@@ -57,10 +143,11 @@ def set_password(uid: int, password: str) -> bool:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE users SET password_hash = %s WHERE uid = %s",
-                (_hash_password(password), uid))
+                (_hash_password_pbkdf2(password), uid))
             conn.commit()
         return True
-    except Exception:
+    except Exception as e:
+        logger.exception(f"set_password failed for uid={uid}: {e}")
         return False
     finally:
         conn.close()
@@ -83,18 +170,19 @@ def register(nickname: str, role: str = "Developer", host: str = "local", passwo
             if cur.fetchone():
                 return None  # already exists
 
-            # Generate next uid (keep in the 2000+ range for MIM users)
-            cur.execute("SELECT COALESCE(MAX(uid), 1999) + 1 AS next_uid FROM users WHERE uid >= 2000")
-            next_uid = cur.fetchone()["next_uid"]
-
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ")
-            pw_hash = _hash_password(password) if password else ""
+            pw_hash = _hash_password_pbkdf2(password) if password else ""
+
+            # Atomic INSERT … SELECT (avoids MAX(uid)+1 race condition)
             cur.execute(
                 """INSERT INTO users (uid, nickname, role, hostname, created_at, updated_at, is_active, identity_type, status, password_hash)
-                   VALUES (%s, %s, %s, %s, %s, %s, 1, 'mim', 1, %s)""",
-                (next_uid, nickname, role, host, now, now, pw_hash),
+                   SELECT COALESCE(MAX(uid), 1999) + 1, %s, %s, %s, %s, %s, 1, 'mim', 1, %s
+                   FROM users WHERE uid >= 2000""",
+                (nickname, role, host, now, now, pw_hash),
             )
             conn.commit()
+            cur.execute("SELECT MAX(uid) as uid FROM users WHERE nickname = %s", (nickname,))
+            next_uid = int(cur.fetchone()["uid"])
 
             identity = {
                 "uid": next_uid,
@@ -112,9 +200,11 @@ def register(nickname: str, role: str = "Developer", host: str = "local", passwo
         conn.close()
 
 
-def login(nickname: str, password: str = "") -> dict | None:
-    """
-    Login by nickname + password. Returns identity if found and password matches.
+def get_by_nickname(nickname: str) -> Optional[dict]:
+    """Look up identity by nickname WITHOUT password check (token-auth world).
+
+    MIM 客户端身份已由 /api/ws token 认证, 不再需要密码登录。
+    winpeek_mim_login 用它按 nickname 解析身份 (不存在则走 register)。
     """
     conn = get_conn()
     if conn is None:
@@ -126,13 +216,54 @@ def login(nickname: str, password: str = "") -> dict | None:
                 (nickname,),
             )
             row = cur.fetchone()
-            if row:
-                stored_hash = row.get("password_hash") or ""
-                # If user has no password set, allow login without password (backward compat)
-                if stored_hash and _hash_password(password) != stored_hash:
+            return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def login(nickname: str, password: str = "", client_ip: str = "") -> dict | None:
+    """
+    Login by nickname + password. Returns identity if found and password matches.
+    Supports PBKDF2 (new) and SHA256 (legacy) hashes with auto-migration.
+    Rate-limited: 5 failures per (ip, nickname) → 60s cooldown.
+    """
+    # Rate limit check
+    rl_key = _rate_limit_key(client_ip, nickname)
+    if _rate_limit_check(rl_key):
+        logger.warning("rate-limited login attempt: nickname=%s ip=%s", nickname, client_ip)
+        return None
+
+    conn = get_conn()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT uid, nickname, role, hostname, created_at, password_hash, title, bio, skills, manager_uid, identity_type, gender FROM users WHERE nickname = %s",
+                (nickname,),
+            )
+            row = cur.fetchone()
+            if not row:
+                _rate_limit_record(rl_key)  # user enumeration hardening
+                return None
+
+            stored_hash = row.get("password_hash") or ""
+            if not stored_hash:
+                # Empty hash (daemon legacy): only allow empty password
+                if password:
+                    _rate_limit_record(rl_key)
+                    return None  # prevents hijacking
+            else:
+                # Verify with PBKDF2 (new) or SHA256 (legacy) fallback
+                if not verify_password(password, stored_hash):
+                    _rate_limit_record(rl_key)
                     return None  # wrong password
-                return _row_to_dict(row)
-            return None
+
+            # Auto-migrate legacy SHA256 → PBKDF2
+            if _needs_migration(stored_hash):
+                _migrate_password(row["uid"], password)
+
+            return _row_to_dict(row)
     finally:
         conn.close()
 
@@ -213,18 +344,20 @@ def register_user(name: str, gender: str = "", password: str = "a@123321",
             if cur.fetchone():
                 return None  # already exists
 
-            cur.execute("SELECT COALESCE(MAX(uid), 1999) + 1 AS next_uid FROM users WHERE uid >= 2000")
-            next_uid = cur.fetchone()["next_uid"]
-
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ")
-            pw_hash = _hash_password(password)
+            pw_hash = _hash_password_pbkdf2(password)
+
+            # Atomic INSERT … SELECT (avoids MAX(uid)+1 race condition)
             cur.execute(
                 """INSERT INTO users (uid, nickname, role, hostname, created_at, updated_at,
                    is_active, identity_type, status, password_hash, gender)
-                   VALUES (%s, %s, %s, %s, %s, %s, 1, 'mim-user', 1, %s, %s)""",
-                (next_uid, name, "Developer", host, now, now, pw_hash, gender),
+                   SELECT COALESCE(MAX(uid), 1999) + 1, %s, %s, %s, %s, %s, 1, 'mim-user', 1, %s, %s
+                   FROM users WHERE uid >= 2000""",
+                (name, "Developer", host, now, now, pw_hash, gender),
             )
             conn.commit()
+            cur.execute("SELECT MAX(uid) as uid FROM users WHERE nickname = %s", (name,))
+            next_uid = int(cur.fetchone()["uid"])
 
             identity = {
                 "uid": next_uid, "nickname": name, "role": "Developer",
@@ -299,7 +432,7 @@ def register_device(hostname: str, owner_uid: int, os_name: str = "",
             logger.info(f"Device registered: hostname={hostname} owner_uid={owner_uid}")
             return {"hostname": hostname, "winpeek_uid": owner_uid, "device_type": device_type}
     except Exception as e:
-        logger.warning(f"Device register failed: {e}")
+        logger.exception(f"register_device failed for hostname={hostname}: {e}")
         return None
     finally:
         conn.close()
