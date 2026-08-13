@@ -5106,8 +5106,14 @@ async def update_memory_provider_config(name: str, body: MemoryProviderConfigUpd
 
 @app.get("/api/config")
 async def get_config(profile: Optional[str] = None):
-    with _profile_scope(profile):
-        config = _normalize_config_for_web(load_config())
+    # 2026-08-13 修复: _profile_scope(同步 RLock + 技能目录操作) + load_config() 在事件
+    # 循环上同步执行, serve 长时间运行后阻塞 loop → 对话/WS 无响应(现场栈: MainThread
+    # 卡在 with _SKILLS_PROFILE_LOCK)。改为线程池执行, 事件循环保持响应。
+    # _SKILLS_PROFILE_LOCK 是 threading.RLock, 跨线程串行化不受影响。
+    def _read() -> dict:
+        with _profile_scope(profile):
+            return _normalize_config_for_web(load_config())
+    config = await asyncio.to_thread(_read)
     # Strip internal keys that the frontend shouldn't see or send back
     return {k: v for k, v in config.items() if not k.startswith("_")}
 
