@@ -3760,6 +3760,11 @@ def _load_mcp_config() -> Dict[str, dict]:
         if _env_enabled("HERMES_SAFE_MODE"):
             return {}
         config = load_config()
+        # 总开关: config.yaml 顶层 mcp_enabled: false → 全部 MCP 服务器关闭
+        # (2026-08-12 增加: 改一处即可全关, 不用逐个 enabled: false)
+        if not _parse_boolish(config.get("mcp_enabled", True), default=True):
+            logger.debug("MCP disabled via mcp_enabled: false in config")
+            return {}
         servers = config.get("mcp_servers")
         if not servers or not isinstance(servers, dict):
             return {}

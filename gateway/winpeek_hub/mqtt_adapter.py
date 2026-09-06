@@ -14,8 +14,11 @@ Topic 协议:
 配置 (.env 或 config.yaml, 可选):
   MIM_BROKER=192.168.3.23   # MQTT Broker 地址 (默认)
   MIM_PORT=1883             # MQTT 端口 (默认)
+  MIM_SIGNING_SECRET        # HMAC 签名密钥 (服务端共享), 未配置则跳过签名验证
 """
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -39,9 +42,24 @@ NAME: str = ""
 ROLE: str = "Agent"
 
 def _resolve_identity():
-    """从 identity JSONL 读取身份。无身份时用本机主机名自动注册。"""
+    """从环境变量或 identity JSONL 读取身份。无身份时用本机主机名自动注册。
+
+    2026-08-09 修复: 之前直接取 identity DB 第一个身份(=uid=1 yuyangmin 用户),
+    导致 serve 的 MQTT adapter 身份=uid=1, 用户发的消息被
+    "Guard: skip own messages (from_uid==UID)" 当成"自己发的"丢弃
+    → 用户 → Hermes 的消息永不落库/投递。
+    现在优先用 MIM_UID/MIM_NAME env(serve 启动时注入 serve 自身 agent 身份,
+    如 MIM_UID=2033 MIM_NAME='Claude Code'), env 未设置才回退 identity DB。
+    """
     global UID, NAME, ROLE
     try:
+        _env_uid = os.getenv("MIM_UID", "").strip()
+        if _env_uid.isdigit() and int(_env_uid) > 0:
+            UID = int(_env_uid)
+            NAME = os.getenv("MIM_NAME", "").strip() or f"serve-{UID}"
+            ROLE = os.getenv("MIM_ROLE", "Agent")
+            logger.info(f"MIM identity from env: uid={UID} name={NAME} role={ROLE}")
+            return
         from gateway.winpeek_hub import identity
         ids = identity.list_all()
         if ids:
@@ -67,9 +85,88 @@ def _resolve_identity():
 BROKER = os.getenv("MIM_BROKER", "192.168.3.23")
 PORT = int(os.getenv("MIM_PORT", "1883"))
 
-SAY_TOPIC_PREFIX = "comms/say"
-OUTBOX_TOPIC = "comms/outbox"
-GROUP_TOPIC_PREFIX = "comms/group"
+SIGNING_SECRET = os.getenv("MIM_SIGNING_SECRET", "").strip()
+SIGNING_ENABLED = bool(SIGNING_SECRET)
+
+# 2026-08-09 多实例隔离: PROD 用 MIM_TOPIC_PREFIX=comms-prod, dev 用 comms/
+# 避免远程 dev 实例(3.10)订阅 comms/outbox/# 抢 PROD 的 outbox 消息 → 重复消息。
+_TOPIC_PREFIX = os.getenv("MIM_TOPIC_PREFIX", "comms").strip().rstrip("/")
+SAY_TOPIC_PREFIX = f"{_TOPIC_PREFIX}/say"
+OUTBOX_TOPIC = f"{_TOPIC_PREFIX}/outbox"
+GROUP_TOPIC_PREFIX = f"{_TOPIC_PREFIX}/group"
+INBOX_TOPIC_PREFIX = f"{_TOPIC_PREFIX}/inbox"
+ACK_TOPIC_PREFIX = f"{_TOPIC_PREFIX}/ack"
+
+
+# ── HMAC 消息签名 ──────────────────────────────────
+
+def _sign_payload(payload: dict, secret: str | None = None) -> dict:
+    """Sign a payload with HMAC-SHA256 over canonical fields.
+
+    Canonical string: mid|from_uid|to_uid|body|ts
+    Skips gracefully if no secret configured.
+    """
+    secret = secret or SIGNING_SECRET
+    if not secret:
+        return payload
+
+    canonical = "|".join([
+        str(payload.get("mid", "")),
+        str(payload.get("from_uid", "")),
+        str(payload.get("to_uid", "")),
+        str(payload.get("body", "")),
+        str(payload.get("ts", "")),
+    ])
+    sig = hmac.new(
+        secret.encode("utf-8"),
+        canonical.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    payload["sig"] = sig
+    payload["sig_alg"] = "hmac-sha256"
+    return payload
+
+
+def _verify_payload(payload: dict, secret: str | None = None) -> bool:
+    """Verify HMAC signature on a received payload.
+
+    Returns True if signature matches or signing is disabled.
+    Returns False if signature is present but invalid.
+    """
+    secret = secret or SIGNING_SECRET
+    if not secret:
+        return True  # signing disabled → trust all
+
+    sig = payload.get("sig", "")
+    if not sig:
+        logger.warning("[MIM SIG] message missing signature, rejected")
+        return False
+
+    expected_alg = "hmac-sha256"
+    if payload.get("sig_alg") != expected_alg:
+        logger.warning("[MIM SIG] unknown sig_alg=%s, rejected", payload.get("sig_alg"))
+        return False
+
+    # Re-compute over canonical fields (strip sig/sig_alg before hashing)
+    canonical = "|".join([
+        str(payload.get("mid", "")),
+        str(payload.get("from_uid", "")),
+        str(payload.get("to_uid", "")),
+        str(payload.get("body", "")),
+        str(payload.get("ts", "")),
+    ])
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        canonical.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, sig):
+        logger.warning("[MIM SIG] signature mismatch for mid=%s, rejected", payload.get("mid", ""))
+        return False
+
+    return True
 
 _client: Optional["mqtt.Client"] = None  # forward ref — paho 可能未安装, 不可在模块级求值 mqtt
 _message_handler = None
@@ -97,11 +194,11 @@ def set_message_handler(handler):
 
 def _on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
-        client.subscribe("comms/inbox/#", qos=1)
-        client.subscribe("comms/outbox/#", qos=1)
-        client.subscribe("comms/group/#", qos=1)
-        client.subscribe("comms/say/#", qos=1)
-        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME}")
+        client.subscribe(f"{INBOX_TOPIC_PREFIX}/#", qos=1)
+        client.subscribe(f"{OUTBOX_TOPIC}/#", qos=1)
+        client.subscribe(f"{GROUP_TOPIC_PREFIX}/#", qos=1)
+        client.subscribe(f"{SAY_TOPIC_PREFIX}/#", qos=1)
+        logger.info(f"MIM connected {BROKER}:{PORT}, uid={UID} name={NAME} prefix={_TOPIC_PREFIX}")
     else:
         logger.warning(f"MIM connect failed: code={reason_code}")
 
@@ -113,17 +210,51 @@ def _on_message(client, userdata, msg):
         return
 
     # ── Outbox: Agent → Daemon relay ──
-    if msg.topic.startswith("comms/outbox/"):
+    if msg.topic.startswith(f"{OUTBOX_TOPIC}/"):
         _handle_outbox(msg.topic, payload)
         return
 
     # ── Say relay: comms/say/{uid} → comms/inbox/{uid} ──
-    if msg.topic.startswith("comms/say/"):
+    if msg.topic.startswith(f"{SAY_TOPIC_PREFIX}/"):
         to_uid = int(msg.topic.rsplit("/", 1)[-1])
         if to_uid:
+            # 2026-08-09 去重修复: say relay 分支也要检查 mid, 否则
+            # 同一条消息(如 QoS 重发/双通配订阅)会 relay 多次 →
+            # 用户端看到"自动产生"的重复消息。
+            mid = payload.get("mid", "")
+            if mid:
+                if mid in _seen_mids:
+                    logger.debug(f"MIM say relay skip (dup mid={mid})")
+                    return
+                _seen_mids.add(mid)
+                if len(_seen_mids) > _MAX_SEEN_MIDS:
+                    _seen_mids.clear()
             payload_str = json.dumps(payload, ensure_ascii=False)
-            client.publish(f"comms/inbox/{to_uid}", payload_str, qos=1)
+            client.publish(f"{INBOX_TOPIC_PREFIX}/{to_uid}", payload_str, qos=1)
             logger.info(f"MIM say→inbox relay: uid={to_uid}")
+            # 2026-08-09 修复: MQTT 直发路径(send_message daemon_alive=False 时)
+            # 只 relay 不 enqueue → serve 的 _pending 队列为空 → Hermes 用
+            # winpeek_mim_poll 拉不到消息(UI 历史/收信全空)。
+            # 当 to_uid 是本 serve 的身份时, 同时 enqueue 到 _pending, 供 WS poll 消费。
+            if to_uid == UID:
+                try:
+                    from gateway.winpeek_hub.chat import enqueue
+                    enqueue({
+                        "mid": mid or f"mim-{int(time.time()*1000)}",
+                        "to_uid": to_uid,
+                        "from_uid": payload.get("origin_uid") or payload.get("from_uid", "?"),
+                        "from_name": payload.get("origin_name") or payload.get("from", "?"),
+                        "content": payload.get("body", payload.get("content", "")),
+                        "time": payload.get("ts", payload.get("time", "")),
+                    })
+                    logger.info(f"MIM say relay enqueue: uid={to_uid} (self)")
+                except Exception as e:
+                    logger.warning(f"MIM say relay enqueue failed: {e}")
+        return
+
+    # ── Signature verification (inbox messages only) ──
+    if not _verify_payload(payload):
+        logger.warning("[MIM SIG] rejected unsigned/tampered message on topic=%s", msg.topic)
         return
 
     from_uid = payload.get("from_uid", "")
@@ -137,6 +268,18 @@ def _on_message(client, userdata, msg):
     sender_uid = str(payload.get("origin_uid") or from_uid)
     sender_name = payload.get("origin_name") or from_name
 
+    # Guard: only process messages addressed to our own UID.
+    # Without this, any adapter subscribed to comms/inbox/# would receive
+    # messages meant for other UIDs — a side effect of wildcard subscription.
+    topic_to_uid = ""
+    try:
+        # topic format: comms/inbox/{uid} or comms/say/{uid} or comms/group/{gid}
+        topic_to_uid = msg.topic.rsplit("/", 1)[-1]
+    except Exception:
+        pass
+    if topic_to_uid and topic_to_uid.isdigit() and int(topic_to_uid) != UID:
+        return  # not addressed to us — skip
+
     # Guard: skip own messages (adapter self-relay)
     if str(from_uid) == str(UID):
         return
@@ -149,7 +292,7 @@ def _on_message(client, userdata, msg):
         if len(_seen_mids) > _MAX_SEEN_MIDS:
             _seen_mids.clear()  # coarse eviction — safe: >2000 backlog is extreme
 
-    logger.info(f"[{sender_name} ({sender_uid})]: {body[:60]}")
+    logger.info(f"[{sender_name} ({sender_uid})]: {body[:60]} topic={msg.topic} mid={mid}")
 
     # Route into chat queue
     try:
@@ -162,8 +305,8 @@ def _on_message(client, userdata, msg):
             "content": body,
             "time": payload.get("ts", time.strftime("%Y-%m-%dT%H:%M:%S")),
         })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"_handle_say: enqueue failed: {e}")
 
     if _message_handler:
         try:
@@ -204,8 +347,8 @@ def _handle_outbox(topic: str, payload: dict):
         user = identity.get_by_uid(from_uid)
         if user:
             from_name = user.get("nickname", from_name)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"_handle_outbox: identity lookup failed: {e}")
 
     logger.info(f"[outbox] {from_name}[{from_uid}] → uid={to_uid}: {body[:60]}")
 
@@ -267,18 +410,22 @@ def send_message(target_uid: int, text: str, target_name: str = "",
     if not _client or target_uid <= 0:
         return False
     topic = f"{SAY_TOPIC_PREFIX}/{target_uid}"
+    # Use origin_name as display sender — never expose adapter identity to receiver
+    display_name = origin_name or NAME
     payload = {
         "from_uid": str(UID),
-        "from": NAME,
+        "from": display_name,
         "to_uid": str(target_uid),
         "body": text,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     if origin_uid:
         payload["origin_uid"] = str(origin_uid)
-        payload["origin_name"] = origin_name or NAME
+        payload["origin_name"] = display_name
     if mid:
         payload["mid"] = mid
+    # Sign payload for authenticity verification on receiver side
+    _sign_payload(payload)
     try:
         payload_str = json.dumps(payload, ensure_ascii=False)
         result = _client.publish(topic, payload_str, qos=1)
@@ -295,18 +442,22 @@ def send_group_message(gid: int, text: str, from_name: str, from_uid: int = 0,
     if not _client or gid <= 0:
         return False
     topic = f"{GROUP_TOPIC_PREFIX}/{gid}"
+    # Use from_name as display sender — never expose adapter identity to receiver
+    display_name = from_name or NAME
     payload = {
         "from_uid": str(UID),
-        "from": NAME,
+        "from": display_name,
         "gid": gid,
         "body": text,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     if from_uid:
         payload["origin_uid"] = str(from_uid)
-        payload["origin_name"] = from_name or NAME
+        payload["origin_name"] = display_name
     if mid:
         payload["mid"] = mid
+    # Sign payload for authenticity verification on receiver side
+    _sign_payload(payload)
     try:
         payload_str = json.dumps(payload, ensure_ascii=False)
         result = _client.publish(topic, payload_str, qos=1)

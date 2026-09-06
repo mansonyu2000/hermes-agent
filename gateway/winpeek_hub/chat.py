@@ -11,9 +11,14 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from .db import get_conn
+from .db import get_conn, db_cursor
 
 logger = logging.getLogger(__name__)
+
+# ── System identity (uid 1-10 reserved for system-level identities) ──
+SYSTEM_UID = 1
+SYSTEM_NAME = "System"
+# uid 2-10: reserved for future system-level identities (audit, billing, etc.)
 
 
 # ── Active session ────────────────────────────────
@@ -35,8 +40,8 @@ def _restore_session():
             data = _json.loads(_SESSION_FILE.read_text())
             _active_uid = int(data.get("uid", 0))
             _active_name = str(data.get("name", ""))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"_restore_session: session file read failed: {e}")
 
 
 def set_active_session(uid: int, name: str = ""):
@@ -46,9 +51,92 @@ def set_active_session(uid: int, name: str = ""):
     try:
         _SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
         _SESSION_FILE.write_text(_json.dumps({"uid": uid, "name": name}))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"set_active_session: failed to write session file: {e}")
 
+
+# ═══════════════════════════════════════════
+# Transport-level session (WS 连接级身份隔离)
+# 修复: 进程全局 _active_uid 被多客户端覆盖; 操作信任客户端自报 uid 导致冒充
+# 每个 WS 连接绑定自己的 identity, 操作从连接取身份, 不再信任客户端参数
+# ═══════════════════════════════════════════
+
+import weakref
+
+_transport_sessions: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+"""transport → {"uid": int, "name": str}。连接断开自动 GC，无内存泄漏。"""
+
+
+def bind_session_to_transport(uid: int, name: str) -> bool:
+    """把当前 WS 连接绑定到身份。login 成功后调用。
+
+    Returns:
+        True:  已绑定到当前 transport (WS 连接模式)
+        False: 无 transport 可用 (CLI 模式, 如 say.py), 仅设模块级 session
+    """
+    # 延迟 import 避免循环依赖 (current_transport 在 tui_gateway 层)
+    from tui_gateway.transport import current_transport
+    transport = current_transport()
+    if transport is None:
+        set_active_session(uid, name)
+        return False
+    _transport_sessions[transport] = {"uid": uid, "name": name}
+    set_active_session(uid, name)  # 兼容: CLI 工具 / 无 transport 的调用方仍可用
+    return True
+
+
+def session_uid(transport=None) -> int:
+    """当前连接的 uid。有 transport → 从 transport 取 (WS 连接模式), 无 transport → 模块级 (CLI 模式)。
+
+    关键: 有 transport 但未登录 (session 不存在) → 返回 0, 不 fallback 进程全局。
+    否则未登录的 WS 客户端会拿到他人 _active_uid (进程全局覆盖导致冒充)。
+    """
+    if transport is not None:
+        s = _transport_sessions.get(transport)
+        return int(s["uid"]) if s else 0
+    try:
+        from tui_gateway.transport import current_transport
+        t = current_transport()
+        if t is not None:
+            s = _transport_sessions.get(t)
+            return int(s["uid"]) if s else 0  # WS 连接但未登录 → 0 (拒绝)
+    except (ImportError, Exception):
+        pass
+    return _active_uid  # 无 transport (CLI 模式) → 全局 session
+
+
+def session_name(transport=None) -> str:
+    """当前连接的 name。有 transport → 从 transport 取, 无 transport → 模块级 fallback。"""
+    if transport is not None:
+        s = _transport_sessions.get(transport)
+        return str(s["name"]) if s else ""
+    try:
+        from tui_gateway.transport import current_transport
+        t = current_transport()
+        if t is not None:
+            s = _transport_sessions.get(t)
+            return str(s["name"]) if s else ""
+    except (ImportError, Exception):
+        pass
+    return _active_name
+
+
+# ── 通用认证入口 ──────────────────────────────
+
+def get_session() -> "tuple[int, str]":
+    """(uid, name) from transport session. (0, "") if not logged in.
+
+    Usage (在 WS handler 顶部一行完成认证):
+        from gateway.winpeek_hub.chat import get_session
+        uid, name = get_session()
+        if not uid: return json.dumps({"error": "not logged in"})
+    """
+    return session_uid(), session_name()
+
+
+# ── 兼容旧 API ────────────────────────────────
+# 以下函数保留用于 CLI 工具 (say.py 等无 WS 连接场景)
+# 以及作为 session_uid/session_name 的 fallback
 
 # restore on module load
 _restore_session()
@@ -87,8 +175,8 @@ def _get_user_gids(uid: int) -> set:
                     "SELECT gid FROM group_members WHERE uid = %s", (uid,))
                 gids = {r["gid"] for r in cur.fetchall()}
             conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"_get_user_gids failed for uid={uid}: {e}")
     _group_gids_cache[uid] = (gids, now)
     return gids
 
@@ -107,6 +195,25 @@ def poll_messages(to_uid: int) -> list[dict]:
 def _next_mid() -> str:
     """Generate a message ID: mim-{timestamp}-{random}"""
     return f"mim-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
+
+
+def are_contacts(uid_a: int, uid_b: int) -> bool:
+    """Check if two users are contacts (friends)."""
+    if uid_a <= 0 or uid_b <= 0 or uid_a == uid_b:
+        return False
+    conn = get_conn()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM contacts WHERE uid = %s AND c_uid = %s AND status = 1",
+                (uid_a, uid_b))
+            return cur.fetchone() is not None
+    except Exception:
+        return False
+    finally:
+        conn.close()
 
 
 def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
@@ -156,7 +263,7 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
     finally:
         conn.close()
 
-    # Local delivery (memory queue — instant for same‑machine receivers)
+    # Local delivery (memory queue — daemon polls via WS)
     enqueue({
         "mid": mid,
         "to_uid": to_uid,
@@ -166,23 +273,34 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
         "time": now,
     })
 
-    # Register mid with dedup tracker BEFORE MQTT publish.
-    # When the MQTT relay loops back (same machine), _on_message
-    # will see this mid in _seen_mids and skip the duplicate enqueue.
-    # Cross‑machine: receiver's instance won't have this mid yet → delivers.
+    # ── Delivery path decision (BEFORE MQTT to prevent duplicates) ──
+    # Daemon alive → enqueue above is sufficient (daemon polls via WS).
+    # No daemon → MQTT publish needed for legacy delivery.
+    # This is the single decision point: ONE and only ONE delivery path.
+    daemon_alive = False
     try:
-        from gateway.winpeek_hub.mqtt_adapter import mark_mid_seen
-        mark_mid_seen(mid)
+        from gateway.winpeek_hub.hub import is_daemon_alive_for_uid
+        daemon_alive = is_daemon_alive_for_uid(to_uid)
     except Exception:
         pass
 
-    # MQTT publish via say topic (relay handles say→inbox forwarding)
-    try:
-        from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
-        mqtt_send(to_uid, body, from_name,
-                  origin_uid=from_uid, origin_name=from_name, mid=mid)
-    except Exception as e:
-        logger.warning(f"MIM MQTT publish failed for mid={mid}: {e}")
+    if not daemon_alive:
+        # Register mid with dedup tracker BEFORE MQTT publish.
+        # When the MQTT relay loops back (same machine), _on_message
+        # will see this mid in _seen_mids and skip the duplicate enqueue.
+        try:
+            from gateway.winpeek_hub.mqtt_adapter import mark_mid_seen
+            mark_mid_seen(mid)
+        except Exception as e:
+            logger.debug(f"mark_mid_seen failed for mid={mid}: {e}")
+
+        # MQTT publish via say topic (relay handles say→inbox forwarding)
+        try:
+            from gateway.winpeek_hub.mqtt_adapter import send_message as mqtt_send
+            mqtt_send(to_uid, body, from_name,
+                      origin_uid=from_uid, origin_name=from_name, mid=mid)
+        except Exception as e:
+            logger.warning(f"MIM MQTT publish failed for mid={mid}: {e}")
 
     # ── Peeka routing: 3‑layer decision ──
     try:
@@ -198,8 +316,8 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
             try:
                 from apps.winpeek_injector.daemon import add_digest_entry
                 add_digest_entry(from_uid, from_name, body, reply, layer)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"add_digest_entry failed: {e}")
 
             _enqueue_auto_reply(to_uid, from_uid, reply, _resolve_name(to_uid))
 
@@ -210,7 +328,7 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
 
         elif decision["action"] == "forward":
             ctx = decision.get("context", {})
-            # Write to recipient agent's inbox
+
             msg_dict = {
                 "mid": mid,
                 "from_uid": from_uid,
@@ -224,34 +342,47 @@ def send_message(from_uid: int, from_name: str, to_uid: int, body: str) -> dict:
                 "is_retry": False,
                 "retry_count": 0,
             }
-            try:
-                from apps.winpeek_injector.daemon import write_to_inbox, track_l3_message
-                write_to_inbox(to_uid, msg_dict)
-                track_l3_message(mid, to_uid, from_uid)
-            except Exception as e:
-                logger.warning(f"[Peeka] inbox write failed: {e}")
 
-            # Phase 2: Passive delivery to ALL mim-agent types
-            # (Hermes, Claude Code, Qoder — any agent with a window)
-            try:
-                from gateway.winpeek_hub import identity
-                agent_info = identity.get_by_uid(to_uid)
-                is_agent = (
-                    agent_info
-                    and agent_info.get("identity_type") in ("mim-agent", "ai")
+            if daemon_alive:
+                # Daemon handles delivery via WS poll → local distribution.
+                # Inbox file and passive delivery skipped to avoid duplicates.
+                logger.info(
+                    "[Peeka] daemon alive for uid=%d (machine=%s), "
+                    "mid=%s delivered via WS poll only",
+                    to_uid,
+                    _resolve_machine_for_uid(to_uid),
+                    mid[:16],
                 )
-                if is_agent:
-                    from apps.winpeek_injector.engine import deliver_mim_message
-                    if deliver_mim_message(to_uid, msg_dict):
-                        from apps.winpeek_injector.daemon import mark_delivered, update_reliability
-                        mark_delivered(to_uid, mid)
-                        update_reliability(mid, "delivered")
-                        logger.info(
-                            "[Peeka] passive delivery: mid=%s to agent uid=%s type=%s",
-                            mid[:16], to_uid, agent_info.get("agent_type", "?")
-                        )
-            except Exception:
-                pass
+            else:
+                # No daemon → legacy inbox file + passive delivery
+                try:
+                    from apps.winpeek_injector.daemon import write_to_inbox, track_l3_message
+                    write_to_inbox(to_uid, msg_dict)
+                    track_l3_message(mid, to_uid, from_uid)
+                    logger.info("[Peeka] inbox written for uid=%d, mid=%s", to_uid, mid[:16])
+                except Exception as e:
+                    logger.warning("[Peeka] inbox write failed: %s", e)
+
+                # Passive delivery to agent windows (Hermes, Claude Code, Qoder)
+                try:
+                    from gateway.winpeek_hub import identity
+                    agent_info = identity.get_by_uid(to_uid)
+                    is_agent = (
+                        agent_info
+                        and agent_info.get("identity_type") in ("mim-agent", "ai")
+                    )
+                    if is_agent:
+                        from apps.winpeek_injector.engine import deliver_mim_message
+                        if deliver_mim_message(to_uid, msg_dict):
+                            from apps.winpeek_injector.daemon import mark_delivered, update_reliability
+                            mark_delivered(to_uid, mid)
+                            update_reliability(mid, "delivered")
+                            logger.info(
+                                "[Peeka] passive delivery: mid=%s to agent uid=%s type=%s",
+                                mid[:16], to_uid, agent_info.get("agent_type", "?")
+                            )
+                except Exception as e:
+                    logger.debug("[Peeka] passive delivery failed for uid=%d: %s", to_uid, e)
 
     except Exception as e:
         logger.warning(f"[Peeka] routing error: {e}")
@@ -331,8 +462,8 @@ def send_group_message(from_uid: int, from_name: str, gid: int, body: str) -> di
     try:
         from gateway.winpeek_hub.mqtt_adapter import mark_mid_seen
         mark_mid_seen(mid)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"group mark_mid_seen failed for mid={mid}: {e}")
 
     # MQTT broadcast via say topic for each member
     try:
@@ -357,6 +488,15 @@ def _resolve_name(uid: int) -> str:
         return u.get("nickname", f"uid_{uid}") if u else f"uid_{uid}"
     except Exception:
         return f"uid_{uid}"
+
+
+def _resolve_machine_for_uid(uid: int) -> str:
+    """Get machine_id for a uid, or 'unknown'."""
+    try:
+        from gateway.winpeek_hub.hub import find_machine_for_uid
+        return find_machine_for_uid(uid) or "unknown"
+    except Exception:
+        return "unknown"
 
 # ── History ─────────────────────────────────────
 
@@ -411,6 +551,10 @@ def get_history(uid: int, peer_uid: int = 0, gid: int = 0,
                 }
                 for r in rows
             ]
+    except Exception as _he:
+        import traceback as _htb
+        _lg.getLogger("tui_gateway.server").error(f"[HIST-INSIDE] EXC: {_he!r}\n{_htb.format_exc()[:800]}")
+        return []
     finally:
         conn.close()
 
@@ -466,11 +610,12 @@ def get_contacts(requester_uid: int = 0) -> dict:
             try:
                 from gateway.winpeek_hub.group import get_my_groups
                 groups = get_my_groups(requester_uid)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"get_my_groups failed for uid={requester_uid}: {e}")
 
         return {"contacts": contacts, "groups": groups}
-    except Exception:
+    except Exception as e:
+        logger.exception(f"get_contacts failed for requester_uid={requester_uid}: {e}")
         return {"contacts": [], "groups": []}
 
 
